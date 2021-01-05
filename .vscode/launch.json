@@ -1,0 +1,45 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'pd2tools-rust'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=pd2tools-rust",
+                    "--package=pd2tools-rust"
+                ],
+                "filter": {
+                    "name": "pd2tools-rust",
+                    "kind": "bin"
+                }
+            },
+            "args": ["C:\\Users\\Kythyria\\Documents\\payday 2\\PAYDAY-2-Hashlist\\hashlist", "F:\\code\\pd2tools-rust\\hashes-rust"],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'pd2tools-rust'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=pd2tools-rust",
+                    "--package=pd2tools-rust"
+                ],
+                "filter": {
+                    "name": "pd2tools-rust",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
