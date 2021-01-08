@@ -1,5 +1,7 @@
 mod diesel_hash;
 mod hashindex;
+mod testfs;
+mod bundles;
 
 use std::env;
 use std::vec::Vec;
