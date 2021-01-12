@@ -1,5 +1,7 @@
 use std::convert::TryInto;
 
+use crate::read_util::*;
+
 pub struct LanguageEntry {
     pub hash: u64,
     pub id: u32
@@ -14,18 +16,8 @@ pub struct FileEntry {
 
 pub struct BundleDbFile {
     pub tag: u32,
-    pub is_raid : bool,
-    pub is_x64 : bool,
     pub languages : Vec<LanguageEntry>,
     pub files: Vec<FileEntry>
-}
-
-fn read_int_le(src: &[u8], idx: usize) -> u32 {
-    return u32::from_le_bytes(src[idx..(idx+4)].try_into().unwrap());
-}
-
-fn read_long_le(src: &[u8], idx: usize) -> u64 {
-    return u64::from_le_bytes(src[idx..(idx+8)].try_into().unwrap());
 }
 
 /* there's three possible layouts for the bdb header
@@ -71,27 +63,24 @@ raid form {
 pub fn read_bundle_db(blb: &[u8]) -> BundleDbFile {
     let mut res = BundleDbFile {
         tag: 0,
-        is_raid: false,
-        is_x64: false,
         languages: std::vec::Vec::new(),
         files: std::vec::Vec::new()
     };
 
     res.tag = read_int_le(blb, 0);
     let maybe_lang_count = read_int_le(blb, 4);
+    let lang_count : u32;
+    let lang_offset : u64;
+    let file_entries_count : u32;
+    let file_entries_offset: u64;
     if maybe_lang_count != 0 { // PD2
-        let lang_count = maybe_lang_count;
-        let lang_offset = read_int_le(blb, 12);
-        let file_entries_count = read_int_le(blb, 28);
-        let file_entries_offset = read_int_le(blb, 36);
-        read_bdb_languages(&blb, lang_offset.into(), lang_count.into(), &mut res.languages);
-        read_bdb_files(blb, file_entries_offset.into(), file_entries_count.into(), &mut res.files);
+        lang_count = maybe_lang_count;
+        lang_offset = read_int_le(blb, 12).into();
+        file_entries_count = read_int_le(blb, 28);
+        file_entries_offset = read_int_le(blb, 36).into();
     }
     else { // x64 and raid
-        let lang_count = read_int_le(blb, 8);
-        let lang_offset : u64;
-        let file_entries_count: u32;
-        let file_entries_offset: u64;
+        lang_count = read_int_le(blb, 8);
         let discriminator = read_int_le(blb, 12);
         if discriminator != 0 { //x64
             lang_offset = read_long_le(blb, 16);
@@ -103,9 +92,9 @@ pub fn read_bundle_db(blb: &[u8]) -> BundleDbFile {
             file_entries_count = read_int_le(blb, 56);
             file_entries_offset = read_long_le(blb, 72);
         }
-        read_bdb_languages(&blb, lang_offset, lang_count.into(), &mut res.languages);
-        read_bdb_files(blb, file_entries_offset.into(), file_entries_count.into(), &mut res.files);
     }
+    read_bdb_languages(blb, lang_offset, lang_count.into(), &mut res.languages);
+    read_bdb_files(blb, file_entries_offset, file_entries_count.into(), &mut res.files);
 
     return res;
 }

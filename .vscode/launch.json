@@ -19,7 +19,10 @@
                     "kind": "bin"
                 }
             },
-            "args": ["C:\\Users\\Kythyria\\Documents\\payday 2\\PAYDAY-2-Hashlist\\hashlist", "F:\\code\\pd2tools-rust\\hashes-rust"],
+            "args": [
+                "C:\\Users\\Kythyria\\Documents\\payday 2\\PAYDAY-2-Hashlist\\hashlist",
+                "D:\\steam\\steamapps\\common\\PAYDAY 2\\assets"
+            ],
             "cwd": "${workspaceFolder}"
         },
         {
