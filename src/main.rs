@@ -1,6 +1,5 @@
 mod diesel_hash;
 mod hashindex;
-mod testfs;
 mod bundles;
 mod read_util;
 

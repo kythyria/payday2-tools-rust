@@ -2,17 +2,17 @@ use fnv::FnvHashMap;
 use std::fmt;
 use super::diesel_hash;
 
-pub struct HashedStr<'a> {
-    pub hash: u64,
-    pub text: Option<&'a str>,
-}
-
 pub trait HashIndex {
     fn intern<'s>(&'s mut self, text: &str) -> HashedStr<'s>;
     fn get_hash<'s>(&'s self, hash: u64) -> HashedStr<'s>;
     fn get_str<'s>(&'s self, text: &str) -> HashedStr<'s> {
         self.get_hash(diesel_hash::hash_str(text))
     }
+}
+
+pub struct HashedStr<'a> {
+    pub hash: u64,
+    pub text: Option<&'a str>,
 }
 
 impl fmt::Debug for HashedStr<'_> {
