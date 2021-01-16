@@ -1,95 +1,95 @@
-use std::convert::TryFrom;
-use std::num::Wrapping;
+const fn const_mix64(mut a: u64, mut b: u64, mut c: u64) -> (u64, u64, u64) {
+    a = a.wrapping_sub(b); a = a.wrapping_sub(c); a ^= c.wrapping_shr(43);
+    b = b.wrapping_sub(c); b = b.wrapping_sub(a); b ^= a.wrapping_shl(9);
+    c = c.wrapping_sub(a); c = c.wrapping_sub(b); c ^= b.wrapping_shr(8);
+    a = a.wrapping_sub(b); a = a.wrapping_sub(c); a ^= c.wrapping_shr(38);
+    b = b.wrapping_sub(c); b = b.wrapping_sub(a); b ^= a.wrapping_shl(23);
+    c = c.wrapping_sub(a); c = c.wrapping_sub(b); c ^= b.wrapping_shr(5);
+    a = a.wrapping_sub(b); a = a.wrapping_sub(c); a ^= c.wrapping_shr(35);
+    b = b.wrapping_sub(c); b = b.wrapping_sub(a); b ^= a.wrapping_shl(49);
+    c = c.wrapping_sub(a); c = c.wrapping_sub(b); c ^= b.wrapping_shr(11);
+    a = a.wrapping_sub(b); a = a.wrapping_sub(c); a ^= c.wrapping_shr(12);
+    b = b.wrapping_sub(c); b = b.wrapping_sub(a); b ^= a.wrapping_shl(18);
+    c = c.wrapping_sub(a); c = c.wrapping_sub(b); c ^= b.wrapping_shr(22);
 
-fn mix64(a : &mut Wrapping<u64>, b: &mut Wrapping<u64>, c: &mut Wrapping<u64>) {
-    *a -= *b; *a -= *c; *a ^= *c >> 43;
-    *b -= *c; *b -= *a; *b ^= *a << 9;
-    *c -= *a; *c -= *b; *c ^= *b >> 8;
-    *a -= *b; *a -= *c; *a ^= *c >> 38;
-    *b -= *c; *b -= *a; *b ^= *a << 23;
-    *c -= *a; *c -= *b; *c ^= *b >> 5;
-    *a -= *b; *a -= *c; *a ^= *c >> 35;
-    *b -= *c; *b -= *a; *b ^= *a << 49;
-    *c -= *a; *c -= *b; *c ^= *b >> 11;
-    *a -= *b; *a -= *c; *a ^= *c >> 12;
-    *b -= *c; *b -= *a; *b ^= *a << 18;
-    *c -= *a; *c -= *b; *c ^= *b >> 22;
+    return (a,b,c);
 }
 
-fn read_le_u64(k: &[u8], i: usize) -> Wrapping<u64> {
-    let val = u64::from(k[i + 0])
-        + (u64::from(k[i + 1]) << 8) 
-        + (u64::from(k[i + 2]) << 16) 
-        + (u64::from(k[i + 3]) << 24)
-        + (u64::from(k[i + 4]) << 32)
-        + (u64::from(k[i + 5]) << 40)
-        + (u64::from(k[i + 6]) << 48)
-        + (u64::from(k[i + 7]) << 56);
-    //let val = u64::from_le_bytes(k[i..(i+8)].try_into().unwrap());
-    return Wrapping(val);
-}
-
-fn wu64_from(v: u8) -> Wrapping<u64> {
-    return Wrapping(u64::from(v));
+const fn read_le_u64(k: &[u8], i: usize) -> u64 {
+    let val = (k[i + 0] as u64)
+        + ((k[i + 1] as u64) << 8) 
+        + ((k[i + 2] as u64) << 16) 
+        + ((k[i + 3] as u64) << 24)
+        + ((k[i + 4] as u64) << 32)
+        + ((k[i + 5] as u64) << 40)
+        + ((k[i + 6] as u64) << 48)
+        + ((k[i + 7] as u64) << 56);
+    return val
 }
 
 //pub fn hash(k: &[u8]) -> u64 { return hash_level(k, 0); }
-pub fn hash_str(s: &str) -> u64 { return hash_level(s.as_bytes(), 0); }
+pub const fn hash_str(s: &str) -> u64 { return hash_level(s.as_bytes(), 0); }
 
-pub fn hash_level(k : &[u8], level: u64) -> u64 {
-    let mut len = k.len();
-    let mut a = Wrapping(level);
-    let mut b = Wrapping(level);
-    let mut c = Wrapping::<u64>(0x9e3779b97f4a7c13);
+pub const fn hash_level(k : &[u8], level: u64) -> u64 {
+    let mut len: u64 = k.len() as u64;
+    let mut a: u64 = level;
+    let mut b: u64 = level;
+    let mut c: u64 = 0x9e3779b97f4a7c13;
     
     let mut len_x = 0;
     while len >= 24 {
-        a += read_le_u64(k, len_x);
-        b += read_le_u64(k, len_x+8);
-        c += read_le_u64(k, len_x+16);
-        mix64(&mut a, &mut b, &mut c);
+        a = a.wrapping_add(read_le_u64(k, len_x));
+        b = b.wrapping_add(read_le_u64(k, len_x+8));
+        c = c.wrapping_add(read_le_u64(k, len_x+16));
+        let mixed = const_mix64(a, b, c);
+        a = mixed.0;
+        b = mixed.1;
+        c = mixed.2;
         len_x += 24; len -= 24;
     }
 
-    c += Wrapping(u64::try_from(k.len()).expect("What, are you running this on a machine with 128-bit memory addresses? o.O"));
+    c = c.wrapping_add(k.len() as u64);
 
     if len <= 23 {
         while len > 0 {
-            c += match len {
-                23 => wu64_from(k[len_x + 22]) << 56,
-                22 => wu64_from(k[len_x + 21]) << 48,
-                21 => wu64_from(k[len_x + 20]) << 40,
-                20 => wu64_from(k[len_x + 19]) << 32,
-                19 => wu64_from(k[len_x + 18]) << 24,
-                18 => wu64_from(k[len_x + 17]) << 16,
-                17 => wu64_from(k[len_x + 16]) << 8,
-                _ => Wrapping(0)
-            };
-            b += match len {
-                16 => wu64_from(k[len_x + 15]) << 56,
-                15 => wu64_from(k[len_x + 14]) << 48,
-                14 => wu64_from(k[len_x + 13]) << 40,
-                13 => wu64_from(k[len_x + 12]) << 32,
-                12 => wu64_from(k[len_x + 11]) << 24,
-                11 => wu64_from(k[len_x + 10]) << 16,
-                10 => wu64_from(k[len_x + 9]) << 8,
-                9  => wu64_from(k[len_x + 8]),
-                _ => Wrapping(0)
-            };
-            a += match len {
-                8 => wu64_from(k[len_x + 7]) << 56,
-                7 => wu64_from(k[len_x + 6]) << 48,
-                6 => wu64_from(k[len_x + 5]) << 40,
-                5 => wu64_from(k[len_x + 4]) << 32,
-                4 => wu64_from(k[len_x + 3]) << 24,
-                3 => wu64_from(k[len_x + 2]) << 16,
-                2 => wu64_from(k[len_x + 1]) << 8,
-                1 => wu64_from(k[len_x + 0]),
-                _ => Wrapping(0)
-            };
+            c = c.wrapping_add(match len {
+                23 => (k[len_x + 22] as u64) << 56,
+                22 => (k[len_x + 21] as u64) << 48,
+                21 => (k[len_x + 20] as u64) << 40,
+                20 => (k[len_x + 19] as u64) << 32,
+                19 => (k[len_x + 18] as u64) << 24,
+                18 => (k[len_x + 17] as u64) << 16,
+                17 => (k[len_x + 16] as u64) << 8,
+                _ => 0
+            });
+            b = b.wrapping_add(match len {
+                16 => (k[len_x + 15] as u64) << 56,
+                15 => (k[len_x + 14] as u64) << 48,
+                14 => (k[len_x + 13] as u64) << 40,
+                13 => (k[len_x + 12] as u64) << 32,
+                12 => (k[len_x + 11] as u64) << 24,
+                11 => (k[len_x + 10] as u64) << 16,
+                10 => (k[len_x + 9] as u64) << 8,
+                9  => (k[len_x + 8] as u64),
+                _ => 0
+            });
+            a = a.wrapping_add(match len {
+                8 => (k[len_x + 7] as u64) << 56,
+                7 => (k[len_x + 6] as u64) << 48,
+                6 => (k[len_x + 5] as u64) << 40,
+                5 => (k[len_x + 4] as u64) << 32,
+                4 => (k[len_x + 3] as u64) << 24,
+                3 => (k[len_x + 2] as u64) << 16,
+                2 => (k[len_x + 1] as u64) << 8,
+                1 => (k[len_x + 0] as u64),
+                _ => 0
+            });
             len -= 1;
         }
     }
-    mix64(&mut a, &mut b, &mut c);
-    return c.0;
+    let mixed = const_mix64(a, b, c);
+    c = mixed.2;
+    return c;
 }
+
+pub const EMPTY: u64 = hash_str("");
