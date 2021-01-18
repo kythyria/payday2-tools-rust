@@ -10,6 +10,7 @@
             "name": "Debug executable 'pd2tools-rust'",
             "cargo": {
                 "args": [
+                    "+stable-x86_64-pc-windows-msvc",
                     "build",
                     "--bin=pd2tools-rust",
                     "--package=pd2tools-rust"
@@ -20,29 +21,18 @@
                 }
             },
             "args": [
+                "--hashlist",
                 "C:\\Users\\Kythyria\\Documents\\payday 2\\PAYDAY-2-Hashlist\\hashlist",
+                //"unhash",
+                //"2e6219fa4bc0c790"
+                "read-packages",
                 "D:\\steam\\steamapps\\common\\PAYDAY 2\\assets"
             ],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug unit tests in executable 'pd2tools-rust'",
-            "cargo": {
-                "args": [
-                    "test",
-                    "--no-run",
-                    "--bin=pd2tools-rust",
-                    "--package=pd2tools-rust"
-                ],
-                "filter": {
-                    "name": "pd2tools-rust",
-                    "kind": "bin"
-                }
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "RUSTFLAGS": "-g"
             },
-            "args": [],
-            "cwd": "${workspaceFolder}"
+            "sourceLanguages": ["rust"]
         }
     ]
 }
