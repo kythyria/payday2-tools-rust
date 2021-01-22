@@ -1,4 +1,7 @@
+use std::cell::Ref;
 use std::collections::HashMap;
+use std::collections::HashSet;
+use std::cmp::Ord;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
@@ -7,6 +10,9 @@ use fnv::FnvHashMap;
 use crate::hashindex::HashIndex;
 use crate::hashindex::HashedStr;
 use crate::diesel_hash;
+
+use super::bundledb_reader;
+use super::loader;
 
 /* The layout of this struct bears some explanation.
 Because we're obsessing with memory usage, we want to be compact.
@@ -27,8 +33,8 @@ index of path/lang/ext to where in that array the item is.
 
 */
 
-pub struct Database<'a> {
-    hashes: &'a dyn HashIndex,
+pub struct Database {
+    hashes: HashIndex,
     
     // Items by their index in self.items
     item_index: HashMap<(u64, u64, u64), u32>,
@@ -79,7 +85,7 @@ struct PackageEntryRecord {
     length: u32
 }
 
-impl<'a> Database<'a> {
+impl<'a> Database {
     pub fn get_by_hashes(&self, path: u64, language: Option<u64>, extension: Option<u64>) -> Option<DatabaseItem> {
         let query = (path, language.unwrap_or(diesel_hash::EMPTY), extension.unwrap_or(diesel_hash::EMPTY));
         let idx = self.item_index.get(&query)?;
@@ -95,7 +101,7 @@ impl<'a> Database<'a> {
 }
 
 pub struct DatabaseItem<'a> {
-    db: &'a Database<'a>,
+    db: &'a Database,
     item_number: u32
 }
 
@@ -152,16 +158,16 @@ impl DatabaseItem<'_> {
         }
     }
 
-    pub fn children(&self) -> ChildIterator {
+    pub fn children<'a>(&'a self) -> ChildIterator<'a> {
         let item = self.item();
         match &item.specifics {
             ItemRecordSpecifics::File(_) => ChildIterator {
-                db: &self.db,
+                db: self.db,
                 current_index: 0,
                 end_index: 0
             },
             ItemRecordSpecifics::Folder(folder) => ChildIterator {
-                db: &self.db,
+                db: self.db,
                 current_index: folder.first_child,
                 end_index: folder.first_child + folder.child_count
             }
@@ -177,7 +183,7 @@ pub enum ItemType {
 }
 
 pub struct ChildIterator<'a> {
-    db: &'a Database<'a>,
+    db: &'a Database,
     current_index: u32,
     end_index: u32,
 }
@@ -194,4 +200,49 @@ impl<'a> Iterator for ChildIterator<'a> {
             Some(thing)
         }
     }
+}
+
+pub fn from_bdb(hashlist: HashIndex, bdb: &bundledb_reader::BundleDbFile, packages: &Vec<loader::ParsedBundle>) -> Database {
+    let mut items = Vec::<ItemRecord>::new();
+    items.reserve(bdb.files.len());
+
+    for bdbe in &bdb.files {
+        let le = bdb.languages.get(bdbe.lang_id as usize).unwrap();
+        items.push(ItemRecord {
+            path: bdbe.path,
+            language: le.hash,
+            extension: bdbe.extension,
+            specifics: ItemRecordSpecifics::File(FileRecord {
+                packages: Vec::new()
+            })
+        });
+        match hashlist.get_hash(bdbe.path).text {
+            None => {},
+            Some(path) => add_folder_names(&hashlist, path)
+        };
+    }
+
+    unimplemented!();
+}
+
+fn add_folder_names<'a>(hashlist: &HashIndex, path: Ref<'a,str>) {
+    for (i,c) in path.char_indices() {
+        if c == '/' {
+            hashlist.intern(&path[0..i]);
+        }
+    }
+}
+
+#[derive(PartialOrd, PartialEq, Ord, Eq)]
+enum PathSortKey<'a> {
+    Unhashed(u64),
+    Hashed(Vec<&'a str>)
+}
+
+pub fn print_record_sizes() {
+    println!("bundles::database");
+    println!("    ItemRecord: {}", std::mem::size_of::<ItemRecord>());
+    println!("    SortKey: {}", std::mem::size_of::<PathSortKey>());
+    println!();
+    println!("Vec<&str>: {}", std::mem::size_of::<Vec<&str>>());
 }

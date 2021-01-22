@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+//#![allow(dead_code)]
 
 mod diesel_hash;
 mod hashindex;
@@ -38,10 +38,10 @@ fn main() {
                 .multiple(true)))
         .subcommand(SubCommand::with_name("read-packages")
             .arg(Arg::with_name("assetdir")
-            .takes_value(true)
-            .value_name("ASSET_DIR")
-            .required(true)
-        ));
+                .takes_value(true)
+                .value_name("ASSET_DIR")
+                .required(true)))
+        .subcommand(SubCommand::with_name("struct-sizes"));
     
     let arg_matches = app.get_matches();
 
@@ -53,15 +53,18 @@ fn main() {
             let hashlist_maybe = get_hashlist(arg_matches.value_of("hashlist").unwrap());
             match hashlist_maybe {
                 None => return,
-                Some(hashlist) => do_unhash(hashlist.as_ref(), sc_args.values_of("to_unhash").unwrap().collect())
+                Some(hashlist) => do_unhash(hashlist, sc_args.values_of("to_unhash").unwrap().collect())
             }
         },
         ("read-packages", Some(sc_args)) => {
             let hashlist_maybe = get_hashlist(arg_matches.value_of("hashlist").unwrap());
             match hashlist_maybe {
                 None => return,
-                Some(hashlist) => do_readpkg(hashlist.as_ref(), sc_args.value_of("assetdir").unwrap())
+                Some(hashlist) => do_readpkg(hashlist, sc_args.value_of("assetdir").unwrap())
             }
+        },
+        ("struct-sizes", Some(_)) => {
+            bundles::database::print_record_sizes();
         }
         _ => {
             println!("Unknown command, use --help for a list.");
@@ -71,9 +74,13 @@ fn main() {
     return;
 }
 
-fn get_hashlist(hashlist_filename: &str) -> Option<Box<dyn HashIndex>> {
+fn get_hashlist(hashlist_filename: &str) -> Option<HashIndex> {
     match fs::read_to_string(hashlist_filename) {
-        Ok(c) => Some(Box::new(hashindex::BlobHashIndex::new(c))),
+        Ok(c) => {
+            let hi = HashIndex::new();
+            hi.load_blob(c);
+            Some(hi)
+        }
         Err(e) => {
             println!("Failed to read hashlist: {}", e);
             if e.kind() == std::io::ErrorKind::NotFound {
@@ -90,7 +97,7 @@ fn do_hash(texts: Vec<&str>) {
     }
 }
 
-fn do_unhash(hashlist: &dyn hashindex::HashIndex, texts: Vec<&str>) {
+fn do_unhash(hashlist: hashindex::HashIndex, texts: Vec<&str>) {
     for s in texts {
         match u64::from_str_radix(s, 16) {
             Err(e) => println!("{:?} doesn't look like a hash ({})", s, e),
@@ -99,7 +106,7 @@ fn do_unhash(hashlist: &dyn hashindex::HashIndex, texts: Vec<&str>) {
     }
 }
 
-fn do_readpkg(_hashlist: &dyn hashindex::HashIndex, asset_dir: &str) {
+fn do_readpkg(hashlist: hashindex::HashIndex, asset_dir: &str) {
     let path = std::path::PathBuf::from(asset_dir);
     let r_coll = bundles::loader::load_bundle_dir(&path);
 
@@ -107,8 +114,9 @@ fn do_readpkg(_hashlist: &dyn hashindex::HashIndex, asset_dir: &str) {
         Err(e) => println!("Couldn't read asset database: {:?}", e),
         Ok((bdb, packages)) => {
             println!("Packages: {}", packages.len());
-            println!("Files: {}", bdb.files.len());
-            println!("So yeah");
+            println!("BDB Entries: {}", bdb.files.len());
+
+            let db = bundles::database::from_bdb(hashlist, &bdb, &packages);
         }
     }
 }
