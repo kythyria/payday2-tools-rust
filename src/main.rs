@@ -77,7 +77,7 @@ fn main() {
 fn get_hashlist(hashlist_filename: &str) -> Option<HashIndex> {
     match fs::read_to_string(hashlist_filename) {
         Ok(c) => {
-            let hi = HashIndex::new();
+            let mut hi = HashIndex::new();
             hi.load_blob(c);
             Some(hi)
         }
@@ -89,6 +89,17 @@ fn get_hashlist(hashlist_filename: &str) -> Option<HashIndex> {
             None
         }
     }
+}
+
+fn get_packagedb<'a>(hashlist: &'a mut hashindex::HashIndex, asset_dir: &str) -> Result<bundles::database::Database<'a>, bundles::ReadError> {
+    let path = std::path::PathBuf::from(asset_dir);
+    let coll = bundles::loader::load_bundle_dir(&path)?;
+
+    println!("Packages: {}", coll.1.len());
+    println!("BDB Entries: {}", coll.0.files.len());
+    println!();
+
+    Ok(bundles::database::from_bdb( hashlist, &coll.0, &coll.1))
 }
 
 fn do_hash(texts: Vec<&str>) {
@@ -106,17 +117,13 @@ fn do_unhash(hashlist: hashindex::HashIndex, texts: Vec<&str>) {
     }
 }
 
-fn do_readpkg(hashlist: hashindex::HashIndex, asset_dir: &str) {
-    let path = std::path::PathBuf::from(asset_dir);
-    let r_coll = bundles::loader::load_bundle_dir(&path);
+fn do_readpkg(mut hashlist: hashindex::HashIndex, asset_dir: &str) {
+    let r_bdb = get_packagedb(&mut hashlist, asset_dir);
 
-    match r_coll {
+    match r_bdb {
         Err(e) => println!("Couldn't read asset database: {:?}", e),
-        Ok((bdb, packages)) => {
-            println!("Packages: {}", packages.len());
-            println!("BDB Entries: {}", bdb.files.len());
-
-            let db = bundles::database::from_bdb(hashlist, &bdb, &packages);
+        Ok(db) => {
+            db.print_stats();
         }
     }
 }

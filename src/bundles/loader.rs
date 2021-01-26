@@ -64,10 +64,10 @@ pub fn load_bundle_dir(dir: &Path) -> Result<(bundledb_reader::BundleDbFile, Vec
 }
 
 pub struct ParsedBundle {
-    data_path: PathBuf,
-    last_modified: SystemTime,
-    package_id: u64,
-    header: packageheader_reader::PackageHeaderFile
+    pub data_path: PathBuf,
+    pub last_modified: SystemTime,
+    pub package_id: u64,
+    pub header: packageheader_reader::PackageHeaderFile
 }
 
 struct BundleFileInfo {

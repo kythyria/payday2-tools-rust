@@ -1,6 +1,4 @@
 use std::fmt;
-use std::cell::{RefCell, Ref};
-use std::rc::Rc;
 
 use fnv::FnvHashMap;
 
@@ -15,7 +13,7 @@ trait HashList {
 
 pub struct HashedStr<'a> {
     pub hash: u64,
-    pub text: Option<Ref<'a,str>>,
+    pub text: Option<&'a str>,
 }
 
 impl fmt::Debug for HashedStr<'_> {
@@ -71,63 +69,54 @@ impl BlobHashIndex {
 }
 
 pub struct HashIndex {
-    stuff: Rc<RefCell<HashIndexData>>
+    blobs: Vec<BlobHashIndex>,
+    interned: FnvHashMap<u64, String>
 }
 
 impl HashIndex {
     pub fn new() -> HashIndex {
-        let rc = Rc::new(RefCell::new(HashIndexData {
+        let mut res = HashIndex {
             blobs: Vec::new(),
             interned: FnvHashMap::default()
-        }));
-        HashIndex {
-            stuff: rc
-        }
+        };
+        res.interned.insert(diesel_hash::EMPTY, "".to_owned());
+        return res;
     }
 
-    pub fn load_blob(&self, data: String) {
-        let mut s = self.stuff.borrow_mut();
-        (*s).blobs.push(BlobHashIndex::new(data));
+    pub fn load_blob(&mut self, data: String) {
+        self.blobs.push(BlobHashIndex::new(data));
     }
 
-    pub fn intern<'s>(&'s self, text: &str) -> HashedStr<'s> {
-        let existing = self.get_str(text);
-        let hash = existing.hash;
-        match existing.text {
-            Some(_) => existing,
-            None => {
-                let mut s = self.stuff.borrow_mut();
-                s.interned.insert(hash, text.to_owned());
-                self.get_hash(hash)
+    pub fn intern<'s>(&'s mut self, text: String) -> HashedStr<'s> {
+        let hash = diesel_hash::hash_str(&text);
+        for i in 0..self.blobs.len() {
+            if !self.blobs[i].index.contains_key(&hash) {
+                continue;
             }
+            let indices = self.blobs[i].index.get(&hash).unwrap();
+            let r = &self.blobs[i].data[(indices.0)..(indices.0 + indices.1)];
+            return HashedStr { hash, text: Some(r) };
         }
+        let e = self.interned.entry(hash);
+        let et = e.or_insert(text);
+        HashedStr { hash, text: Some(et)}
     }
 
     pub fn get_hash<'s>(&'s self, hash: u64) -> HashedStr<'s> {
-        let s = self.stuff.borrow();
-        for i in 0..(*s).blobs.len() {
-            if !s.blobs[i].index.contains_key(&hash) {
+        for i in 0..self.blobs.len() {
+            if !self.blobs[i].index.contains_key(&hash) {
                 continue;
             }
-            let indices = *s.blobs[i].index.get(&hash).unwrap();
-            let r = Ref::map(s, |t| &t.blobs[i].data[(indices.0)..(indices.1)]);
+            let indices = self.blobs[i].index.get(&hash).unwrap();
+            let r = &self.blobs[i].data[(indices.0)..(indices.0 + indices.1)];
             return HashedStr { hash, text: Some(r) };
         }
 
-        if (*s).interned.contains_key(&hash) {
-            return HashedStr { hash, text: Some(Ref::map(s, |t| t.interned.get(&hash).unwrap().as_str())) }
-        }
-        else {
-            return HashedStr { hash, text: None };
-        }
+        let from_interned = self.interned.get(&hash);
+        return HashedStr { hash, text: from_interned.map(String::as_str) }
     }
 
-    fn get_str<'s>(&'s self, text: &str) -> HashedStr<'s> {
+    pub fn get_str<'s>(&'s self, text: &str) -> HashedStr<'s> {
         self.get_hash(diesel_hash::hash_str(text))
     }
-}
-
-struct HashIndexData {
-    pub blobs: Vec<BlobHashIndex>,
-    pub interned: FnvHashMap<u64, String>
 }
