@@ -4,6 +4,7 @@ mod diesel_hash;
 mod hashindex;
 mod bundles;
 mod read_util;
+mod filesystem;
 
 use std::vec::Vec;
 use std::fs;
@@ -41,7 +42,18 @@ fn main() {
                 .takes_value(true)
                 .value_name("ASSET_DIR")
                 .required(true)))
-        .subcommand(SubCommand::with_name("struct-sizes"));
+        .subcommand(SubCommand::with_name("struct-sizes"))
+        .subcommand(SubCommand::with_name("mount")
+            .arg(Arg::with_name("assetdir")
+                .takes_value(true)
+                .value_name("ASSET_DIR")
+                .required(true)
+                .help("Path of directory with bundle files"))
+            .arg(Arg::with_name("mountpoint")
+                .takes_value(true)
+                .value_name("MOUNT_POINT")
+                .required(true)
+                .help("Drive letter to mount on")));
     
     let arg_matches = app.get_matches();
 

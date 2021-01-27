@@ -160,6 +160,8 @@ dependencies = [
  "dokan",
  "fnv",
  "nom",
+ "widestring",
+ "winapi",
 ]
 
 [[package]]
