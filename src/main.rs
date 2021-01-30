@@ -1,4 +1,4 @@
-//#![allow(dead_code)]
+#![allow(dead_code)]
 
 mod diesel_hash;
 mod hashindex;
@@ -78,6 +78,9 @@ fn main() {
         ("struct-sizes", Some(_)) => {
             bundles::database::print_record_sizes();
         }
+        ("mount", Some(sc_args)) => {
+            do_mount(sc_args.value_of("mountpoint").unwrap())
+        }
         _ => {
             println!("Unknown command, use --help for a list.");
             return;
@@ -138,4 +141,8 @@ fn do_readpkg(mut hashlist: hashindex::HashIndex, asset_dir: &str) {
             db.print_stats();
         }
     }
+}
+
+fn do_mount(mountpoint: &str) {
+    filesystem::mount_test(mountpoint);
 }
