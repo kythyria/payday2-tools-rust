@@ -30,6 +30,18 @@ const fn read_le_u64(k: &[u8], i: usize) -> u64 {
 //pub fn hash(k: &[u8]) -> u64 { return hash_level(k, 0); }
 pub const fn hash_str(s: &str) -> u64 { return hash_level(s.as_bytes(), 0); }
 
+/// Like hash_str, but if the string is 16 hex digits assume it's a hash printed through {:x}
+///
+/// Basically it's the opposite of HashStr's Display impl.
+pub fn from_str(s: &str) -> u64 {
+    if s.len() == 16 {
+        if let Ok(i) = u64::from_str_radix(s, 16) {
+            return i;
+        }
+    }
+    hash_str(s)
+}
+
 pub const fn hash_level(k : &[u8], level: u64) -> u64 {
     let mut len: u64 = k.len() as u64;
     let mut a: u64 = level;

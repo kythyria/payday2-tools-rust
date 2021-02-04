@@ -1,8 +1,8 @@
 use std::cmp::Ord;
 use std::cmp::Ordering;
-use std::collections::HashMap;
 use std::convert::TryInto;
 use std::path::PathBuf;
+use std::path::Path;
 use std::time::SystemTime;
 
 use fnv::FnvHashMap;
@@ -87,13 +87,17 @@ struct PackageEntryRecord {
 }
 
 impl<'a> Database<'a> {
-    pub fn get_by_hashes(&self, path: u64, language: Option<u64>, extension: Option<u64>) -> Option<DatabaseItem> {
-        let query = (path, language.unwrap_or(diesel_hash::EMPTY), extension.unwrap_or(diesel_hash::EMPTY));
+    pub fn get_by_str(&self, path: &str, language: &str, extension: &str) -> Option<DatabaseItem> {
+        self.get_by_hashes(diesel_hash::hash_str(path), diesel_hash::hash_str(language), diesel_hash::hash_str(extension))
+    }
+
+    pub fn get_by_hashes(&self, path: u64, language: u64, extension: u64) -> Option<DatabaseItem> {
+        let query = (path, language, extension);
         let idx = self.item_index.get(&query)?;
         return Some(self.get_by_inode(*idx));
     }
 
-    fn get_by_inode(&'a self, inode_number: u32) -> DatabaseItem {
+    pub fn get_by_inode(&'a self, inode_number: u32) -> DatabaseItem {
         DatabaseItem {
             db: self,
             item_number: inode_number
@@ -112,6 +116,7 @@ impl<'a> Database<'a> {
         println!("Items: {}", self.items.len());
         println!("Folders: {}", foldercount);
         println!("Packages: {}", self.packages.len());
+        println!("{}", self.item_index.contains_key(&(diesel_hash::EMPTY,diesel_hash::EMPTY,diesel_hash::EMPTY)));
     }
 }
 
@@ -120,9 +125,14 @@ pub struct DatabaseItem<'a> {
     item_number: u32
 }
 
-impl DatabaseItem<'_> {
+impl<'a> DatabaseItem<'a> {
     fn item(&self) -> &ItemRecord {
         self.db.items.get(self.item_number as usize).unwrap()
+    }
+
+    pub fn key(&self) -> (HashedStr, HashedStr, HashedStr) {
+        let item = self.item();
+        (self.db.hashes.get_hash(item.path), self.db.hashes.get_hash(item.language), self.db.hashes.get_hash(item.extension) )
     }
 
     pub fn path(&self) -> HashedStr {
@@ -174,7 +184,7 @@ impl DatabaseItem<'_> {
         }
     }
 
-    pub fn children<'a>(&'a self) -> ChildIterator<'a> {
+    pub fn children(&'a self) -> ChildIterator<'a> {
         let item = self.item();
         match &item.specifics {
             ItemRecordSpecifics::File(_) => ChildIterator {
@@ -190,7 +200,33 @@ impl DatabaseItem<'_> {
         }
      }
 
-    pub fn contents(&self) -> Option<&dyn std::io::Read> { None }
+    pub fn data_len(&self) -> usize {
+        let item = self.item();
+        match &item.specifics {
+            ItemRecordSpecifics::Folder(_) => 0,
+            ItemRecordSpecifics::File(fi) => {
+                let packref = fi.packages.get(0).unwrap();
+                let maybe_package = self.db.packages.get(packref.package_number as usize);
+                let maybe_packentry = maybe_package.and_then(|p| p.files.get(packref.file_number as usize));
+                maybe_packentry.unwrap().length.try_into().unwrap()
+            }
+        }
+    }
+
+    pub fn item_index(&self) -> u32 { self.item_number }
+
+    pub fn get_backing_details(&self) -> Option<(&'a Path, usize, usize)> {
+        let item = self.item();
+        match &item.specifics {
+            ItemRecordSpecifics::Folder(_) => None,
+            ItemRecordSpecifics::File(fi) => {
+                let packref = fi.packages.get(0).unwrap();
+                let package = self.db.packages.get(packref.package_number as usize).unwrap();
+                let packentry = package.files.get(packref.file_number as usize).unwrap();
+                return Some((&package.data_path, packentry.offset as usize, packentry.length as usize));
+            }
+        }
+    }
 }
 
 pub enum ItemType {
@@ -310,6 +346,8 @@ pub fn from_bdb<'a>(hashlist: &'a mut HashIndex, bdb: &bundledb_reader::BundleDb
     let mut current_folder_path = "";
     let mut current_folder_start = 1;
     let mut current_folder_len = 0;
+
+    item_index.insert((diesel_hash::EMPTY,diesel_hash::EMPTY,diesel_hash::EMPTY), 0);
 
     while current_item < items.len() {
         

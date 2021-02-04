@@ -18,6 +18,8 @@ use widestring::{U16CString, U16CStr};
 use winapi::um::winnt;
 use winapi::shared::ntstatus;
 
+use crate::bundles::database::Database;
+
 mod teststub;
 mod raw_bundledb;
 mod router;
@@ -43,20 +45,21 @@ trait FsReadHandle : Send + Sync {
     fn get_file_info(&self) -> Result<FileInfo, OperationError>;
 }
 
-struct DokanAdapter {
-    fs: Arc<dyn ReadOnlyFs>,
+struct DokanAdapter<F: ReadOnlyFs> {
+    fs: F,
     serial: u32,
-    name: U16CString
+    name: U16CString,
+    //_phantom: PhantomData<&'fs &'ctx ()>
 }
 
-pub struct AdapterContext {
-    handle: Arc<dyn FsReadHandle>
+pub struct AdapterContext<'a> {
+    handle: Arc<dyn FsReadHandle + 'a>
 }
 
-impl<'c, 's: 'c> FileSystemHandler<'c, 's> for DokanAdapter {
-    type Context = AdapterContext;
+impl<'ctx, 'fs: 'ctx, F: ReadOnlyFs + 'fs + 'ctx> FileSystemHandler<'ctx, 'fs> for DokanAdapter<F> {
+    type Context = AdapterContext<'ctx>;
 
-    fn get_volume_information(&self, _info: &OperationInfo<Self>) -> Result<VolumeInfo, OperationError> {
+    fn get_volume_information(&'fs self, _info: &OperationInfo<'ctx, 'fs, Self>) -> Result<VolumeInfo, OperationError> {
         Ok(VolumeInfo {
             name: self.name.to_ucstring(),
             serial_number: self.serial,
@@ -69,7 +72,7 @@ impl<'c, 's: 'c> FileSystemHandler<'c, 's> for DokanAdapter {
     }
 
     fn create_file(
-        &self,
+        &'fs self,
         _file_name: &U16CStr,
         _security_context: PDOKAN_IO_SECURITY_CONTEXT,
         _desired_access: winnt::ACCESS_MASK,
@@ -77,7 +80,7 @@ impl<'c, 's: 'c> FileSystemHandler<'c, 's> for DokanAdapter {
         _share_access: u32,
         _create_disposition: u32,
         _create_options: u32,
-        _info: &mut OperationInfo<Self>
+        _info: &mut OperationInfo<'ctx, 'fs, Self>
     ) -> Result<CreateFileInfo<Self::Context>, OperationError> {
         if (_desired_access & winnt::FILE_WRITE_DATA) != 0
             || (_desired_access & winnt::FILE_WRITE_ATTRIBUTES) != 0
@@ -86,26 +89,9 @@ impl<'c, 's: 'c> FileSystemHandler<'c, 's> for DokanAdapter {
         {
             return Err(OperationError::NtStatus(ntstatus::STATUS_ACCESS_DENIED))
         }
-
-        /*let path = _file_name.to_string_lossy();
-        let filename_and_stream = path.rsplit('\\').next().unwrap();
-        let si = filename_and_stream.rfind(":");
-        let filename: &str;
-        let stream: &str;
-        match si {
-            Some(idx) => {
-                filename = &filename_and_stream[0..idx];
-                stream = &filename_and_stream[(idx+1)..];
-            }
-            None => {
-                filename = filename_and_stream;
-                stream = "";
-            }
-        }*/
         
         let full_path = _file_name.to_string_lossy();
         let (path, stream) = split_stream_name(&full_path);
-        println!("{:?} {:?}", path, stream);
 
         let inner_handle = self.fs.open_readable(path, stream)?;
         
@@ -117,11 +103,11 @@ impl<'c, 's: 'c> FileSystemHandler<'c, 's> for DokanAdapter {
     }
 
     fn read_file (
-        &self,
+        &'fs self,
         _file_name: &U16CStr,
         _offset: i64,
         _buffer: &mut [u8],
-        _info: &OperationInfo<Self>,
+        _info: &OperationInfo<'ctx, 'fs, Self>,
         _context: &Self::Context
     ) -> Result<u32, OperationError> {
         let readcount = _context.handle.read_at(_buffer, _offset.try_into().unwrap())?;
@@ -129,10 +115,10 @@ impl<'c, 's: 'c> FileSystemHandler<'c, 's> for DokanAdapter {
     }
 
     fn find_files(
-        &self,
+        &'fs self,
         _file_name: &U16CStr,
         mut _fill_find_data: impl FnMut(&FindData) -> Result<(), FillDataError>,
-        _info: &OperationInfo<Self>,
+        _info: &OperationInfo<'ctx, 'fs, Self>,
         _context: &Self::Context
     ) -> Result<(), OperationError> {
         let iter = _context.handle.find_files()?;
@@ -143,10 +129,10 @@ impl<'c, 's: 'c> FileSystemHandler<'c, 's> for DokanAdapter {
     }
 
     fn find_streams(
-        &self,
+        &'fs self,
         _file_name: &U16CStr,
         mut _fill_find_stream_data: impl FnMut(&FindStreamData) -> Result<(), FillDataError>,
-        _info: &OperationInfo<Self>,
+        _info: &OperationInfo<'ctx, 'fs, Self>,
         _context: &Self::Context
     ) -> Result<(), OperationError> {
         let iter = _context.handle.list_streams()?;
@@ -157,29 +143,54 @@ impl<'c, 's: 'c> FileSystemHandler<'c, 's> for DokanAdapter {
     }
 
     fn get_file_information(
-        &self,
+        &'fs self,
         _file_name: &U16CStr,
-        _info: &OperationInfo<Self>,
+        _info: &OperationInfo<'ctx, 'fs, Self>,
         _context: &Self::Context
     ) -> Result<FileInfo, OperationError> {
         _context.handle.get_file_info()
     }
 }
 
+
 pub fn mount_test(mountpoint: &str) {
     let mp = U16CString::from_str(mountpoint).unwrap();
     let handler = DokanAdapter {
-        fs: Arc::new(teststub::TestFs { }),
+        fs: teststub::TestFs { },
         name: U16CString::from_str("Test").unwrap(),
         serial: 0xf8be397b
     };
+    
+    {
+        let mut drive = Drive::new();
+        drive
+            .mount_point(&mp)
+            .flags(MountFlags::ALT_STREAM | MountFlags::WRITE_PROTECT)
+            .thread_count(0)
+            .mount(&handler)
+            .unwrap();
+    }
+    ()
+}
 
-    Drive::new()
-        .mount_point(&mp)
-        .flags(MountFlags::ALT_STREAM | MountFlags::WRITE_PROTECT)
-        .thread_count(0)
-        .mount(&handler)
-        .unwrap();
+pub fn mount_raw_database(mountpoint: &str, db: Arc<Database>) {
+    let mp = U16CString::from_str(mountpoint).unwrap();
+    let handler = DokanAdapter {
+        fs: raw_bundledb::BundleFs::new(db),
+        name: U16CString::from_str("Test").unwrap(),
+        serial: 0xf8be397b
+    };
+    
+    {
+        let mut drive = Drive::new();
+        drive
+            .mount_point(&mp)
+            .flags(MountFlags::ALT_STREAM | MountFlags::WRITE_PROTECT)
+            .thread_count(0)
+            .mount(&handler)
+            .unwrap();
+    }
+    ()
 }
 
 fn split_stream_name(full: &str) -> (&str, &str) {

@@ -59,7 +59,7 @@ pub struct TestFs {
 
 }
 
-impl super::ReadOnlyFs for TestFs {
+impl<'ctx, 'fs: 'ctx> super::ReadOnlyFs for TestFs {
     fn open_readable(&self, path: &str, stream: &str) -> Result<Arc<dyn FsReadHandle>, OperationError> {
         if path == "\\test.txt" {
             Ok(Arc::new(StaticFile {

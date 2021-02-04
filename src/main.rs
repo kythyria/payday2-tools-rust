@@ -8,6 +8,7 @@ mod filesystem;
 
 use std::vec::Vec;
 use std::fs;
+use std::sync::Arc;
 
 use clap::{App, Arg, SubCommand};
 
@@ -79,7 +80,7 @@ fn main() {
             bundles::database::print_record_sizes();
         }
         ("mount", Some(sc_args)) => {
-            do_mount(sc_args.value_of("mountpoint").unwrap())
+            do_mount(sc_args.value_of("mountpoint").unwrap(), arg_matches.value_of("hashlist").unwrap(), sc_args.value_of("assetdir").unwrap())
         }
         _ => {
             println!("Unknown command, use --help for a list.");
@@ -143,6 +144,8 @@ fn do_readpkg(mut hashlist: hashindex::HashIndex, asset_dir: &str) {
     }
 }
 
-fn do_mount(mountpoint: &str) {
-    filesystem::mount_test(mountpoint);
+fn do_mount(mountpoint: &str, hashlist_filename: &str, asset_dir: &str) {
+    let mut hashlist = get_hashlist(hashlist_filename).unwrap();
+    let db = get_packagedb(&mut hashlist, asset_dir).unwrap();
+    filesystem::mount_raw_database(mountpoint, Arc::new(db));
 }
