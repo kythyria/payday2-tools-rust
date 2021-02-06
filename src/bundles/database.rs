@@ -255,9 +255,10 @@ impl<'a> Iterator for ChildIterator<'a> {
 }
 
 pub fn from_bdb<'a>(hashlist: &'a mut HashIndex, bdb: &bundledb_reader::BundleDbFile, packages: &Vec<loader::ParsedBundle>) -> Database<'a> {
+    println!("{:?} from_bdb() start", SystemTime::now());
     let mut items = Vec::<ItemRecord>::new();
     let mut itemkeys_by_file_id = FnvHashMap::<u32, (u64, u64, u64)>::default();
-    let mut folder_paths = FnvHashSet::<String>::default();
+    let mut folder_paths = FnvHashSet::<u64>::default();
     items.reserve(bdb.files.len());
     itemkeys_by_file_id.reserve(bdb.files.len());
 
@@ -277,21 +278,20 @@ pub fn from_bdb<'a>(hashlist: &'a mut HashIndex, bdb: &bundledb_reader::BundleDb
         itemkeys_by_file_id.insert(bdbe.file_id, (bdbe.path, le, bdbe.extension));
 
         let hs = hashlist.get_hash(bdbe.path);
-        match hs.text {
-            None => continue,
-            Some(path) => {
-                for (i, c) in path.char_indices() {
-                    if c == '/' {
-                        let path_owned = path[0..i].to_owned();
-                        folder_paths.insert(path_owned);
-                    }
-                }
+        let path = match hs.text {
+            None => String::new(),
+            Some(t) => t.to_owned()
+        };
+        for (i, c) in path.char_indices() {
+            if c == '/' {
+                let h = hashlist.intern_substring(bdbe.path, 0..i);
+                folder_paths.insert(h.unwrap());
             }
         }
     }
 
     // root folder
-    if !folder_paths.contains("") {
+    if !folder_paths.contains(&diesel_hash::EMPTY) {
         items.push(ItemRecord {
             path: diesel_hash::EMPTY,
             language: diesel_hash::EMPTY,
@@ -304,10 +304,9 @@ pub fn from_bdb<'a>(hashlist: &'a mut HashIndex, bdb: &bundledb_reader::BundleDb
         });
     }
 
-    for p in folder_paths.drain() {
-        let h = hashlist.intern(p);
+    for h in folder_paths.drain() {
         items.push(ItemRecord {
-            path: h.hash,
+            path: h,
             language: diesel_hash::EMPTY,
             extension: diesel_hash::EMPTY,
             specifics: ItemRecordSpecifics::Folder(FolderRecord {
@@ -320,14 +319,14 @@ pub fn from_bdb<'a>(hashlist: &'a mut HashIndex, bdb: &bundledb_reader::BundleDb
 
     items.sort_by_cached_key(|item| {
         match hashlist.get_hash(item.path).text {
-            None => PathSortKey::Unhashed(item.path),
+            None => PathSortKey(vec![item.path]),
             Some(path) => {
                 if path == "" {
-                    PathSortKey::Root
+                    PathSortKey(vec![])
                 }
                 else {
-                    let components = path.split('/').collect();
-                    PathSortKey::Hashed(components)
+                    let components = path.split('/').map(diesel_hash::hash_str).collect();
+                    PathSortKey(components)
                 }
             }
         }
@@ -435,6 +434,7 @@ pub fn from_bdb<'a>(hashlist: &'a mut HashIndex, bdb: &bundledb_reader::BundleDb
         package_catalog.push(pr);
     }
 
+    println!("{:?} from_bdb() end", SystemTime::now());
     Database {
         hashes: hashlist,
         item_index,
@@ -445,40 +445,19 @@ pub fn from_bdb<'a>(hashlist: &'a mut HashIndex, bdb: &bundledb_reader::BundleDb
 }
 
 #[derive(PartialEq, Eq)]
-enum PathSortKey<'a> {
-    Unhashed(u64),
-    Hashed(Vec<&'a str>),
-    Root
-}
+struct PathSortKey(Vec<u64>);
 
-impl<'a> PartialOrd<PathSortKey<'a>> for PathSortKey<'a> {
+impl PartialOrd<PathSortKey> for PathSortKey {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(Ord::cmp(self, other))
     }
 }
 
-impl<'a> Ord for PathSortKey<'a> {
+impl Ord for PathSortKey {
     fn cmp(&self, other: &Self) -> Ordering {
-        match self {
-            PathSortKey::Root => match other {
-                PathSortKey::Root => Ordering::Equal,
-                _ => Ordering::Less
-            },
-            PathSortKey::Unhashed(sh) => match other {
-                PathSortKey::Root => Ordering::Greater,
-                PathSortKey::Unhashed(oh) => sh.cmp(oh),
-                PathSortKey::Hashed(_) => Ordering::Less
-            }
-            PathSortKey::Hashed(sc) => match other {
-                PathSortKey::Root => Ordering::Greater,
-                PathSortKey::Unhashed(_) => Ordering::Greater,
-                PathSortKey::Hashed(oc) => {
-                    match sc.len().cmp(&oc.len()) {
-                        Ordering::Equal => sc.cmp(oc),
-                        c => c
-                    }
-                }
-            }
+        match self.0.len().cmp(&other.0.len()) {
+            Ordering::Equal => self.0.cmp(&other.0),
+            c => c
         }
     }
 }

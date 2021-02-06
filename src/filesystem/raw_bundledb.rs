@@ -7,14 +7,14 @@ use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use dokan::{FindData, FindStreamData, OperationError, FileInfo};
-use widestring::{U16CStr, U16CString};
+use widestring::{U16CString};
 use winapi::shared::ntstatus;
 use winapi::shared::winerror;
 use winapi::um::winnt;
 
-use crate::bundles::database::{Database, DatabaseItem, ItemType, ChildIterator};
+use crate::bundles::database::{Database, DatabaseItem, ItemType};
 use crate::hashindex::HashedStr;
-use super::{ReadOnlyFs,FsReadHandle};
+use super::{ReadOnlyFs,FsReadHandle,FsDirEntry};
 
 pub struct BundleFs<'a> {
     database: Arc<Database<'a>>
@@ -122,7 +122,7 @@ impl RawFileHandle {
 
 impl FsReadHandle for RawFileHandle {
     fn is_dir(&self) -> bool { false }
-    fn find_files(&self) -> Result<Box<dyn Iterator<Item=FindData>>, OperationError> {
+    fn find_files(&self) -> Result<Box<dyn Iterator<Item=FsDirEntry>>, OperationError> {
         Err(OperationError::NtStatus(ntstatus::STATUS_NOT_A_DIRECTORY))
     }
 
@@ -189,25 +189,19 @@ impl FsReadHandle for RawFileHandle {
 
 struct FolderHandle {
     last_modified: SystemTime,
-    items : Vec<FindData>
+    items : Vec<FsDirEntry>
 }
 impl FolderHandle {
     fn new(item: &DatabaseItem) -> FolderHandle {
-        let items : Vec<FindData> = item.children().map(|i| {
+        let items : Vec<FsDirEntry> = item.children().map(|i| {
             let name = key_to_name(&i.key());
-            let last_modified = i.last_modified();
-            let attributes = match i.item_type() {
-                ItemType::File => winnt::FILE_ATTRIBUTE_READONLY,
-                ItemType::Folder => winnt::FILE_ATTRIBUTE_READONLY | winnt::FILE_ATTRIBUTE_DIRECTORY
-            };
+            let modification_time = i.last_modified();
 
-            FindData {
-                file_name: U16CString::from_str(name).unwrap(),
-                file_size: i.data_len() as u64,
-                attributes,
-                last_access_time: last_modified,
-                last_write_time: last_modified,
-                creation_time: last_modified
+            FsDirEntry {
+                name,
+                modification_time,
+                is_dir: match i.item_type() { ItemType::File => false, ItemType::Folder => true },
+                size: i.data_len() as u64
             }
         }).collect();
         FolderHandle {
@@ -218,7 +212,7 @@ impl FolderHandle {
 }
 impl FsReadHandle for FolderHandle {
     fn is_dir(&self) -> bool { true }
-    fn find_files(&self) -> Result<Box<dyn Iterator<Item=FindData>>, OperationError> {
+    fn find_files(&self) -> Result<Box<dyn Iterator<Item=FsDirEntry>>, OperationError> {
         Ok(Box::new(self.items.clone().into_iter()))
     }
     fn read_at(&self, _buf: &mut [u8], _offset: u64) -> Result<usize, OperationError> { 

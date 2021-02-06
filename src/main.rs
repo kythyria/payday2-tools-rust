@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+//#![allow(dead_code)]
 
 mod diesel_hash;
 mod hashindex;
@@ -147,5 +147,5 @@ fn do_readpkg(mut hashlist: hashindex::HashIndex, asset_dir: &str) {
 fn do_mount(mountpoint: &str, hashlist_filename: &str, asset_dir: &str) {
     let mut hashlist = get_hashlist(hashlist_filename).unwrap();
     let db = get_packagedb(&mut hashlist, asset_dir).unwrap();
-    filesystem::mount_raw_database(mountpoint, Arc::new(db));
+    filesystem::mount_cooked_database(mountpoint, Arc::new(db));
 }

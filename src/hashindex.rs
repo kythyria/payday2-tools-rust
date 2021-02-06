@@ -1,4 +1,5 @@
 use std::fmt;
+use std::ops::Range;
 
 use fnv::FnvHashMap;
 
@@ -62,7 +63,7 @@ impl BlobHashIndex {
         for line in result.data.lines() {
             let line_start_ptr = line.as_ptr() as usize;
             let line_start = line_start_ptr.wrapping_sub(data_start);
-            result.index.insert(diesel_hash::hash_str(line), (line_start, line.len()));
+            result.index.insert(diesel_hash::hash_str(line), (line_start, line_start+line.len()));
         }
         return result;
     }
@@ -94,7 +95,7 @@ impl HashIndex {
                 continue;
             }
             let indices = self.blobs[i].index.get(&hash).unwrap();
-            let r = &self.blobs[i].data[(indices.0)..(indices.0 + indices.1)];
+            let r = &self.blobs[i].data[(indices.0)..(indices.1)];
             return HashedStr { hash, text: Some(r) };
         }
         let e = self.interned.entry(hash);
@@ -108,7 +109,7 @@ impl HashIndex {
                 continue;
             }
             let indices = self.blobs[i].index.get(&hash).unwrap();
-            let r = &self.blobs[i].data[(indices.0)..(indices.0 + indices.1)];
+            let r = &self.blobs[i].data[(indices.0)..(indices.1)];
             return HashedStr { hash, text: Some(r) };
         }
 
@@ -118,5 +119,43 @@ impl HashIndex {
 
     pub fn get_str<'s>(&'s self, text: &str) -> HashedStr<'s> {
         self.get_hash(diesel_hash::hash_str(text))
+    }
+
+    /// Intern a string that's very likely a substring of one already loaded from a blob
+    /// 
+    /// If the parent string isn't in a blob, just intern normally. If not found at all,
+    /// return None, otherwise return the substring's hash.
+    pub fn intern_substring(&mut self, superstring_hash: u64, indices: Range<usize>) -> Option<u64> {
+        for i in 0..self.blobs.len() {
+            if !self.blobs[i].index.contains_key(&superstring_hash) {
+                continue;
+            }
+
+            let superstring_indices = self.blobs[i].index.get(&superstring_hash).unwrap();
+            let superstring = &self.blobs[i].data[(superstring_indices.0)..(superstring_indices.1)];
+            let substring = &superstring[(indices.start)..(indices.end)];
+            let substring_hash = diesel_hash::from_str(substring);
+
+            let data_ptr = self.blobs[i].data.as_ptr() as usize;
+            let substring_ptr = substring.as_ptr() as usize;
+            let substring_start = substring_ptr.wrapping_sub(data_ptr);
+            let substring_len = substring.len();
+            self.blobs[i].index.insert(substring_hash, (substring_start, substring_start + substring_len));
+
+            return Some(substring_hash);
+        }
+
+        let maybe_substring = self.interned.get(&superstring_hash).and_then(|superstring| {
+            Some(superstring[(indices.start)..(indices.end)].to_owned())
+        });
+
+        match maybe_substring {
+            None => return None,
+            Some(substring) => {
+                let hash = diesel_hash::hash_str(&substring);
+                self.interned.insert(hash, substring);
+                return Some(hash);
+            }
+        }
     }
 }

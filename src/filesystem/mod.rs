@@ -12,6 +12,7 @@
 
 use std::convert::TryInto;
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use dokan::*;
 use widestring::{U16CString, U16CStr};
@@ -23,6 +24,7 @@ use crate::bundles::database::Database;
 mod teststub;
 mod raw_bundledb;
 mod router;
+mod transcoder;
 
 /// Trait of read-only filesystems
 /// 
@@ -40,9 +42,17 @@ trait ReadOnlyFs : Send + Sync {
 trait FsReadHandle : Send + Sync {
     fn is_dir(&self) -> bool;
     fn read_at(&self, buf: &mut [u8], offset: u64) -> Result<usize, OperationError>;
-    fn find_files(&self) -> Result<Box<dyn Iterator<Item=FindData>>, OperationError>;
+    fn find_files(&self) -> Result<Box<dyn Iterator<Item=FsDirEntry>>, OperationError>;
     fn list_streams(&self) -> Result<Box<dyn Iterator<Item=FindStreamData>>, OperationError>;
     fn get_file_info(&self) -> Result<FileInfo, OperationError>;
+}
+
+#[derive(Clone)]
+struct FsDirEntry {
+    is_dir: bool,
+    size: u64,
+    modification_time: SystemTime,
+    name: String
 }
 
 struct DokanAdapter<F: ReadOnlyFs> {
@@ -123,7 +133,14 @@ impl<'ctx, 'fs: 'ctx, F: ReadOnlyFs + 'fs + 'ctx> FileSystemHandler<'ctx, 'fs> f
     ) -> Result<(), OperationError> {
         let iter = _context.handle.find_files()?;
         for item in iter {
-            _fill_find_data(&item)?;
+            _fill_find_data(&FindData {
+                file_name: U16CString::from_str(&item.name).unwrap(),
+                attributes: winnt::FILE_ATTRIBUTE_READONLY | if item.is_dir { winnt::FILE_ATTRIBUTE_DIRECTORY } else { 0 },
+                file_size: item.size,
+                creation_time: item.modification_time,
+                last_access_time: item.modification_time,
+                last_write_time: item.modification_time
+            })?;
         }
         Ok(())
     }
@@ -177,6 +194,27 @@ pub fn mount_raw_database(mountpoint: &str, db: Arc<Database>) {
     let mp = U16CString::from_str(mountpoint).unwrap();
     let handler = DokanAdapter {
         fs: raw_bundledb::BundleFs::new(db),
+        name: U16CString::from_str("Test").unwrap(),
+        serial: 0xf8be397b
+    };
+    
+    {
+        let mut drive = Drive::new();
+        drive
+            .mount_point(&mp)
+            .flags(MountFlags::ALT_STREAM | MountFlags::WRITE_PROTECT)
+            .thread_count(0)
+            .mount(&handler)
+            .unwrap();
+    }
+    ()
+}
+
+pub fn mount_cooked_database(mountpoint: &str, db: Arc<Database>) {
+    let mp = U16CString::from_str(mountpoint).unwrap();
+    let rawdb : Arc<dyn ReadOnlyFs> = Arc::new(raw_bundledb::BundleFs::new(db));
+    let handler = DokanAdapter {
+        fs: transcoder::TranscoderFs::new(rawdb),
         name: U16CString::from_str("Test").unwrap(),
         serial: 0xf8be397b
     };

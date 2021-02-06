@@ -9,7 +9,7 @@ use widestring::{U16CStr, U16CString};
 use winapi::shared::ntstatus;
 use winapi::um::winnt;
 
-use super::FsReadHandle;
+use super::{FsReadHandle, FsDirEntry};
 
 pub struct StaticFile<'a> {
     pub data: &'a [u8],
@@ -27,7 +27,7 @@ impl<'a> FsReadHandle for StaticFile<'a> {
         let mut bs = &self.data[ofs..];
         bs.read(buf).or(Err(OperationError::NtStatus(ntstatus::STATUS_FILE_CORRUPT_ERROR)))
     }
-    fn find_files(&self) -> Result<Box<dyn Iterator<Item=FindData>>, OperationError> {
+    fn find_files(&self) -> Result<Box<dyn Iterator<Item=FsDirEntry>>, OperationError> {
         Err(OperationError::NtStatus(ntstatus::STATUS_NOT_A_DIRECTORY))
     }
     fn list_streams(&self) -> Result<Box<dyn Iterator<Item=FindStreamData>>, OperationError> {
@@ -90,15 +90,13 @@ impl super::FsReadHandle for TestDir {
     fn list_streams(&self) -> Result<Box<dyn Iterator<Item=FindStreamData>>, OperationError> {
         Err(OperationError::NtStatus(ntstatus::STATUS_FILE_IS_A_DIRECTORY))
     }
-    fn find_files(&self) -> Result<Box<dyn Iterator<Item=FindData>>, OperationError> {
+    fn find_files(&self) -> Result<Box<dyn Iterator<Item=FsDirEntry>>, OperationError> {
         Ok(Box::new(iter::once(
-            FindData {
-                file_name: U16CString::from_str(&"test.txt").unwrap(),
-                attributes: winnt::FILE_ATTRIBUTE_READONLY,
-                creation_time: SystemTime::UNIX_EPOCH,
-                last_write_time: SystemTime::UNIX_EPOCH,
-                last_access_time: SystemTime::UNIX_EPOCH,
-                file_size: b"Be alert, your country needs lerts.".len() as u64
+            FsDirEntry {
+                name: String::from("test.text"),
+                is_dir: false,
+                modification_time: SystemTime::UNIX_EPOCH,
+                size: b"Be alert, your country needs lerts.".len() as u64
             }
         )))
     }
