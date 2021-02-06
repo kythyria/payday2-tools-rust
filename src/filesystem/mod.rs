@@ -194,7 +194,7 @@ pub fn mount_raw_database(mountpoint: &str, db: Arc<Database>) {
     let mp = U16CString::from_str(mountpoint).unwrap();
     let handler = DokanAdapter {
         fs: raw_bundledb::BundleFs::new(db),
-        name: U16CString::from_str("Test").unwrap(),
+        name: U16CString::from_str("Diesel Assets").unwrap(),
         serial: 0xf8be397b
     };
     
@@ -215,7 +215,7 @@ pub fn mount_cooked_database(mountpoint: &str, db: Arc<Database>) {
     let rawdb : Arc<dyn ReadOnlyFs> = Arc::new(raw_bundledb::BundleFs::new(db));
     let handler = DokanAdapter {
         fs: transcoder::TranscoderFs::new(rawdb),
-        name: U16CString::from_str("Test").unwrap(),
+        name: U16CString::from_str("Diesel Assets").unwrap(),
         serial: 0xf8be397b
     };
     

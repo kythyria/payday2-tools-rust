@@ -45,6 +45,7 @@ fn main() {
                 .required(true)))
         .subcommand(SubCommand::with_name("struct-sizes"))
         .subcommand(SubCommand::with_name("mount")
+            .about("Mount bundles as a volume using Dokany")
             .arg(Arg::with_name("assetdir")
                 .takes_value(true)
                 .value_name("ASSET_DIR")
