@@ -14,6 +14,7 @@ use winapi::um::winnt;
 
 use crate::bundles::database::{Database, DatabaseItem, ItemType};
 use crate::hashindex::HashedStr;
+use crate::diesel_hash;
 use super::{ReadOnlyFs,FsReadHandle,FsDirEntry};
 
 pub struct BundleFs<'a> {
@@ -38,7 +39,7 @@ impl<'ctx, 'fs: 'ctx> ReadOnlyFs for BundleFs<'fs> {
         let (db_path, lang, extn) = split_path_to_key(&forwards_path);
 
         let item = self.database
-            .get_by_str(db_path, lang, extn)
+            .get_by_hashes(db_path, lang, extn)
             .ok_or(OperationError::NtStatus(ntstatus::STATUS_NOT_FOUND))?;
         
         match item.item_type() {
@@ -71,11 +72,11 @@ fn split_last_dot(s: &str, limit: usize) -> (&str, &str) {
     }
 }
 
-fn split_path_to_key(p: &str) -> (&str, &str, &str) {
+fn split_path_to_key(p: &str) -> (u64, u64, u64) {
     let last_slash = p.rfind('/').unwrap_or(0);
     let (remain, extn) = split_last_dot(p, last_slash);
     let (path, language) = split_last_dot(remain, last_slash);
-    (path, language, extn)
+    (diesel_hash::from_str(path), diesel_hash::from_str(language), diesel_hash::from_str(extn))
 }
 
 
