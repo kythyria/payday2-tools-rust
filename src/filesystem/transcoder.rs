@@ -19,13 +19,13 @@ impl<'a> TranscoderFs<'a> {
 impl ReadOnlyFs for TranscoderFs<'_> {
     fn open_readable(&self, path: &str, stream: &str) -> Result<Arc<dyn FsReadHandle>, OperationError> {
         let mut real_path = path.to_owned();
-        if real_path.ends_with(".dds") {
-            real_path.truncate(real_path.len() - ".dds".len());
-            real_path.push_str(".texture");
-        }
-        else if real_path.ends_with(".bik") {
-            real_path.truncate(real_path.len() - ".bik".len());
-            real_path.push_str(".movie");
+        for i_t in TRANSCODE_RULES.iter() {
+            let rule = TranscodeRule2::from(i_t);
+            if real_path.ends_with(rule.displayed_extension) {
+                real_path.truncate(real_path.len() - rule.displayed_extension.len());
+                real_path.push_str(rule.backing_extension);
+                break;
+            }
         }
 
         let backing_handle = self.backing.open_readable(&real_path, stream)?;
@@ -57,14 +57,14 @@ impl FsReadHandle for FolderHandle {
         let backing_iter = self.backing.find_files()?;
         Ok(Box::new(backing_iter.map(|fd| {
             let mut newname = String::from(fd.name);
-            if newname.ends_with(".texture") {
-                newname.truncate(newname.len() - ".texture".len());
-                newname.push_str(".dds");
+            for i_t in TRANSCODE_RULES.iter() {
+                let rule = TranscodeRule2::from(i_t);
+                if  newname.ends_with(rule.backing_extension) {
+                    newname.truncate(newname.len() - rule.backing_extension.len());
+                    newname.push_str(rule.displayed_extension);
+                    break;
+                }
             }
-            else if newname.ends_with(".movie") {
-                newname.truncate(newname.len() - ".movie".len());
-                newname.push_str(".bik");
-            };
 
             FsDirEntry {
                 name: newname,
@@ -72,4 +72,40 @@ impl FsReadHandle for FolderHandle {
             }
         })))
     }
+}
+
+macro_rules! struct_from_tuple_table {
+    (@make_tuple { $( $idx:tt : $n:ident : $t:ty),* }) => { ( $($t,)* ) };
+    (@make_struct $name:ident { $( $idx:tt : $n:ident : $t:ty),* }) => {
+        struct $name {
+            $( $n : $t , )*
+        }
+        impl std::convert::From< &( $($t,)* ) > for $name {
+            fn from(t: &( $($t,)* ) ) -> $name {
+                $name {
+                    $( $n: t.$idx , )*
+                }
+            }
+        }
+    };
+    ($name:ident $body:tt $($cname:ident = $cbody:tt)* ) => {
+        struct_from_tuple_table!(@make_struct $name $body);
+        $(
+            const $cname : &[struct_from_tuple_table!(@make_tuple $body)] = & $cbody ;
+        )*
+    };
+}
+
+struct_from_tuple_table! {
+    TranscodeRule2 {
+        0: backing_extension: &'static str,
+        1: displayed_extension: &'static str,
+        2: hide_original: bool,
+        3: transformer: Option<fn(&[u8]) -> Vec<u8>>
+    }
+
+    TRANSCODE_RULES = [
+        (".movie",   ".bik", false, None),
+        (".texture", ".dds", false, None),
+    ]
 }
