@@ -1,7 +1,7 @@
 use std::convert::TryInto;
 use std::convert::TryFrom;
 use std::collections::HashMap;
-use crate::read_util::*;
+use crate::util::*;
 use super::ReadError;
 
 #[derive(Clone)]
@@ -25,27 +25,27 @@ pub fn read_normal(data: &[u8], datafile_length: u64) -> Result<PackageHeaderFil
         entries: Vec::new()
     };
 
-    let is_x64 = read_int_le(data, 8) == 0 && read_int_le(data, 12) != 0;
+    let is_x64 = read_u32_le(data, 8) == 0 && read_u32_le(data, 12) != 0;
 
-    let ref_offset = read_int_le(data, 0);
+    let ref_offset = read_u32_le(data, 0);
     let item_count: u64;
     let offset: u64;
     let has_length: bool;
 
     if is_x64 {
-        if read_long_le(data, 4) == read_long_le(data, 12) {
-            item_count = read_long_le(data, 4);
-            offset = read_long_le(data, 20);
+        if read_u64_le(data, 4) == read_u64_le(data, 12) {
+            item_count = read_u64_le(data, 4);
+            offset = read_u64_le(data, 20);
             has_length = false;
         }
-        else if read_long_le(data, 12) == read_long_le(data, 20) {
-            item_count = read_long_le(data, 12);
-            offset = read_int_le(data, 28).into();
+        else if read_u64_le(data, 12) == read_u64_le(data, 20) {
+            item_count = read_u64_le(data, 12);
+            offset = read_u32_le(data, 28).into();
             has_length = true;
         }
-        else if read_long_le(data, 20) == read_int_le(data, 28).into() {
-            item_count = read_long_le(data, 20);
-            offset = read_int_le(data, 32).into();
+        else if read_u64_le(data, 20) == (read_u32_le(data, 28) as u64) {
+            item_count = read_u64_le(data, 20);
+            offset = read_u32_le(data, 32).into();
             has_length = true;
         }
         else {
@@ -53,19 +53,19 @@ pub fn read_normal(data: &[u8], datafile_length: u64) -> Result<PackageHeaderFil
         }
     }
     else {
-        if read_int_le(data, 4) == read_int_le(data, 8) {
-            item_count = read_int_le(data, 4).into();
-            offset = read_int_le(data, 12).into();
+        if read_u32_le(data, 4) == read_u32_le(data, 8) {
+            item_count = read_u32_le(data, 4).into();
+            offset = read_u32_le(data, 12).into();
             has_length = false;
         }
-        else if read_int_le(data, 8) == read_int_le(data, 12) {
-            item_count = read_int_le(data, 8).into();
-            offset = read_int_le(data, 16).into();
+        else if read_u32_le(data, 8) == read_u32_le(data, 12) {
+            item_count = read_u32_le(data, 8).into();
+            offset = read_u32_le(data, 16).into();
             has_length = true;
         }
-        else if read_int_le(data, 12) == read_int_le(data, 16) {
-            item_count = read_int_le(data, 12).into();
-            offset = read_int_le(data, 20).into();
+        else if read_u32_le(data, 12) == read_u32_le(data, 16) {
+            item_count = read_u32_le(data, 12).into();
+            offset = read_u32_le(data, 20).into();
             has_length = true;
         }
         else {
@@ -83,9 +83,9 @@ pub fn read_normal(data: &[u8], datafile_length: u64) -> Result<PackageHeaderFil
         for i in 0..item_count {
             let offs : usize = actual_offset + usize::try_from(i).unwrap() * 12;
             res.entries.push(PackageHeaderEntry {
-                file_id: read_int_le(data, offs+0),
-                offset: read_int_le(data, offs+4),
-                length: read_int_le(data, offs+8)
+                file_id: read_u32_le(data, offs+0),
+                offset: read_u32_le(data, offs+4),
+                length: read_u32_le(data, offs+8)
             });
         }
     }
@@ -94,8 +94,8 @@ pub fn read_normal(data: &[u8], datafile_length: u64) -> Result<PackageHeaderFil
             let offs : usize = actual_offset + usize::try_from(i).unwrap() * 8;
             let maybe_prev = res.entries.last_mut();
             let curr = PackageHeaderEntry {
-                file_id: read_int_le(data, offs+0),
-                offset: read_int_le(data, offs+4),
+                file_id: read_u32_le(data, offs+0),
+                offset: read_u32_le(data, offs+4),
                 length: 0
             };
             if let Some(prev) = maybe_prev {
@@ -118,18 +118,18 @@ pub fn read_multi(data: &[u8]) -> Result<MultiBundleHeader, ReadError> {
         bundles: HashMap::new()
     };
     
-    let bundle_count = read_int_le(data, 4);
+    let bundle_count = read_u32_le(data, 4);
     let bundle_base: usize = 20;
 
     res.bundles.reserve(bundle_count.try_into().unwrap());
 
     for i in 0..bundle_count {
         let header_offs = bundle_base + 28 * (i as usize);
-        let bundle_index = read_long_le(data, header_offs+0);
-        let entry_count_1: usize = read_int_le(data, header_offs+8).try_into().unwrap();
-        let entry_count_2: usize = read_int_le(data, header_offs+12).try_into().unwrap();
-        let offset: usize = read_long_le(data, header_offs+16).try_into().unwrap();
-        let always_one = read_int_le(data, header_offs+24);
+        let bundle_index = read_u64_le(data, header_offs+0);
+        let entry_count_1: usize = read_u32_le(data, header_offs+8).try_into().unwrap();
+        let entry_count_2: usize = read_u32_le(data, header_offs+12).try_into().unwrap();
+        let offset: usize = read_u64_le(data, header_offs+16).try_into().unwrap();
+        let always_one = read_u32_le(data, header_offs+24);
 
         if always_one != 1 || entry_count_1 != entry_count_2 {
             return Err(ReadError::BadMultiBundleHeader);
@@ -140,9 +140,9 @@ pub fn read_multi(data: &[u8]) -> Result<MultiBundleHeader, ReadError> {
         for ie in 0..entry_count_1 {
             let pe_offset = offset + (12*ie) + 4;
             let pe = PackageHeaderEntry {
-                file_id: read_int_le(data, pe_offset+0),
-                offset: read_int_le(data, pe_offset+4),
-                length: read_int_le(data, pe_offset+8)
+                file_id: read_u32_le(data, pe_offset+0),
+                offset: read_u32_le(data, pe_offset+4),
+                length: read_u32_le(data, pe_offset+8)
             };
             entries.push(pe);
         }

@@ -3,8 +3,9 @@
 mod diesel_hash;
 mod hashindex;
 mod bundles;
-mod read_util;
+mod util;
 mod filesystem;
+mod formats;
 
 use std::vec::Vec;
 use std::fs;

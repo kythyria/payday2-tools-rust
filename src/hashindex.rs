@@ -17,6 +17,34 @@ pub struct HashedStr<'a> {
     pub text: Option<&'a str>,
 }
 
+impl PartialEq for HashedStr<'_> {
+    fn eq(&self, other: &HashedStr) -> bool {
+        self.hash == other.hash
+    }
+}
+impl Eq for HashedStr<'_> { }
+
+impl PartialOrd for HashedStr<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        return Some(self.cmp(other))
+    }
+}
+
+impl Ord for HashedStr<'_> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match self.text {
+            Some(st) => match other.text {
+                Some(ot) => st.cmp(ot),
+                None => std::cmp::Ordering::Less
+            },
+            None => match other.text {
+                Some(ot) => std::cmp::Ordering::Greater,
+                None => self.hash.cmp(&other.hash)
+            }
+        }
+    }
+}
+
 impl fmt::Debug for HashedStr<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "({:>016x}, {:?})", &self.hash, &self.text)
