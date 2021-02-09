@@ -3,6 +3,7 @@ use std::cmp::Ordering;
 use std::convert::TryInto;
 use std::path::PathBuf;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::SystemTime;
 
 use fnv::FnvHashMap;
@@ -34,8 +35,8 @@ index of path/lang/ext to where in that array the item is.
 
 */
 
-pub struct Database<'a> {
-    hashes: &'a HashIndex,
+pub struct Database {
+    pub hashes: Arc<HashIndex>,
     
     // Items by their index in self.items
     item_index: FnvHashMap<(u64, u64, u64), u32>,
@@ -86,7 +87,7 @@ struct PackageEntryRecord {
     length: u32
 }
 
-impl<'a> Database<'a> {
+impl<'a> Database {
     pub fn get_by_str(&self, path: &str, language: &str, extension: &str) -> Option<DatabaseItem> {
         self.get_by_hashes(diesel_hash::hash_str(path), diesel_hash::hash_str(language), diesel_hash::hash_str(extension))
     }
@@ -121,7 +122,7 @@ impl<'a> Database<'a> {
 }
 
 pub struct DatabaseItem<'a> {
-    db: &'a Database<'a>,
+    db: &'a Database,
     item_number: u32
 }
 
@@ -235,7 +236,7 @@ pub enum ItemType {
 }
 
 pub struct ChildIterator<'a> {
-    db: &'a Database<'a>,
+    db: &'a Database,
     current_index: u32,
     end_index: u32,
 }
@@ -254,7 +255,7 @@ impl<'a> Iterator for ChildIterator<'a> {
     }
 }
 
-pub fn from_bdb<'a>(hashlist: &'a mut HashIndex, bdb: &bundledb_reader::BundleDbFile, packages: &Vec<loader::ParsedBundle>) -> Database<'a> {
+pub fn from_bdb<'a>(mut hashlist: HashIndex, bdb: &bundledb_reader::BundleDbFile, packages: &Vec<loader::ParsedBundle>) -> Database {
     println!("{:?} from_bdb() start", SystemTime::now());
     let mut items = Vec::<ItemRecord>::new();
     let mut itemkeys_by_file_id = FnvHashMap::<u32, (u64, u64, u64)>::default();
@@ -436,7 +437,7 @@ pub fn from_bdb<'a>(hashlist: &'a mut HashIndex, bdb: &bundledb_reader::BundleDb
 
     println!("{:?} from_bdb() end", SystemTime::now());
     Database {
-        hashes: hashlist,
+        hashes: Arc::new(hashlist),
         item_index,
         items,
         packages: package_catalog,

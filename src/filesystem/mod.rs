@@ -41,6 +41,7 @@ trait ReadOnlyFs : Send + Sync {
 /// really is.
 trait FsReadHandle : Send + Sync {
     fn is_dir(&self) -> bool;
+    fn len(&self) -> Option<usize>;
     fn read_at(&self, buf: &mut [u8], offset: u64) -> Result<usize, OperationError>;
     fn find_files(&self) -> Result<Box<dyn Iterator<Item=FsDirEntry>>, OperationError>;
     fn list_streams(&self) -> Result<Box<dyn Iterator<Item=FindStreamData>>, OperationError>;
@@ -210,11 +211,11 @@ pub fn mount_raw_database(mountpoint: &str, db: Arc<Database>) {
     ()
 }
 
-pub fn mount_cooked_database(mountpoint: &str, db: Arc<Database>) {
+pub fn mount_cooked_database(mountpoint: &str, hashlist: Arc<crate::hashindex::HashIndex>, db: Arc<Database>) {
     let mp = U16CString::from_str(mountpoint).unwrap();
     let rawdb : Arc<dyn ReadOnlyFs> = Arc::new(raw_bundledb::BundleFs::new(db));
     let handler = DokanAdapter {
-        fs: transcoder::TranscoderFs::new(rawdb),
+        fs: transcoder::TranscoderFs::new(hashlist, rawdb),
         name: U16CString::from_str("Diesel Assets").unwrap(),
         serial: 0xf8be397b
     };

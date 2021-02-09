@@ -1,5 +1,5 @@
 use std::convert::TryInto;
-use std::io::{Result as IoResult, Write};
+use std::fmt::Write;
 
 pub fn read_u32_le(src: &[u8], idx: usize) -> u32 {
     return u32::from_le_bytes(src[idx..(idx+4)].try_into().unwrap());
@@ -29,11 +29,11 @@ pub fn read_u64_le(src: &[u8], idx: usize) -> u64 {
 //            %x74 /          ; t    tab             U+0009
 //            %x75 4HEXDIG )  ; uXXXX                U+XXXX
 
-pub fn escape_json_str<O: Write>(what: &str) -> String {
+pub fn escape_json_str(what: &str) -> String {
     let mut buffer = String::with_capacity(what.len()+2);
     buffer.push('"');
     for ch in what.chars() {
-        if let Some(i) = "\"\\/\x62\x66\n\r\t".find(ch) {
+        if let Some(i) = "\"\\/\x08\x0C\n\r\t".find(ch) {
             buffer.push('\\');
             buffer.push_str(&"\"\\/bfnrt"[i..i+1]);
         }

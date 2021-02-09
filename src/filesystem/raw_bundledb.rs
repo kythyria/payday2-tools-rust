@@ -6,8 +6,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
-use dokan::{FindData, FindStreamData, OperationError, FileInfo};
-use widestring::{U16CString};
+use dokan::{FindStreamData, OperationError, FileInfo};
 use winapi::shared::ntstatus;
 use winapi::shared::winerror;
 use winapi::um::winnt;
@@ -17,17 +16,17 @@ use crate::hashindex::HashedStr;
 use crate::diesel_hash;
 use super::{ReadOnlyFs,FsReadHandle,FsDirEntry};
 
-pub struct BundleFs<'a> {
-    database: Arc<Database<'a>>
+pub struct BundleFs{
+    database: Arc<Database>
 }
 
-impl<'a> BundleFs<'a> {
-    pub fn new(database: Arc<Database<'a>>) -> BundleFs<'a> {
+impl<'a> BundleFs {
+    pub fn new(database: Arc<Database>) -> BundleFs {
         BundleFs { database }
     }
 }
 
-impl<'ctx, 'fs: 'ctx> ReadOnlyFs for BundleFs<'fs> {
+impl<'ctx, 'fs: 'ctx> ReadOnlyFs for BundleFs {
     fn open_readable(&self, path: &str, stream: &str) -> Result<Arc<dyn FsReadHandle>, OperationError> {
         let firstbs = path.find("\\");
         let deslashed_path = match firstbs {
@@ -123,6 +122,7 @@ impl RawFileHandle {
 
 impl FsReadHandle for RawFileHandle {
     fn is_dir(&self) -> bool { false }
+    fn len(&self) -> Option<usize> { Some(self.length) }
     fn find_files(&self) -> Result<Box<dyn Iterator<Item=FsDirEntry>>, OperationError> {
         Err(OperationError::NtStatus(ntstatus::STATUS_NOT_A_DIRECTORY))
     }
@@ -213,6 +213,7 @@ impl FolderHandle {
 }
 impl FsReadHandle for FolderHandle {
     fn is_dir(&self) -> bool { true }
+    fn len(&self) -> Option<usize> { None }
     fn find_files(&self) -> Result<Box<dyn Iterator<Item=FsDirEntry>>, OperationError> {
         Ok(Box::new(self.items.clone().into_iter()))
     }

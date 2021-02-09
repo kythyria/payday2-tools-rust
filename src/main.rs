@@ -109,7 +109,7 @@ fn get_hashlist(hashlist_filename: &str) -> Option<HashIndex> {
     }
 }
 
-fn get_packagedb<'a>(hashlist: &'a mut hashindex::HashIndex, asset_dir: &str) -> Result<bundles::database::Database<'a>, bundles::ReadError> {
+fn get_packagedb<'a>(hashlist: hashindex::HashIndex, asset_dir: &str) -> Result<bundles::database::Database, bundles::ReadError> {
     let path = std::path::PathBuf::from(asset_dir);
     let coll = bundles::loader::load_bundle_dir(&path)?;
 
@@ -135,8 +135,8 @@ fn do_unhash(hashlist: hashindex::HashIndex, texts: Vec<&str>) {
     }
 }
 
-fn do_readpkg(mut hashlist: hashindex::HashIndex, asset_dir: &str) {
-    let r_bdb = get_packagedb(&mut hashlist, asset_dir);
+fn do_readpkg(hashlist: hashindex::HashIndex, asset_dir: &str) {
+    let r_bdb = get_packagedb(hashlist, asset_dir);
 
     match r_bdb {
         Err(e) => println!("Couldn't read asset database: {:?}", e),
@@ -147,7 +147,7 @@ fn do_readpkg(mut hashlist: hashindex::HashIndex, asset_dir: &str) {
 }
 
 fn do_mount(mountpoint: &str, hashlist_filename: &str, asset_dir: &str) {
-    let mut hashlist = get_hashlist(hashlist_filename).unwrap();
-    let db = get_packagedb(&mut hashlist, asset_dir).unwrap();
-    filesystem::mount_cooked_database(mountpoint, Arc::new(db));
+    let hashlist = get_hashlist(hashlist_filename).unwrap();
+    let db = get_packagedb(hashlist, asset_dir).unwrap();
+    filesystem::mount_cooked_database(mountpoint, db.hashes.clone(), Arc::new(db));
 }

@@ -1,7 +1,4 @@
 use std::collections::BTreeMap;
-use std::sync::Arc;
-use std::convert::TryInto;
-use std::convert::TryFrom;
 
 use crate::hashindex::{HashIndex, HashedStr};
 use crate::diesel_hash;
@@ -49,16 +46,18 @@ pub fn map_from_bytes<'a>(hashlist: &'a HashIndex, bytes: &[u8]) -> BTreeMap<Has
     result
 }
 
-pub fn bytes_to_json<'a, O: std::io::Write>(hashlist: &'a HashIndex, input: &[u8], output: &mut O) {
+pub fn bytes_to_json<'a, O: std::io::Write>(hashlist: &'a HashIndex, input: &[u8], output: &mut O) -> std::io::Result<()> {
     let map = map_from_bytes(hashlist, input);
-    output.write(b"{\n  ");
+    output.write(b"{\n  ")?;
     let mut first = true;
     for (k,v) in map {
         if !first {
-            output.write(b",\n  ");
+            output.write(b",\n  ")?;
         }
         first = false;
-        write!(output, "{}: {}", escape_json_str(format!("{}", k)), escape_json_str(&v));
+        let key_name = format!("{}", k);
+        write!(output, "{}: {}", escape_json_str(&key_name), escape_json_str(&v))?;
     }
-    output.write(b"}\n");
+    output.write(b"}\n")?;
+    Ok(())
 }

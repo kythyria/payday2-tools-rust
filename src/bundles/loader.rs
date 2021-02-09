@@ -84,13 +84,13 @@ fn collect_bundle_files(dir: &Path) -> Result<Vec<BundleFileInfo>, IoError> {
     for dirent_r in dirents_iter {
         match dirent_r {
             Err(e) => return Err(e),
-            Ok(dirent) => if let Some(bfi) = file_info_for_dirent(dir, &dirent) { result.push(bfi) }
+            Ok(dirent) => if let Some(bfi) = file_info_for_dirent(&dirent) { result.push(bfi) }
         }
     }
     return Ok(result);
 }
 
-fn file_info_for_dirent(dir: &Path, dirent: &fs::DirEntry) -> Option<BundleFileInfo> {
+fn file_info_for_dirent(dirent: &fs::DirEntry) -> Option<BundleFileInfo> {
     let data_path = dirent.path();
     let header_path : PathBuf;
     let multi_header_index: Option<u64>;

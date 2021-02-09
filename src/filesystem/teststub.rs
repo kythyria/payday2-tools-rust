@@ -5,7 +5,6 @@ use std::iter;
 use std::time::SystemTime;
 
 use dokan::*;
-use widestring::{U16CStr, U16CString};
 use winapi::shared::ntstatus;
 use winapi::um::winnt;
 
@@ -19,6 +18,7 @@ pub struct StaticFile<'a> {
 
 impl<'a> FsReadHandle for StaticFile<'a> {
     fn is_dir(&self) -> bool { false }
+    fn len(&self) -> Option<usize> { Some(self.data.len()) }
     fn read_at(&self, buf: &mut [u8], offset: u64) -> Result<usize, OperationError> {
         let ofs: usize = offset.try_into().unwrap_or(usize::MAX);
         if ofs > self.data.len() {
@@ -84,6 +84,7 @@ impl<'ctx, 'fs: 'ctx> super::ReadOnlyFs for TestFs {
 struct TestDir { }
 impl super::FsReadHandle for TestDir {
     fn is_dir(&self) -> bool { true }
+    fn len(&self) -> Option<usize> { None }
     fn read_at(&self, _buf: &mut [u8], _offset: u64) -> Result<usize, OperationError> { 
         Err(OperationError::NtStatus(ntstatus::STATUS_FILE_IS_A_DIRECTORY))
     }
