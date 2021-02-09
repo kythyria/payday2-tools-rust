@@ -40,7 +40,7 @@ impl ReadOnlyFs for TranscoderFs<'_> {
         if backing_handle.is_dir() {
             Ok(Arc::new(FolderHandle { backing: backing_handle }))
         }
-        else if stream == "::$DATA" {
+        else if stream == "" {
             if let Some(converter) = maybe_rule.map(|r| r.transformer).flatten() {
                 let info = backing_handle.get_file_info().unwrap();
                 let mut back_buf = Vec::<u8>::new();
