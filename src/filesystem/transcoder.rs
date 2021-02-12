@@ -27,7 +27,7 @@ impl<'a> TranscoderFs<'a> {
 impl ReadOnlyFs for TranscoderFs<'_> {
     fn open_readable(&self, path: &str, stream: &str) -> Result<Arc<dyn FsReadHandle>, OperationError> {
         let mut real_path = path.to_owned();
-        let maybe_rule = TRANSCODE_RULES.iter().map(|i| TranscodeRule::from(i)).find(|i| real_path.ends_with(i.displayed_extension));
+        let maybe_rule = TRANSCODE_RULES.iter().find(|i| real_path.ends_with(i.displayed_extension));
         match maybe_rule {
             None => (),
             Some(rule) => {
@@ -86,8 +86,7 @@ impl FsReadHandle for FolderHandle {
         let backing_iter = self.backing.find_files()?;
         Ok(Box::new(backing_iter.map(|fd| {
             let mut newname = String::from(fd.name);
-            for i_t in TRANSCODE_RULES.iter() {
-                let rule = TranscodeRule::from(i_t);
+            for rule in TRANSCODE_RULES.iter() {
                 if  newname.ends_with(rule.backing_extension) {
                     newname.truncate(newname.len() - rule.backing_extension.len());
                     newname.push_str(rule.displayed_extension);
@@ -145,34 +144,26 @@ impl FsReadHandle for VecFileHandle {
 }
 
 macro_rules! struct_from_tuple_table {
-    (@make_tuple { $( $idx:tt : $n:ident : $t:ty),* }) => { ( $($t,)* ) };
-    (@make_struct $name:ident { $( $idx:tt : $n:ident : $t:ty),* }) => {
-        #[derive(Copy, Clone)]
-        struct $name {
-            $( $n : $t , )*
-        }
-        impl std::convert::From< &( $($t,)* ) > for $name {
-            fn from(t: &( $($t,)* ) ) -> $name {
-                $name {
-                    $( $n: t.$idx , )*
-                }
-            }
-        }
+    (@make_row $sn:ident {$($sin:ident : $sit:ty),*} ($($ri:expr),*) ) => {
+        $sn { $($sin: $ri,)* }
     };
-    ($name:ident $body:tt $($cname:ident = $cbody:tt)* ) => {
-        struct_from_tuple_table!(@make_struct $name $body);
+    (@make_table $sn:ident $sb:tt [ $($row:tt),* ]) => {
+        [ $(struct_from_tuple_table!(@make_row $sn $sb $row),)* ]
+    };
+    ($struct_name:ident $struct_body:tt $($cname:ident = $cbody:tt)* ) => {
+        struct $struct_name $struct_body
         $(
-            const $cname : &[struct_from_tuple_table!(@make_tuple $body)] = & $cbody ;
+            const $cname : &[$struct_name] = & struct_from_tuple_table!(@make_table $struct_name $struct_body $cbody);
         )*
-    };
+    }
 }
 
 struct_from_tuple_table! {
     TranscodeRule {
-        0: backing_extension: &'static str,
-        1: displayed_extension: &'static str,
-        2: hide_original: bool,
-        3: transformer: Option<fn(&HashIndex, &[u8]) -> Vec<u8>>
+        backing_extension: &'static str,
+        displayed_extension: &'static str,
+        hide_original: bool,
+        transformer: Option<fn(&HashIndex, &[u8]) -> Vec<u8>>
     }
 
     TRANSCODE_RULES = [
