@@ -1,7 +1,7 @@
 use std::convert::TryInto;
 use std::convert::TryFrom;
 use std::collections::HashMap;
-use crate::util::*;
+use crate::util::read_helpers::*;
 use super::ReadError;
 
 #[derive(Clone)]

@@ -1,14 +1,8 @@
-use std::convert::TryInto;
+pub mod ordered_float;
+pub mod read_helpers;
+pub mod rc_cell;
+
 use std::fmt::Write;
-
-pub fn read_u32_le(src: &[u8], idx: usize) -> u32 {
-    return u32::from_le_bytes(src[idx..(idx+4)].try_into().unwrap());
-}
-
-pub fn read_u64_le(src: &[u8], idx: usize) -> u64 {
-    return u64::from_le_bytes(src[idx..(idx+8)].try_into().unwrap());
-}
-
 
 // Per RFC 8259:
 // All Unicode characters may be placed within the

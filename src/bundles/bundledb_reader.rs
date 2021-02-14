@@ -1,6 +1,6 @@
 use std::convert::TryInto;
 
-use crate::util::*;
+use crate::util::read_helpers::*;
 
 pub struct LanguageEntry {
     pub hash: u64,

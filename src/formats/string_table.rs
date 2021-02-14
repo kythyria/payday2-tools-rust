@@ -2,7 +2,8 @@ use std::collections::BTreeMap;
 
 use crate::hashindex::{HashIndex, HashedStr};
 use crate::diesel_hash;
-use crate::util::*;
+use crate::util::read_helpers::*;
+use crate::util::escape_json_str;
 
 /* Diesel string tables have a header of:
     0..3   _           : [u8; 4]
