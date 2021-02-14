@@ -175,6 +175,6 @@ struct_from_tuple_table! {
 
 fn transcode_strings(hi: &HashIndex, input: &[u8]) -> Vec<u8> {
     let mut buf = Vec::<u8>::with_capacity(input.len());
-    crate::formats::string_table::bytes_to_json(hi, input, &mut buf);
+    crate::formats::string_table::bytes_to_json(hi, input, &mut buf).unwrap();
     buf
 }

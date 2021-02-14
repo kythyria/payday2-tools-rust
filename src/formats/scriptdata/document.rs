@@ -1,10 +1,7 @@
-use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::cmp::{Ord, Ordering};
+use std::cmp::Ord;
 use std::rc::Rc;
 use std::str;
-
-use fnv::FnvHashMap;
 
 use crate::hashindex::{Hash as IdString};
 use crate::util::ordered_float::OrderedFloat;

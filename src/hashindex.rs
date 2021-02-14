@@ -41,7 +41,7 @@ impl Ord for HashedStr<'_> {
                 None => std::cmp::Ordering::Less
             },
             None => match other.text {
-                Some(ot) => std::cmp::Ordering::Greater,
+                Some(_) => std::cmp::Ordering::Greater,
                 None => self.hash.cmp(&other.hash)
             }
         }
