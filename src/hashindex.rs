@@ -5,6 +5,9 @@ use fnv::FnvHashMap;
 
 use super::diesel_hash;
 
+#[derive(Copy, Clone, Eq, Ord, PartialEq, PartialOrd, Debug, Hash)]
+pub struct Hash(pub u64);
+
 trait HashList {
     fn get_hash<'s>(&'s self, hash: u64) -> HashedStr<'s>;
     fn get_str<'s>(&'s self, text: &str) -> HashedStr<'s> {
