@@ -132,14 +132,6 @@ impl FsReadHandle for RawFileHandle {
             FindStreamData {
                 name: widestring::U16CString::from_str(&"::$DATA").unwrap(),
                 size: self.length.try_into().unwrap()
-            },
-            FindStreamData {
-                name: widestring::U16CString::from_str(&":raw").unwrap(),
-                size: self.length.try_into().unwrap()
-            },
-            FindStreamData {
-                name: widestring::U16CString::from_str(&":info").unwrap(),
-                size: 0
             }
         ].into_iter()))
     }
