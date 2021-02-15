@@ -7,6 +7,11 @@ use super::diesel_hash;
 
 #[derive(Copy, Clone, Eq, Ord, PartialEq, PartialOrd, Debug, Hash)]
 pub struct Hash(pub u64);
+impl fmt::Display for Hash {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:>016x}", &self.0)
+    }
+}
 
 trait HashList {
     fn get_hash<'s>(&'s self, hash: u64) -> HashedStr<'s>;
