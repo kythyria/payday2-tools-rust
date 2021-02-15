@@ -96,8 +96,17 @@ impl FromBinaryState<'_> {
                     items_offset: offset     24..31  16..23  12..15
                 */  
 
-                let metatable_index = self.read_offset(table_offset);
-                let metatable_str = if metatable_index > 0 { Some(self.read_string(metatable_index)) } else { None };
+                let metatable_index = if self.is_x64 {
+                    read_i64_le(self.input, table_offset)
+                }
+                else {
+                    read_i32_le(self.input, table_offset) as i64
+                };
+                let metatable_str = if metatable_index >= 0 {
+                    Some(self.read_string(metatable_index as usize))
+                }
+                else { None };
+                
                 let item_count = if self.is_raid {
                     read_u64_le(self.input, table_offset + self.offset_size) as usize
                 }
@@ -105,7 +114,7 @@ impl FromBinaryState<'_> {
                     read_u32_le(self.input, table_offset + self.offset_size) as usize
                 };
                 let items_offset = self.read_offset(table_offset + self.by_variant(24, 16, 12));
-    
+                
                 let mut table = InternalTable::new();
                 table.set_metatable(metatable_str);
                 for i in 0..item_count {

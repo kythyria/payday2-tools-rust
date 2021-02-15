@@ -86,7 +86,7 @@ impl<S: AsRef<str>> fmt::Display for WriteLuaString<S> {
                 '\x0B' => f.write_str("\\v")?,
                 '\\' => f.write_str("\\")?,
                 '\"' => f.write_str("\\\"")?,
-                '\'' => f.write_str("\\'")?,
+                //'\'' => f.write_str("\\'")?,
                 c => f.write_char(c)?
             }
         }
