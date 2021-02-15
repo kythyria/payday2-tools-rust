@@ -67,11 +67,13 @@ pub enum InternalValue {
 #[derive(Default)]
 pub struct InternalTable {
     metatable: Option<Rc<str>>,
-    dict_like: HashMap<InternalValue, InternalValue>
+    dict_like: HashMap<InternalValue, InternalValue>,
+    keys_in_order_of_add: Vec<InternalValue>
 }
 impl InternalTable {
     pub fn new() -> InternalTable { InternalTable::default() }
     pub fn insert(&mut self, key: InternalValue, value: InternalValue) {
+        self.keys_in_order_of_add.push(key.clone());
         self.dict_like.insert(key, value);
     }
     pub fn get_metatable(&self) -> Option<Rc<str>> { self.metatable.clone() }
@@ -101,17 +103,22 @@ impl<'a> std::iter::IntoIterator for &'a InternalTable {
 
     fn into_iter(self) -> Self::IntoIter {
         TableIterator {
-            inner: self.dict_like.iter()
+            inner: self.keys_in_order_of_add.iter(),
+            dict: &self.dict_like
         }
     }
 }
 
 pub struct TableIterator<'a> {
-    inner: std::collections::hash_map::Iter<'a, InternalValue, InternalValue>
+    inner: std::slice::Iter<'a, InternalValue>,
+    dict: &'a HashMap<InternalValue, InternalValue>
 }
 impl<'a> Iterator for TableIterator<'a> {
     type Item = (&'a InternalValue, &'a InternalValue);
     fn next(&mut self) -> Option<Self::Item> {
-        self.inner.next()
+        match self.inner.next() {
+            None => None,
+            Some(k) => self.dict.get_key_value(k)
+        }
     }
 }

@@ -102,8 +102,9 @@ fn write_lua_table<O: Write>(table: &RcCell<InternalTable>, state: &mut DumpStat
     else {
         if state.referenced_tables.contains(&downgraded) {
             write!(state.output, "RefId(\'{}\', ", state.next_id)?;
-            state.next_id += 1;
         }
+        state.seen_table_ids.insert(downgraded.clone(), state.next_id.to_string());
+        state.next_id += 1;
         let tref = &*table.borrow();
         if let Some(mt) = tref.get_metatable() {
             write!(state.output, "{} ", mt);

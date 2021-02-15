@@ -1,4 +1,4 @@
-//#![allow(dead_code)]
+#![allow(dead_code)]
 
 mod diesel_hash;
 mod hashindex;
@@ -44,7 +44,6 @@ fn main() {
                 .takes_value(true)
                 .value_name("ASSET_DIR")
                 .required(true)))
-        .subcommand(SubCommand::with_name("struct-sizes"))
         .subcommand(SubCommand::with_name("mount")
             .about("Mount bundles as a volume using Dokany")
             .arg(Arg::with_name("assetdir")
@@ -56,7 +55,14 @@ fn main() {
                 .takes_value(true)
                 .value_name("MOUNT_POINT")
                 .required(true)
-                .help("Drive letter to mount on")));
+                .help("Drive letter to mount on")))
+        .subcommand(SubCommand::with_name("print-scriptdata")
+            .arg(Arg::with_name("input")
+                .takes_value(true)
+                .required(true)
+                .value_name("SCRIPTDATA")
+        )
+    );
     
     let arg_matches = app.get_matches();
 
@@ -78,11 +84,11 @@ fn main() {
                 Some(hashlist) => do_readpkg(hashlist, sc_args.value_of("assetdir").unwrap())
             }
         },
-        ("struct-sizes", Some(_)) => {
-            bundles::database::print_record_sizes();
-        }
         ("mount", Some(sc_args)) => {
             do_mount(sc_args.value_of("mountpoint").unwrap(), arg_matches.value_of("hashlist").unwrap(), sc_args.value_of("assetdir").unwrap())
+        },
+        ("print-scriptdata", Some(sc_args)) => {
+            do_print_scriptdata(sc_args.value_of("input").unwrap())
         }
         _ => {
             println!("Unknown command, use --help for a list.");
@@ -150,4 +156,11 @@ fn do_mount(mountpoint: &str, hashlist_filename: &str, asset_dir: &str) {
     let hashlist = get_hashlist(hashlist_filename).unwrap();
     let db = get_packagedb(hashlist, asset_dir).unwrap();
     filesystem::mount_cooked_database(mountpoint, db.hashes.clone(), Arc::new(db));
+}
+
+fn do_print_scriptdata(filename: &str) {
+    let sd = std::fs::read(filename).unwrap();
+    let doc = formats::scriptdata::binary::from_binary(&sd, false);
+    formats::scriptdata::lua_like::dump(&doc, &mut std::io::stdout()).unwrap();
+    //println!("{:?}", doc.root())
 }

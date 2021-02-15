@@ -38,14 +38,14 @@ impl FromBinaryState<'_> {
         }
     }
     fn read_string(&mut self, index: usize) -> Rc<str> {
-        let string_offset_offset = self.string_offset + self.offset_size * (index as usize);
-            let string_offset = self.read_offset(string_offset_offset);
-            let mut end = string_offset;
-            while self.input[end] != 0 {
-                end += 1;
-            }
-            let input_slice_str = str::from_utf8(&self.input[string_offset..end]).unwrap();
-            return self.doc.cache_string(input_slice_str);
+        let string_offset_offset = self.string_offset + self.offset_size + (index * self.by_variant(16,16,8));
+        let string_offset = self.read_offset(string_offset_offset);
+        let mut end = string_offset;
+        while self.input[end] != 0 {
+            end += 1;
+        }
+        let input_slice_str = str::from_utf8(&self.input[string_offset..end]).unwrap();
+        return self.doc.cache_string(input_slice_str);
     }
 
     fn value_from_binary(&mut self, offset: usize) -> InternalValue {
@@ -88,6 +88,14 @@ impl FromBinaryState<'_> {
                 }
     
                 let table_offset = self.table_offset + (value as usize) * self.by_variant(40, 32, 20);
+
+                /* table record is:           raid     x64     x86
+                    metatable_index: offset   0..7    0..7    0..3
+                    item_count: int           8..15   8..11   4..7
+                    _: int                   15..23  12..15   8..11
+                    items_offset: offset     24..31  16..23  12..15
+                */  
+
                 let metatable_index = self.read_offset(table_offset);
                 let metatable_str = if metatable_index > 0 { Some(self.read_string(metatable_index)) } else { None };
                 let item_count = if self.is_raid {
@@ -96,7 +104,7 @@ impl FromBinaryState<'_> {
                 else {
                     read_u32_le(self.input, table_offset + self.offset_size) as usize
                 };
-                let items_offset = self.read_offset(table_offset + self.offset_size + self.by_variant(16, 8, 8));
+                let items_offset = self.read_offset(table_offset + self.by_variant(24, 16, 12));
     
                 let mut table = InternalTable::new();
                 table.set_metatable(metatable_str);
