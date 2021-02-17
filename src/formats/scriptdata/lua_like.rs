@@ -13,7 +13,7 @@ pub fn dump<O: Write>(doc: &Document, output: &mut O) -> IoResult<()> {
             let mut state = DumpState {
                 output,
                 seen_table_ids: FnvHashMap::default(),
-                referenced_tables: detect_referenced_tables(&item),
+                referenced_tables: detect_referenced_tables(&doc),
                 next_id: 1
             };
             dump_item(&item, &mut state, 0)?;
@@ -31,25 +31,12 @@ struct DumpState<'o, O: Write> {
     next_id: u32
 }
 
-fn detect_referenced_tables(item: &InternalValue) -> FnvHashSet<WeakCell<InternalTable>> {
-    let mut counter = FnvHashMap::<WeakCell<InternalTable>, u32>::default();
-    count_table_references(item, &mut counter);
+fn detect_referenced_tables(doc: &Document) -> FnvHashSet<WeakCell<InternalTable>> {
+    let counter = doc.table_refcounts();
     let result : FnvHashSet<WeakCell<InternalTable>> = counter.iter()
         .filter_map(|(k,v)| if *v > 1 { Some(k.clone()) } else { None })
         .collect();
     return result;
-}
-
-fn count_table_references(item: &InternalValue, counter: &mut FnvHashMap<WeakCell<InternalTable>, u32>) {
-    if let InternalValue::Table(tab) = item {
-        let down = tab.downgrade();
-        let entry = counter.entry(down);
-        *entry.or_insert(0) += 1;
-
-        for (_, v) in &*tab.borrow() {
-            count_table_references(v, counter);
-        }
-    }
 }
 
 fn dump_item<O: Write>(item: &InternalValue, state: &mut DumpState<O>, indent_level: usize) -> IoResult<()> {

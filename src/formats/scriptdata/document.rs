@@ -3,9 +3,11 @@ use std::cmp::Ord;
 use std::rc::Rc;
 use std::str;
 
+use fnv::FnvHashMap;
+
 use crate::hashindex::{Hash as IdString};
 use crate::util::ordered_float::OrderedFloat;
-use crate::util::rc_cell::RcCell;
+use crate::util::rc_cell::{RcCell, WeakCell};
 
 pub struct Document {
     root_value: Option<InternalValue>,
@@ -39,7 +41,31 @@ impl Document {
     }
 
     pub fn set_root(&mut self, t: Option<InternalValue>) { self.root_value = t; }
+
+    pub fn table_refcounts(&self) -> FnvHashMap<WeakCell<InternalTable>, u32> {
+        let mut counter = FnvHashMap::<WeakCell<InternalTable>, u32>::default();
+
+        match self.root() {
+            Some(r) => count_table_references(&r, &mut counter),
+            None => ()
+        };
+
+        return counter;
+    }
 }
+
+fn count_table_references(item: &InternalValue, counter: &mut FnvHashMap<WeakCell<InternalTable>, u32>) {
+    if let InternalValue::Table(tab) = item {
+        let down = tab.downgrade();
+        let entry = counter.entry(down);
+        *entry.or_insert(0) += 1;
+
+        for (_, v) in &*tab.borrow() {
+            count_table_references(v, counter);
+        }
+    }
+}
+
 impl std::default::Default for Document {
     fn default() -> Document {
         Document::new()

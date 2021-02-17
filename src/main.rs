@@ -161,6 +161,8 @@ fn do_mount(mountpoint: &str, hashlist_filename: &str, asset_dir: &str) {
 fn do_print_scriptdata(filename: &str) {
     let sd = std::fs::read(filename).unwrap();
     let doc = formats::scriptdata::binary::from_binary(&sd, false);
-    formats::scriptdata::lua_like::dump(&doc, &mut std::io::stdout()).unwrap();
+    let gx = formats::scriptdata::generic_xml::dump(&doc);
+    println!("{}", gx);
+    //formats::scriptdata::lua_like::dump(&doc, &mut std::io::stdout()).unwrap();
     //println!("{:?}", doc.root())
 }
