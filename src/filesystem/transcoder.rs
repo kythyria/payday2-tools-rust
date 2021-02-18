@@ -169,7 +169,9 @@ struct_from_tuple_table! {
     TRANSCODE_RULES = [
         (".movie",   ".bik", false, None),
         (".texture", ".dds", false, None),
-        (".strings", ".strings.json", false, Some(transcode_strings))
+        (".strings", ".strings.json", false, Some(transcode_strings)),
+        (".sequence_manager", ".sequence_manager.xml", false, Some(transcode_sd_generic)),
+        (".mission", ".mission", false, Some(transcode_sd_generic))
     ]
 }
 
@@ -177,4 +179,10 @@ fn transcode_strings(hi: &HashIndex, input: &[u8]) -> Vec<u8> {
     let mut buf = Vec::<u8>::with_capacity(input.len());
     crate::formats::string_table::bytes_to_json(hi, input, &mut buf).unwrap();
     buf
+}
+
+fn transcode_sd_generic(_hi: &HashIndex, input: &[u8]) -> Vec<u8> {
+    let doc = crate::formats::scriptdata::binary::from_binary(input, false);
+    let gx = crate::formats::scriptdata::generic_xml::dump(&doc);
+    return gx.into_bytes();
 }
