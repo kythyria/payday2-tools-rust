@@ -13,7 +13,7 @@ pub fn dump<O: Write>(doc: &Document, output: &mut O) -> IoResult<()> {
             let mut state = DumpState {
                 output,
                 seen_table_ids: FnvHashMap::default(),
-                referenced_tables: detect_referenced_tables(&doc),
+                referenced_tables: doc.tables_used_repeatedly(),
                 next_id: 1
             };
             dump_item(&item, &mut state, 0)?;
@@ -29,14 +29,6 @@ struct DumpState<'o, O: Write> {
     seen_table_ids: FnvHashMap<WeakCell<InternalTable>, String>,
     referenced_tables: FnvHashSet<WeakCell<InternalTable>>,
     next_id: u32
-}
-
-fn detect_referenced_tables(doc: &Document) -> FnvHashSet<WeakCell<InternalTable>> {
-    let counter = doc.table_refcounts();
-    let result : FnvHashSet<WeakCell<InternalTable>> = counter.iter()
-        .filter_map(|(k,v)| if *v > 1 { Some(k.clone()) } else { None })
-        .collect();
-    return result;
 }
 
 fn dump_item<O: Write>(item: &InternalValue, state: &mut DumpState<O>, indent_level: usize) -> IoResult<()> {

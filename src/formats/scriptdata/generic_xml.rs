@@ -10,9 +10,7 @@ use crate::util::rc_cell::*;
 pub fn dump(doc: &Document) -> String {
     let mut state = DumperState {
         writer: Writer::new(),
-        diamond_subjects: doc.table_refcounts().iter()
-            .filter_map(|(k,v)| if *v > 1 { Some(k.clone()) } else { None })
-            .collect(),
+        diamond_subjects: doc.tables_used_repeatedly(),
         seen_ids: FnvHashMap::default(),
         next_id: 0
     };

@@ -3,7 +3,7 @@ use std::cmp::Ord;
 use std::rc::Rc;
 use std::str;
 
-use fnv::FnvHashMap;
+use fnv::{FnvHashMap, FnvHashSet};
 
 use crate::hashindex::{Hash as IdString};
 use crate::util::ordered_float::OrderedFloat;
@@ -51,6 +51,14 @@ impl Document {
         };
 
         return counter;
+    }
+
+    pub fn tables_used_repeatedly(&self) -> FnvHashSet<WeakCell<InternalTable>> {
+        let counter = self.table_refcounts();
+        let result : FnvHashSet<WeakCell<InternalTable>> = counter.iter()
+            .filter_map(|(k,v)| if *v > 1 { Some(k.clone()) } else { None })
+            .collect();
+        return result;
     }
 }
 
