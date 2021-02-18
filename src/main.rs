@@ -11,59 +11,40 @@ use std::vec::Vec;
 use std::fs;
 use std::sync::Arc;
 
-use clap::{App, Arg, SubCommand};
+use clap::{clap_app};
 
 use hashindex::HashIndex;
 
 fn main() {
-    let app = App::new("Payday 2 CLI Tools")
-        .version("0.1")
-        //.author("Grey Heron")
-        .about("Does various things related to the game Payday 2")
-        .arg(Arg::with_name("hashlist")
-            .short("h")
-            .long("hashlist")
-            .value_name("FILE")
-            .help("Load hashlist from this file")
-            .takes_value(true)
-            .default_value("./hashlist"))
-        .subcommand(SubCommand::with_name("hash")
-            .about("Calculate diesel hash of arguments")
-            .arg(Arg::with_name("to_hash")
-                .takes_value(true)
-                .value_name("STRING")
-                .multiple(true)))
-        .subcommand(SubCommand::with_name("unhash")
-            .about("Given diesel hashes, look them up in the hashlist")
-            .arg(Arg::with_name("to_unhash")
-                .takes_value(true)
-                .value_name("HASH")
-                .multiple(true)))
-        .subcommand(SubCommand::with_name("read-packages")
-            .arg(Arg::with_name("assetdir")
-                .takes_value(true)
-                .value_name("ASSET_DIR")
-                .required(true)))
-        .subcommand(SubCommand::with_name("mount")
-            .about("Mount bundles as a volume using Dokany")
-            .arg(Arg::with_name("assetdir")
-                .takes_value(true)
-                .value_name("ASSET_DIR")
-                .required(true)
-                .help("Path of directory with bundle files"))
-            .arg(Arg::with_name("mountpoint")
-                .takes_value(true)
-                .value_name("MOUNT_POINT")
-                .required(true)
-                .help("Drive letter to mount on")))
-        .subcommand(SubCommand::with_name("print-scriptdata")
-            .arg(Arg::with_name("input")
-                .takes_value(true)
-                .required(true)
-                .value_name("SCRIPTDATA")
+    
+    let app = clap_app!(("Payday 2 CLI Tools") =>
+        (version: "0.1")
+        (about: "Does various things related to the game Payday 2")
+        (@arg hashlist: -h --hashlist [HASHLIST] default_value("./hashlist") "Load hashlist from this file")
+        (@subcommand hash =>
+            (about: "Calculate diesel hash of arguments")
+            (@arg to_hash: <STRING>... "String to hash")
+        )
+        (@subcommand unhash =>
+            (about: "Given diesel hashes, look them up in the hashlist")
+            (@arg to_unhash: <HASH>... "Hash to look up")
+        )
+        (@subcommand read_packages =>
+            (about: "Reads package headers and doesn't do anything with them")
+            (@arg assetdir: <ASSET_DIR> "Directory containing bundle_db.blb")
+        )
+        (@subcommand mount =>
+            (about: "Mount packages as a volume using Dokany")
+            (@arg assetdir: <ASSET_DIR> "Directory containing bundle_db.blb")
+            (@arg mountpoint: <MOUNT_POINT> "Drive letter to mount on")
+        )
+        (@subcommand convert => 
+            (about: "Converts between scriptdata formats")
+            (@arg format: -f --format [FORMAT] possible_value[lua generic_xml] "Output format")
+            (@arg input: <INPUT> "File to read or - for stdin")
+            (@arg output: [OUTPUT] default_value("-") "File to write, - for stdout")
         )
     );
-    
     let arg_matches = app.get_matches();
 
     match arg_matches.subcommand() {
