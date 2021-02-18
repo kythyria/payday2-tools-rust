@@ -9,11 +9,20 @@ mod formats;
 
 use std::vec::Vec;
 use std::fs;
+use std::io::{Read,Write};
 use std::sync::Arc;
 
-use clap::{clap_app};
+use clap::{clap_app, arg_enum, value_t};
 
 use hashindex::HashIndex;
+
+arg_enum! {
+    #[derive(Debug, Clone, Copy, Ord, Eq, PartialOrd, PartialEq, Hash)]
+    enum ConvertType {
+        Lua,
+        Generic
+    }
+}
 
 fn main() {
     
@@ -39,8 +48,8 @@ fn main() {
             (@arg mountpoint: <MOUNT_POINT> "Drive letter to mount on")
         )
         (@subcommand convert => 
-            (about: "Converts between scriptdata formats")
-            (@arg format: -f --format [FORMAT] possible_value[lua generic_xml] "Output format")
+            (about: "Convert binary scriptdata to text")
+            (@arg format: -f --format [FORMAT] possible_value[lua generic] default_value("generic") "Output format")
             (@arg input: <INPUT> "File to read or - for stdin")
             (@arg output: [OUTPUT] default_value("-") "File to write, - for stdout")
         )
@@ -58,7 +67,7 @@ fn main() {
                 Some(hashlist) => do_unhash(hashlist, sc_args.values_of("to_unhash").unwrap().collect())
             }
         },
-        ("read-packages", Some(sc_args)) => {
+        ("read_packages", Some(sc_args)) => {
             let hashlist_maybe = get_hashlist(arg_matches.value_of("hashlist").unwrap());
             match hashlist_maybe {
                 None => return,
@@ -68,8 +77,11 @@ fn main() {
         ("mount", Some(sc_args)) => {
             do_mount(sc_args.value_of("mountpoint").unwrap(), arg_matches.value_of("hashlist").unwrap(), sc_args.value_of("assetdir").unwrap())
         },
-        ("print-scriptdata", Some(sc_args)) => {
-            do_print_scriptdata(sc_args.value_of("input").unwrap())
+        ("convert", Some(sc_args)) => {
+            let in_name = sc_args.value_of("input").unwrap();
+            let out_name = sc_args.value_of("output").unwrap();
+            let format = value_t!(sc_args, "format", ConvertType).unwrap_or_else(|e| e.exit());
+            do_convert(in_name, out_name, format);
         }
         _ => {
             println!("Unknown command, use --help for a list.");
@@ -146,4 +158,43 @@ fn do_print_scriptdata(filename: &str) {
     println!("{}", gx);
     //formats::scriptdata::lua_like::dump(&doc, &mut std::io::stdout()).unwrap();
     //println!("{:?}", doc.root())
+}
+
+fn do_convert(input_filename: &str, output_filename: &str, output_type: ConvertType) {
+    let in_data: Vec<u8> = match input_filename {
+        "-" => {
+            let mut id = Vec::<u8>::new();
+            std::io::stdin().read_to_end(&mut id).unwrap();
+            id
+        },
+        name => std::fs::read(name).unwrap()
+    };
+
+    let doc = formats::scriptdata::binary::from_binary(&in_data, false);
+    
+    let output = match output_type {
+        ConvertType::Lua => {
+            let mut ob = Vec::<u8>::new();
+            formats::scriptdata::lua_like::dump(&doc, &mut ob).unwrap();
+            ob
+        },
+        ConvertType::Generic => {
+            formats::scriptdata::generic_xml::dump(&doc).into_bytes()
+        }
+    };
+
+    match output_filename {
+        "-" => {
+            std::io::stdout().write_all(&output).unwrap();
+        },
+        name => {
+            std::fs::OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .open(name)
+                .unwrap()
+                .write_all(&output)
+                .unwrap()
+        }
+    };
 }
