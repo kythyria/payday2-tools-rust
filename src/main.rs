@@ -20,7 +20,8 @@ arg_enum! {
     #[derive(Debug, Clone, Copy, Ord, Eq, PartialOrd, PartialEq, Hash)]
     enum ConvertType {
         Lua,
-        Generic
+        Generic,
+        Custom
     }
 }
 
@@ -49,7 +50,7 @@ fn main() {
         )
         (@subcommand convert => 
             (about: "Convert binary scriptdata to text")
-            (@arg format: -f --format [FORMAT] possible_value[lua generic] default_value("generic") "Output format")
+            (@arg format: -f --format [FORMAT] possible_values(&ConvertType::variants()) default_value("generic") "Output format")
             (@arg input: <INPUT> "File to read or - for stdin")
             (@arg output: [OUTPUT] default_value("-") "File to write, - for stdout")
         )
@@ -180,6 +181,9 @@ fn do_convert(input_filename: &str, output_filename: &str, output_type: ConvertT
         },
         ConvertType::Generic => {
             formats::scriptdata::generic_xml::dump(&doc).into_bytes()
+        }
+        ConvertType::Custom => {
+            formats::scriptdata::custom_xml::dump(&doc).into_bytes()
         }
     };
 
