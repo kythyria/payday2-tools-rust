@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::convert::{TryInto, TryFrom};
 use std::cmp::Ord;
 use std::rc::Rc;
 use std::str;
@@ -97,6 +98,7 @@ pub enum DocValue {
     Quaternion(Quaternion<OrderedFloat>),
     Table(RcCell<DocTable>)
 }
+impl From<f32> for DocValue { fn from(src: f32) -> DocValue { DocValue::Number(OrderedFloat(src)) } }
 
 #[derive(Default)]
 pub struct DocTable {
@@ -120,6 +122,14 @@ impl DocTable {
     /// Lua's # operator is array_len()
     pub fn len(&self) -> usize {
         self.dict_like.len()
+    }
+
+    /// Enumerate the items in the array-like part.
+    pub fn ipairs(&self) -> ArrayPartIterator {
+        ArrayPartIterator {
+            table: self,
+            counter: 0
+        }
     }
 }
 impl std::fmt::Debug for DocTable {
@@ -153,6 +163,23 @@ impl<'a> Iterator for TableIterator<'a> {
         match self.inner.next() {
             None => None,
             Some(k) => self.dict.get_key_value(k)
+        }
+    }
+}
+
+/// The iterator corresponding to Lua's `ipairs()` function
+pub struct ArrayPartIterator<'a> {
+    table: &'a DocTable,
+    counter: usize
+}
+
+impl<'a> Iterator for ArrayPartIterator<'a> {
+    type Item = (usize, &'a DocValue);
+    fn next(&mut self) -> Option<Self::Item> {
+        self.counter += 1;
+        match self.table.dict_like.get(&DocValue::from(self.counter as f32)) {
+            None => None,
+            Some(item) => Some((self.counter, item))
         }
     }
 }
