@@ -23,7 +23,6 @@ use crate::bundles::database::Database;
 
 mod teststub;
 mod raw_bundledb;
-mod router;
 mod transcoder;
 
 /// Trait of read-only filesystems
