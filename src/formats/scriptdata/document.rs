@@ -10,7 +10,7 @@ use crate::util::ordered_float::OrderedFloat;
 use crate::util::rc_cell::{RcCell, WeakCell};
 
 pub struct Document {
-    root_value: Option<InternalValue>,
+    root_value: Option<DocValue>,
     string_cache: HashSet<Rc<str>>
 }
 impl Document {
@@ -36,14 +36,14 @@ impl Document {
         self.string_cache.retain(|item| Rc::strong_count(item) > 1);
     }
 
-    pub fn root(&self) -> Option<InternalValue> {
+    pub fn root(&self) -> Option<DocValue> {
         self.root_value.clone()
     }
 
-    pub fn set_root(&mut self, t: Option<InternalValue>) { self.root_value = t; }
+    pub fn set_root(&mut self, t: Option<DocValue>) { self.root_value = t; }
 
-    pub fn table_refcounts(&self) -> FnvHashMap<WeakCell<InternalTable>, u32> {
-        let mut counter = FnvHashMap::<WeakCell<InternalTable>, u32>::default();
+    pub fn table_refcounts(&self) -> FnvHashMap<WeakCell<DocTable>, u32> {
+        let mut counter = FnvHashMap::<WeakCell<DocTable>, u32>::default();
 
         match self.root() {
             Some(r) => count_table_references(&r, &mut counter),
@@ -53,17 +53,17 @@ impl Document {
         return counter;
     }
 
-    pub fn tables_used_repeatedly(&self) -> FnvHashSet<WeakCell<InternalTable>> {
+    pub fn tables_used_repeatedly(&self) -> FnvHashSet<WeakCell<DocTable>> {
         let counter = self.table_refcounts();
-        let result : FnvHashSet<WeakCell<InternalTable>> = counter.iter()
+        let result : FnvHashSet<WeakCell<DocTable>> = counter.iter()
             .filter_map(|(k,v)| if *v > 1 { Some(k.clone()) } else { None })
             .collect();
         return result;
     }
 }
 
-fn count_table_references(item: &InternalValue, counter: &mut FnvHashMap<WeakCell<InternalTable>, u32>) {
-    if let InternalValue::Table(tab) = item {
+fn count_table_references(item: &DocValue, counter: &mut FnvHashMap<WeakCell<DocTable>, u32>) {
+    if let DocValue::Table(tab) = item {
         let down = tab.downgrade();
         let entry = counter.entry(down);
         *entry.or_insert(0) += 1;
@@ -87,7 +87,7 @@ pub struct Vector<T> { pub x: T, pub y: T, pub z: T }
 pub struct Quaternion<T> { pub x: T, pub y: T, pub z: T, pub w: T }
 
 #[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Debug, Hash)]
-pub enum InternalValue {
+pub enum DocValue {
     // no Nil because it can never occur in a table and thus only as the root and we can just make root() return Option<Value> if that matters.
     Bool(bool),
     Number(OrderedFloat),
@@ -95,18 +95,18 @@ pub enum InternalValue {
     String(Rc<str>),
     Vector(Vector<OrderedFloat>),
     Quaternion(Quaternion<OrderedFloat>),
-    Table(RcCell<InternalTable>)
+    Table(RcCell<DocTable>)
 }
 
 #[derive(Default)]
-pub struct InternalTable {
+pub struct DocTable {
     metatable: Option<Rc<str>>,
-    dict_like: HashMap<InternalValue, InternalValue>,
-    keys_in_order_of_add: Vec<InternalValue>
+    dict_like: HashMap<DocValue, DocValue>,
+    keys_in_order_of_add: Vec<DocValue>
 }
-impl InternalTable {
-    pub fn new() -> InternalTable { InternalTable::default() }
-    pub fn insert(&mut self, key: InternalValue, value: InternalValue) {
+impl DocTable {
+    pub fn new() -> DocTable { DocTable::default() }
+    pub fn insert(&mut self, key: DocValue, value: DocValue) {
         self.keys_in_order_of_add.push(key.clone());
         self.dict_like.insert(key, value);
     }
@@ -122,7 +122,7 @@ impl InternalTable {
         self.dict_like.len()
     }
 }
-impl std::fmt::Debug for InternalTable {
+impl std::fmt::Debug for DocTable {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
         if let Some(mt) = &self.metatable {
             write!(f, "{:?} ", mt)?;
@@ -131,8 +131,8 @@ impl std::fmt::Debug for InternalTable {
     }
 }
 
-impl<'a> std::iter::IntoIterator for &'a InternalTable {
-    type Item=(&'a InternalValue, &'a InternalValue);
+impl<'a> std::iter::IntoIterator for &'a DocTable {
+    type Item=(&'a DocValue, &'a DocValue);
     type IntoIter=TableIterator<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
@@ -144,11 +144,11 @@ impl<'a> std::iter::IntoIterator for &'a InternalTable {
 }
 
 pub struct TableIterator<'a> {
-    inner: std::slice::Iter<'a, InternalValue>,
-    dict: &'a HashMap<InternalValue, InternalValue>
+    inner: std::slice::Iter<'a, DocValue>,
+    dict: &'a HashMap<DocValue, DocValue>
 }
 impl<'a> Iterator for TableIterator<'a> {
-    type Item = (&'a InternalValue, &'a InternalValue);
+    type Item = (&'a DocValue, &'a DocValue);
     fn next(&mut self) -> Option<Self::Item> {
         match self.inner.next() {
             None => None,

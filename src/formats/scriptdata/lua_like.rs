@@ -26,25 +26,25 @@ pub fn dump<O: Write>(doc: &Document, output: &mut O) -> IoResult<()> {
 
 struct DumpState<'o, O: Write> {
     output: &'o mut O,
-    seen_table_ids: FnvHashMap<WeakCell<InternalTable>, String>,
-    referenced_tables: FnvHashSet<WeakCell<InternalTable>>,
+    seen_table_ids: FnvHashMap<WeakCell<DocTable>, String>,
+    referenced_tables: FnvHashSet<WeakCell<DocTable>>,
     next_id: u32
 }
 
-fn dump_item<O: Write>(item: &InternalValue, state: &mut DumpState<O>, indent_level: usize) -> IoResult<()> {
+fn dump_item<O: Write>(item: &DocValue, state: &mut DumpState<O>, indent_level: usize) -> IoResult<()> {
     match item {
-        InternalValue::Bool(b) => {
+        DocValue::Bool(b) => {
             match b {
                 true => write!(state.output, "true"),
                 false => write!(state.output, "false")
             }
         },
-        InternalValue::IdString(ids) => write!(state.output, "IdString(0x{})", ids),
-        InternalValue::Number(f) => write!(state.output, "{}", f),
-        InternalValue::Quaternion(q) => write!(state.output, "Quaternion({}, {}, {}, {})", q.x, q.y, q.z, q.w),
-        InternalValue::Vector(v) => write!(state.output, "Vector3({}, {}, {})", v.x, v.y, v.z),
-        InternalValue::String(s) => write!(state.output, "{}", WriteLuaString(s)),
-        InternalValue::Table(tab) => write_lua_table(tab, state, indent_level)
+        DocValue::IdString(ids) => write!(state.output, "IdString(0x{})", ids),
+        DocValue::Number(f) => write!(state.output, "{}", f),
+        DocValue::Quaternion(q) => write!(state.output, "Quaternion({}, {}, {}, {})", q.x, q.y, q.z, q.w),
+        DocValue::Vector(v) => write!(state.output, "Vector3({}, {}, {})", v.x, v.y, v.z),
+        DocValue::String(s) => write!(state.output, "{}", WriteLuaString(s)),
+        DocValue::Table(tab) => write_lua_table(tab, state, indent_level)
     }
 }
 
@@ -73,7 +73,7 @@ impl<S: AsRef<str>> fmt::Display for WriteLuaString<S> {
     }
 }
 
-fn write_lua_table<O: Write>(table: &RcCell<InternalTable>, state: &mut DumpState<O>, indent_level: usize) -> IoResult<()> {
+fn write_lua_table<O: Write>(table: &RcCell<DocTable>, state: &mut DumpState<O>, indent_level: usize) -> IoResult<()> {
     let downgraded = table.downgrade();
     if let Some(id) = state.seen_table_ids.get(&downgraded) {
         write!(state.output, "Ref(\'{}\')", id)?;
@@ -120,9 +120,9 @@ fn write_indent<O: Write>(output: &mut O, level: usize) -> IoResult<()>{
     Ok(())
 }
 
-fn write_key<O: Write>(item: &InternalValue, state: &mut DumpState<O>, indent_level: usize) -> IoResult<()> {
+fn write_key<O: Write>(item: &DocValue, state: &mut DumpState<O>, indent_level: usize) -> IoResult<()> {
     match item {
-        InternalValue::String(s) => {
+        DocValue::String(s) => {
             if is_valid_ident(s) {
                 write!(state.output, "{}", s)?;
                 return Ok(());

@@ -4,7 +4,7 @@ use std::rc::Rc;
 use fnv::{FnvHashMap, FnvHashSet};
 use xmlwriter::*;
 
-use super::document::{Document, InternalTable as DocTable, InternalValue as DocValue};
+use super::document::{Document, DocTable, DocValue};
 use crate::util::rc_cell::*;
 
 pub fn dump(doc: &Document) -> String {

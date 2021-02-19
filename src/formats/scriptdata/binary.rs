@@ -21,7 +21,7 @@ struct FromBinaryState<'a> {
     quaternion_offset: usize,
     idstring_offset: usize,
     table_offset: usize,
-    seen_tables: FnvHashMap<u32, RcCell<InternalTable>>,
+    seen_tables: FnvHashMap<u32, RcCell<DocTable>>,
     doc: Document
 }
 
@@ -48,17 +48,17 @@ impl FromBinaryState<'_> {
         return self.doc.cache_string(input_slice_str);
     }
 
-    fn value_from_binary(&mut self, offset: usize) -> InternalValue {
+    fn value_from_binary(&mut self, offset: usize) -> DocValue {
         let item_type = read_u32_le(self.input, offset);
         let tag = (item_type >> 24) & 0xFF;
         let value = item_type & 0xFFFFFF;
     
         match tag {
             0 => panic!("Nulls in scriptdata aren't supported yet, it's unclear when that would even be useful."),
-            1 => InternalValue::Bool(false),
-            2 => InternalValue::Bool(true),
-            3 => InternalValue::Number(OrderedFloat(read_f32_le(self.input, self.float_offset + (value as usize)*4))),
-            4 => InternalValue::String(self.read_string(value as usize)),
+            1 => DocValue::Bool(false),
+            2 => DocValue::Bool(true),
+            3 => DocValue::Number(OrderedFloat(read_f32_le(self.input, self.float_offset + (value as usize)*4))),
+            4 => DocValue::String(self.read_string(value as usize)),
             5 => {
                 let vector_offset = self.vector_offset + 12 * (value as usize);
                 let vec = Vector {
@@ -66,7 +66,7 @@ impl FromBinaryState<'_> {
                     y: OrderedFloat(read_f32_le(self.input, vector_offset + 4)),
                     z: OrderedFloat(read_f32_le(self.input, vector_offset + 8))
                 };
-                return InternalValue::Vector(vec);
+                return DocValue::Vector(vec);
             },
             6 => {
                 let quaternion_offset = self.quaternion_offset + 16 * (value as usize);
@@ -76,15 +76,15 @@ impl FromBinaryState<'_> {
                     z: OrderedFloat(read_f32_le(self.input, quaternion_offset + 8)),
                     w: OrderedFloat(read_f32_le(self.input, quaternion_offset + 12))
                 };
-                return InternalValue::Quaternion(quat);
+                return DocValue::Quaternion(quat);
             },
             7 => {
                 let idstring_offset = self.idstring_offset + 8 * (value as usize);
-                return InternalValue::IdString(IdString(read_u64_le(self.input, idstring_offset)))
+                return DocValue::IdString(IdString(read_u64_le(self.input, idstring_offset)))
             },
             8 => {
                 if let Some(tab) = self.seen_tables.get(&value) {
-                    return InternalValue::Table(tab.clone());
+                    return DocValue::Table(tab.clone());
                 }
     
                 let table_offset = self.table_offset + (value as usize) * self.by_variant(40, 32, 20);
@@ -115,7 +115,7 @@ impl FromBinaryState<'_> {
                 };
                 let items_offset = self.read_offset(table_offset + self.by_variant(24, 16, 12));
                 
-                let mut table = InternalTable::new();
+                let mut table = DocTable::new();
                 table.set_metatable(metatable_str);
                 for i in 0..item_count {
                     let item_offset = items_offset + i * 8;
@@ -127,7 +127,7 @@ impl FromBinaryState<'_> {
                 let tab_ref = RcCell::new(table);
 
                 self.seen_tables.insert(value, tab_ref.clone());
-                return InternalValue::Table(tab_ref);
+                return DocValue::Table(tab_ref);
             },
             _ => panic!("Unrecognised tag {}", tag)
         }
