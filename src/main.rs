@@ -9,6 +9,7 @@ mod formats;
 
 use std::vec::Vec;
 use std::fs;
+use std::path::{Path, PathBuf};
 use std::io::{Read,Write};
 use std::sync::Arc;
 
@@ -30,7 +31,7 @@ fn main() {
     let app = clap_app!(("Payday 2 CLI Tools") =>
         (version: "0.1")
         (about: "Does various things related to the game Payday 2")
-        (@arg hashlist: -h --hashlist [HASHLIST] default_value("./hashlist") "Load hashlist from this file")
+        (@arg hashlist: -h --hashlist [HASHLIST] "Load hashlist from this file [default: .exe location or CWD]")
         (@subcommand hash =>
             (about: "Calculate diesel hash of arguments")
             (@arg to_hash: <STRING>... "String to hash")
@@ -62,21 +63,21 @@ fn main() {
             do_hash(sc_args.values_of("to_hash").unwrap().collect())
         },
         ("unhash", Some(sc_args)) => {
-            let hashlist_maybe = get_hashlist(arg_matches.value_of("hashlist").unwrap());
+            let hashlist_maybe = get_hashlist(arg_matches.value_of("hashlist"));
             match hashlist_maybe {
                 None => return,
                 Some(hashlist) => do_unhash(hashlist, sc_args.values_of("to_unhash").unwrap().collect())
             }
         },
         ("read_packages", Some(sc_args)) => {
-            let hashlist_maybe = get_hashlist(arg_matches.value_of("hashlist").unwrap());
+            let hashlist_maybe = get_hashlist(arg_matches.value_of("hashlist"));
             match hashlist_maybe {
                 None => return,
                 Some(hashlist) => do_readpkg(hashlist, sc_args.value_of("assetdir").unwrap())
             }
         },
         ("mount", Some(sc_args)) => {
-            do_mount(sc_args.value_of("mountpoint").unwrap(), arg_matches.value_of("hashlist").unwrap(), sc_args.value_of("assetdir").unwrap())
+            do_mount(sc_args.value_of("mountpoint").unwrap(), arg_matches.value_of("hashlist"), sc_args.value_of("assetdir").unwrap())
         },
         ("convert", Some(sc_args)) => {
             let in_name = sc_args.value_of("input").unwrap();
@@ -92,13 +93,9 @@ fn main() {
     return;
 }
 
-fn get_hashlist(hashlist_filename: &str) -> Option<HashIndex> {
-    match fs::read_to_string(hashlist_filename) {
-        Ok(c) => {
-            let mut hi = HashIndex::new();
-            hi.load_blob(c);
-            Some(hi)
-        }
+fn get_hashlist(hashlist_filename: Option<&str>) -> Option<HashIndex> {
+    match try_get_hashlist(hashlist_filename) {
+        Ok(hi) => Some(hi),
         Err(e) => {
             println!("Failed to read hashlist: {}", e);
             if e.kind() == std::io::ErrorKind::NotFound {
@@ -107,6 +104,45 @@ fn get_hashlist(hashlist_filename: &str) -> Option<HashIndex> {
             None
         }
     }
+}
+
+fn try_get_hashlist(filename_arg: Option<&str>) -> Result<HashIndex, std::io::Error> {
+    if let Some(hf) = filename_arg {
+        let hp = PathBuf::from(hf);
+        return try_load_hashlist(&hp);
+    }
+    else {
+        let cwd_filename = std::env::current_dir().map(|f| {
+            let mut g = f.clone();
+            g.push("hashlist");
+            g
+        });
+        let exe_filename = std::env::current_exe().map(|f| {
+            let mut g = f.clone();
+            g.pop();
+            g.push("hashlist");
+            g
+        });
+
+        let hi = cwd_filename.and_then(|f| try_load_hashlist(&f));
+        match hi {
+            Ok(h) => Ok(h),
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    exe_filename.and_then(|f| try_load_hashlist(&f))
+                }
+                else { Err(e) }
+            }
+        }
+    }
+}
+
+fn try_load_hashlist(filename: &Path) -> Result<HashIndex, std::io::Error> {
+    fs::read_to_string(filename).map(|c| {
+        let mut hi = HashIndex::new();
+        hi.load_blob(c);
+        hi
+    })
 }
 
 fn get_packagedb<'a>(hashlist: hashindex::HashIndex, asset_dir: &str) -> Result<bundles::database::Database, bundles::ReadError> {
@@ -146,7 +182,7 @@ fn do_readpkg(hashlist: hashindex::HashIndex, asset_dir: &str) {
     }
 }
 
-fn do_mount(mountpoint: &str, hashlist_filename: &str, asset_dir: &str) {
+fn do_mount(mountpoint: &str, hashlist_filename: Option<&str>, asset_dir: &str) {
     let hashlist = get_hashlist(hashlist_filename).unwrap();
     let db = get_packagedb(hashlist, asset_dir).unwrap();
     filesystem::mount_cooked_database(mountpoint, db.hashes.clone(), Arc::new(db));
