@@ -66,10 +66,16 @@ fn count_table_references(item: &DocValue, counter: &mut FnvHashMap<WeakCell<Doc
     if let DocValue::Table(tab) = item {
         let down = tab.downgrade();
         let entry = counter.entry(down);
+        let do_recurse = match entry {
+            std::collections::hash_map::Entry::Occupied(_) => false,
+            std::collections::hash_map::Entry::Vacant(_) => true
+        };
         *entry.or_insert(0) += 1;
 
-        for (_, v) in &*tab.borrow() {
-            count_table_references(v, counter);
+        if do_recurse {
+            for (_, v) in &*tab.borrow() {
+                count_table_references(v, counter);
+            }
         }
     }
 }
