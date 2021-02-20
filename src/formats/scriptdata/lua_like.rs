@@ -86,7 +86,7 @@ fn write_lua_table<O: Write>(table: &RcCell<DocTable>, state: &mut DumpState<O>,
         state.next_id += 1;
         let tref = &*table.borrow();
         if let Some(mt) = tref.get_metatable() {
-            write!(state.output, "{} ", mt);
+            write!(state.output, "{} ", mt)?;
         }
         write!(state.output, "{{")?;
 
@@ -94,7 +94,7 @@ fn write_lua_table<O: Write>(table: &RcCell<DocTable>, state: &mut DumpState<O>,
             write!(state.output, " ")?;
         }
         else {
-            writeln!(state.output);
+            writeln!(state.output)?;
             for (k, v) in tref {
                 write_indent(state.output, indent_level+1)?;
                 write_key(k, state, indent_level+1)?;

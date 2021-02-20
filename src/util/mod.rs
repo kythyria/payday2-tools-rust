@@ -32,7 +32,7 @@ pub fn escape_json_str(what: &str) -> String {
             buffer.push_str(&"\"\\/bfnrt"[i..i+1]);
         }
         else if ch.is_control() || ('\u{E000}'..='\u{F8FF}').contains(&ch) {
-            write!(buffer, "\\u{:04X}", ch as u32);
+            write!(buffer, "\\u{:04X}", ch as u32).unwrap();
         }
         else {
             buffer.push(ch);
