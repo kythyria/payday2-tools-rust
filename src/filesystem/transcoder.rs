@@ -167,15 +167,22 @@ struct_from_tuple_table! {
     }
 
     TRANSCODE_RULES = [
-        (".movie",   ".bik", true, None),
-        (".texture", ".dds", true, None),
-        (".strings", ".strings.json", false, Some(transcode_strings)),
-        (".sequence_manager", ".sequence_manager", false, Some(transcode_sd_custom)),
-        ("mission.mission", "mission.mission", true, Some(transcode_sd_custom)),
-        (".mission", ".mission", true, Some(transcode_sd_generic)),
-        ("world.world", "world.world", true, Some(transcode_sd_generic)),
-        (".continent", ".continent", true, Some(transcode_sd_custom))
-    ]
+        (".movie"           , ".bik"             , true , None                       ),
+        (".texture"         , ".dds"             , true , None                       ),
+        (".strings"         , ".strings"         , true , Some(transcode_strings   ) ),
+        (".sequence_manager", ".sequence_manager", true , Some(transcode_sd_custom ) ),
+        ("mission.mission"  , "mission.mission"  , true , Some(transcode_sd_custom ) ),
+        (".mission"         , ".mission"         , true , Some(transcode_sd_generic) ),
+        ("world.world"      , "world.world"      , true , Some(transcode_sd_generic) ),
+        (".continent"       , ".continent"       , true , Some(transcode_sd_custom ) ),
+        (".continents"      , ".continents"      , true , Some(transcode_sd_custom ) ),
+        (".cover_data"      , ".cover_data"      , true , Some(transcode_sd_generic) ),
+        (".nav_data"        , ".nav_data"        , true , Some(transcode_sd_generic) ),
+        (".world_cameras"   , ".world_cameras"   , true , Some(transcode_sd_custom ) ),
+        (".world_sounds"    , ".world_sounds"    , true , Some(transcode_sd_generic) ),
+        (".environment"     , ".environment"     , true , Some(transcode_sd_custom ) ),
+        (".banksinfo"       , ".banksinfo"       , true , Some(transcode_banksinfo ) )
+    ] 
 }
 
 fn transcode_strings(hi: &HashIndex, input: &[u8]) -> Vec<u8> {
@@ -194,4 +201,10 @@ fn transcode_sd_custom(_hi: &HashIndex, input: &[u8]) -> Vec<u8> {
     let doc = crate::formats::scriptdata::binary::from_binary(input, false);
     let gx = crate::formats::scriptdata::custom_xml::dump(&doc);
     return gx.into_bytes();
+}
+
+fn transcode_banksinfo(_hi: &HashIndex, input: &[u8]) -> Vec<u8> {
+    let bkif = crate::formats::banksinfo::try_from_bytes(input);
+    let s = format!("{:?}", bkif);
+    return s.into_bytes();
 }
