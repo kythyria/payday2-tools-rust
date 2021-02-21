@@ -167,21 +167,39 @@ struct_from_tuple_table! {
     }
 
     TRANSCODE_RULES = [
+        // renames
         (".movie"           , ".bik"             , true , None                       ),
         (".texture"         , ".dds"             , true , None                       ),
+        (".stream"          , ".wem"             , true , None                       ),
+
+        // non-scriptdata
         (".strings"         , ".strings"         , true , Some(transcode_strings   ) ),
-        (".sequence_manager", ".sequence_manager", true , Some(transcode_sd_custom ) ),
+        (".banksinfo"       , ".banksinfo"       , true , Some(transcode_banksinfo ) ),
+        
+        // specific scriptdata files
         ("mission.mission"  , "mission.mission"  , true , Some(transcode_sd_custom ) ),
-        (".mission"         , ".mission"         , true , Some(transcode_sd_generic) ),
         ("world.world"      , "world.world"      , true , Some(transcode_sd_generic) ),
+
+        // extensions
+        (".achievement"     , ".achievement"     , true , Some(transcode_sd_custom ) ),
+        (".action_message"  , ".action_message"  , true , Some(transcode_sd_custom ) ),
+        (".credits"         , ".credits"         , true , Some(transcode_sd_custom ) ),
+        (".comment"         , ".comment"         , true , Some(transcode_sd_custom ) ),
         (".continent"       , ".continent"       , true , Some(transcode_sd_custom ) ),
         (".continents"      , ".continents"      , true , Some(transcode_sd_custom ) ),
         (".cover_data"      , ".cover_data"      , true , Some(transcode_sd_generic) ),
-        (".nav_data"        , ".nav_data"        , true , Some(transcode_sd_generic) ),
-        (".world_cameras"   , ".world_cameras"   , true , Some(transcode_sd_custom ) ),
-        (".world_sounds"    , ".world_sounds"    , true , Some(transcode_sd_generic) ),
+        (".dialog"          , ".dialog"          , true , Some(transcode_sd_custom ) ),
         (".environment"     , ".environment"     , true , Some(transcode_sd_custom ) ),
-        (".banksinfo"       , ".banksinfo"       , true , Some(transcode_banksinfo ) )
+        (".hint"            , ".hint"            , true , Some(transcode_sd_custom ) ),
+        (".menu"            , ".menu"            , true , Some(transcode_sd_custom ) ),
+        (".mission"         , ".mission"         , true , Some(transcode_sd_generic) ),
+        (".nav_data"        , ".nav_data"        , true , Some(transcode_sd_generic) ),
+        (".objective"       , ".objective"       , true , Some(transcode_sd_custom ) ),
+        (".sequence_manager", ".sequence_manager", true , Some(transcode_sd_custom ) ),
+        (".timeline"        , ".timeline"        , true , Some(transcode_sd_custom ) ),
+        (".world"           , ".world"           , true , Some(transcode_sd_generic) ),
+        (".world_cameras"   , ".world_cameras"   , true , Some(transcode_sd_custom ) ),
+        (".world_sounds"    , ".world_sounds"    , true , Some(transcode_sd_generic) )
     ] 
 }
 
