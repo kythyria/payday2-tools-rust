@@ -5,11 +5,16 @@ use fnv::FnvHashMap;
 
 use super::diesel_hash;
 
-#[derive(Copy, Clone, Eq, Ord, PartialEq, PartialOrd, Debug, Hash)]
+#[derive(Copy, Clone, Eq, Ord, PartialEq, PartialOrd, Hash)]
 pub struct Hash(pub u64);
 impl fmt::Display for Hash {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:>016x}", &self.0)
+    }
+}
+impl fmt::Debug for Hash {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Hash({:>016x})", &self.0)
     }
 }
 
