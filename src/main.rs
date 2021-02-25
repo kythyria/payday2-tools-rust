@@ -6,6 +6,7 @@ mod bundles;
 mod util;
 mod filesystem;
 mod formats;
+mod hashlist_scan;
 
 use std::vec::Vec;
 use std::fs;
@@ -27,7 +28,6 @@ arg_enum! {
 }
 
 fn main() {
-    
     let app = clap_app!(("Payday 2 CLI Tools") =>
         (version: "0.1")
         (about: "Does various things related to the game Payday 2")

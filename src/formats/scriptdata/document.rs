@@ -1,3 +1,4 @@
+use std::cell::Ref;
 use std::collections::{HashMap, HashSet};
 use std::cmp::Ord;
 use std::rc::Rc;
@@ -105,6 +106,35 @@ pub enum DocValue {
 }
 impl From<f32> for DocValue { fn from(src: f32) -> DocValue { DocValue::Number(OrderedFloat(src)) } }
 
+macro_rules! dv_try_from {
+    ($v:ident, $t:ty) => {
+        impl std::convert::TryFrom<DocValue> for $t {
+            type Error = ();
+            fn try_from(v: DocValue) -> Result<$t, Self::Error> {
+                match v {
+                    DocValue::$v(s) => Ok(s.clone()),
+                    _ => Err(())
+                }
+            }
+        }
+        impl std::convert::TryFrom<&DocValue> for $t {
+            type Error = ();
+            fn try_from(v: &DocValue) -> Result<$t, Self::Error> {
+                match v {
+                    DocValue::$v(s) => Ok(s.clone()),
+                    _ => Err(())
+                }
+            }
+        }
+    }
+}
+
+dv_try_from!(Bool, bool);
+dv_try_from!(Number, OrderedFloat);
+dv_try_from!(Vector, Vector<OrderedFloat>);
+dv_try_from!(String, Rc<str>);
+dv_try_from!(Table, RcCell<DocTable>);
+
 #[derive(Default)]
 pub struct DocTable {
     metatable: Option<Rc<str>>,
@@ -135,6 +165,10 @@ impl DocTable {
             table: self,
             counter: 0
         }
+    }
+
+    pub fn get(&self, key: &DocValue) -> Option<&DocValue> {
+        self.dict_like.get(key)
     }
 }
 impl std::fmt::Debug for DocTable {
@@ -179,12 +213,12 @@ pub struct ArrayPartIterator<'a> {
 }
 
 impl<'a> Iterator for ArrayPartIterator<'a> {
-    type Item = (usize, &'a DocValue);
+    type Item = (usize, DocValue);
     fn next(&mut self) -> Option<Self::Item> {
         self.counter += 1;
         match self.table.dict_like.get(&DocValue::from(self.counter as f32)) {
             None => None,
-            Some(item) => Some((self.counter, item))
+            Some(item) => Some((self.counter, item.clone()))
         }
     }
 }

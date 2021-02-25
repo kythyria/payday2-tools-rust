@@ -25,6 +25,7 @@ trait HashList {
     }
 }
 
+#[derive(Copy, Clone)]
 pub struct HashedStr<'a> {
     pub hash: u64,
     pub text: Option<&'a str>,

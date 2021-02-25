@@ -35,6 +35,32 @@ index of path/lang/ext to where in that array the item is.
 
 */
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct HashKey {
+    pub path: u64,
+    pub language: u64,
+    pub extension: u64
+}
+impl From<HashStrKey<'_>> for HashKey {
+    fn from(src: HashStrKey) -> HashKey { HashKey { path: src.path.hash, language: src.language.hash, extension: src.extension.hash } }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct HashStrKey<'a> {
+    pub path: HashedStr<'a>,
+    pub language: HashedStr<'a>,
+    pub extension: HashedStr<'a>
+}
+impl<'a> HashStrKey<'a> {
+    pub fn from_hashes(hashlist: &'a HashIndex, key: (u64, u64, u64)) -> HashStrKey<'a> {
+        HashStrKey {
+            path: hashlist.get_hash(key.0),
+            language: hashlist.get_hash(key.1),
+            extension: hashlist.get_hash(key.2)
+        }
+    }
+}
+
 pub struct Database {
     pub hashes: Arc<HashIndex>,
     
@@ -119,6 +145,70 @@ impl<'a> Database {
         println!("Packages: {}", self.packages.len());
         println!("{}", self.item_index.contains_key(&(diesel_hash::EMPTY,diesel_hash::EMPTY,diesel_hash::EMPTY)));
     }
+
+    pub fn filter_key_sort_physical(&self, cond: fn(HashStrKey) -> bool) -> Vec<(&Path, Vec<ReadItem>)> {
+        // 0: path, 1: total bytes to read from this bundle, 2: files to read.
+        let mut packs = Vec::<(&Path, usize, Vec<ReadItem>)>::with_capacity(self.packages.len());
+
+        for pkg in self.packages.iter() {
+            let items: Vec<ReadItem> = pkg.files.iter().filter_map(|per| {
+                let item = &self.items[per.item_number as usize];
+                let key = HashStrKey::from_hashes(&self.hashes, (item.path, item.language, item.extension));
+                if !cond(key) { return None }
+
+                match &item.specifics {
+                    ItemRecordSpecifics::Folder(_) => None,
+                    ItemRecordSpecifics::File(_) => Some(ReadItem {
+                        key,
+                        last_modified: pkg.last_modified,
+                        offset: per.offset as usize,
+                        length: per.length as usize
+                    })
+                }
+            }).collect();
+
+            if items.len() == 0 { continue; }
+
+            let byte_count = items.iter().fold(0, |m,v| m + v.length);
+            packs.push((&pkg.data_path, byte_count, items));
+        }
+
+        packs.sort_unstable_by(|x, y| std::cmp::Ord::cmp(&y.1, &x.1));
+
+        let mut seen_keys = FnvHashSet::<HashKey>::default();
+
+        let filtered_packs: Vec<(&Path, Vec<ReadItem>)> = packs.iter().filter_map(|(path, _, items)| {
+            let mut filtered_items = Vec::<ReadItem>::new();
+            for item in items.iter() {
+                if seen_keys.insert(HashKey::from(item.key)) {
+                    filtered_items.push(item.clone());
+                }
+            };
+            if filtered_items.len() > 0 {
+                Some((*path, filtered_items))
+            }
+            else {
+                None
+            }
+        }).collect();
+
+        return filtered_packs;
+    }
+}
+
+pub struct FilterSortPhysicalIterator<'a> {
+    database: &'a Database,
+    predicate: fn(&HashIndex, (HashedStr, HashedStr, HashedStr)) -> bool,
+    seen: FnvHashSet<(HashedStr<'a>, HashedStr<'a>, HashedStr<'a>)>,
+    current_package: usize
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct ReadItem<'a> {
+    pub key: HashStrKey<'a>,
+    pub last_modified: SystemTime,
+    pub offset: usize,
+    pub length: usize
 }
 
 pub struct DatabaseItem<'a> {
