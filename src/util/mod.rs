@@ -1,6 +1,7 @@
 pub mod ordered_float;
 pub mod read_helpers;
 pub mod rc_cell;
+pub mod iter;
 
 use std::fmt::Write;
 

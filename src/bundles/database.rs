@@ -184,6 +184,7 @@ impl<'a> Database {
                     filtered_items.push(item.clone());
                 }
             };
+            filtered_items.sort_by(|x,y| std::cmp::Ord::cmp(&x.offset, &y.offset) );
             if filtered_items.len() > 0 {
                 Some((*path, filtered_items))
             }

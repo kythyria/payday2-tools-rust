@@ -112,7 +112,7 @@ macro_rules! dv_try_from {
             type Error = ();
             fn try_from(v: DocValue) -> Result<$t, Self::Error> {
                 match v {
-                    DocValue::$v(s) => Ok(s.clone()),
+                    DocValue::$v(s) => Ok(s),
                     _ => Err(())
                 }
             }

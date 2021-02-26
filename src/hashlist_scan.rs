@@ -1,6 +1,32 @@
-use crate::formats::scriptdata::*;
+use std::fs::File;
+use std::io;
+use std::os::windows::fs::FileExt;
 use std::rc::Rc;
-use crate::util::rc_cell::*;
+use fnv::FnvHashSet;
+
+use crate::formats::scriptdata::*;
+use crate::bundles::database::{Database};
+use crate::diesel_hash::{hash_str as dhash};
+
+fn do_scan(db: &Database) {
+    let to_read = db.filter_key_sort_physical(|key| {
+        key.extension.hash == dhash("credits")
+        || key.extension.hash == dhash("dialog_index")
+        || key.extension.hash == dhash("sequence_manager")
+    });
+
+    let mut found = FnvHashSet::<Rc<str>>::default();
+
+    for (path, items) in to_read {
+        let bundle = File::open(path);
+        let bytes = Vec::with_capacity(items.iter().map(|i| i.length).max().unwrap_or(0));
+        for item in items {
+            bytes.resize(item.length, 0);
+            let bytes = bundle.read_at(&mut bytes, item.offset);
+            
+        }
+    }
+}
 
 macro_rules! scan_scriptdata {
     (@a $accum:tt $t:ident ($($arg:expr),*)) => { ops::$t($accum $(,$arg)*) };
@@ -34,21 +60,23 @@ scan_scriptdata! {
     }
 }
 
-/*fn unquote_lua(input: Rc<str>) -> Option<Rc<str>> {
+fn unquote_lua(input: Rc<str>) -> Option<Rc<str>> {
     let trimmed = input.trim();
-    if(trimmed.len() == 0) { return None; }
+    if trimmed.len() == 0 { return None; }
 
     let first = input.chars().nth(0);
-    let last = input.las;
-    if first != last { return None; }
     match first {
         Some('"') => (),
         Some('\'') => (),
         _ => return None
-    }
+    };
 
-
-}*/
+    let body = trimmed[1..].strip_suffix(first.unwrap())?;
+    
+    // this is dirty, but the only things you can have in a filename that
+    // lua requires quoting you just prefix with a \ anyway.
+    Some(Rc::from(body.replace('\\', "")))
+}
 
 
 // with_root(doc).ipairs().metatable("image").key("src").is_str()
@@ -145,4 +173,5 @@ mod ops {
     {
         input.flat_map(f)
     }
+
 }
