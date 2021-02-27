@@ -16,6 +16,7 @@ pub fn do_scan<W: std::io::Write>(db: &Database, output: &mut W) -> io::Result<(
         || key.extension.hash == dhash("continent")
         || (key.extension.hash == dhash("continents") && key.path.text.is_some())
         || (key.extension.hash == dhash("world") && key.path.text.is_some())
+        || key.extension.hash == dhash("mission")
     });
 
     let mut found = FnvHashSet::<Rc<str>>::default();
@@ -34,6 +35,7 @@ pub fn do_scan<W: std::io::Write>(db: &Database, output: &mut W) -> io::Result<(
                 Some("continent") => scan_continent(&doc),
                 Some("continents") => scan_continents(&doc, Rc::from(item.key.path.text.unwrap())),
                 Some("world") => scan_world(&doc, Rc::from(item.key.path.text.unwrap())),
+                Some("mission") => scan_mission(&doc),
                 _ => continue
             };
             found.extend(iter);
@@ -142,6 +144,16 @@ scan3! {
             literal_str("cover_data")
         } |> strings() |> map(move |i| Rc::from(format!("{}/{}", parentof(&path), i)))
     }
+
+    scan_mission() {
+        root() |> entries() |> key("elements") |> indexed() |> {
+            key_equal_str("class", "ElementPlayEffect") |> key("values") |> key("effect");
+            key_equal_str("class", "ElementSpawnUnit") |> key("values") |> key("unit_name");
+            key_equal_str("class", "ElementLoadDelayed") |> key("values") |> key("unit_name");
+            key_equal_str("class", "ElementSpawnCivilian") |> key("values") |> key("enemy");
+            key_equal_str("class", "ElementSpawnEnemyDummy") |> key("values") |> key("enemy")
+        } |> strings()
+    }
 }
 
 fn parentof(s: &str) -> &str {
@@ -212,6 +224,16 @@ mod ops2 {
         }
     }
 
+    pub fn entries<TIter, TIn>(input: TIter) -> impl Iterator<Item=DocValue>
+    where
+        TIter: Iterator<Item=TIn>,
+        TIn: TryInto<RcCell<DocTable>>
+    {
+        input.flat_map(|i| i.try_into()).flat_map(|i| {
+            TableEntriesThroughCell::new(i)
+        })
+    }
+
     pub fn key<TIter, TIn>(input: TIter, name: &str) -> impl Iterator<Item=DocValue>
     where
         TIter: Iterator<Item=TIn>,
@@ -231,6 +253,21 @@ mod ops2 {
         input.flat_map(|i| i.try_into()).filter(move |rct| {
             let b = rct.borrow();
             b.get_metatable().map(|mt| mt.to_ascii_lowercase() == name).unwrap_or(false)
+        })
+    }
+
+    pub fn key_equal_str<TIter, TIn>(input: TIter, name: &'static str, value: &'static str) -> impl Iterator<Item=RcCell<DocTable>>
+    where
+        TIter: Iterator<Item=TIn>,
+        TIn: TryInto<RcCell<DocTable>>
+    {
+        let key = DocValue::String(Rc::from(name));
+        input.flat_map(|i| i.try_into()).filter(move |rct| {
+            let b = rct.borrow();
+            match b.get(&key) {
+                Some(DocValue::String(s)) => s.as_ref() == value,
+                _ => false
+            }
         })
     }
 

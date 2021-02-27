@@ -192,6 +192,29 @@ impl<'a> std::iter::IntoIterator for &'a DocTable {
     }
 }
 
+pub struct TableEntriesThroughCell {
+    table: RcCell<DocTable>,
+    counter: usize
+}
+impl TableEntriesThroughCell {
+    pub fn new(table: RcCell<DocTable>) -> TableEntriesThroughCell {
+        TableEntriesThroughCell {
+            table,
+            counter: 0
+        }
+    }
+}
+impl Iterator for TableEntriesThroughCell {
+    type Item = DocValue;
+    fn next(&mut self) -> Option<Self::Item> {
+        let r = self.table.borrow();
+        let k = r.keys_in_order_of_add.get(self.counter)?;
+        let v = r.dict_like.get_key_value(k)?;
+        self.counter += 1;
+        return Some(v.1.clone());
+    }
+}
+
 pub struct TableIterator<'a> {
     inner: std::slice::Iter<'a, DocValue>,
     dict: &'a HashMap<DocValue, DocValue>
