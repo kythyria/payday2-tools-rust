@@ -13,6 +13,9 @@ pub fn do_scan<W: std::io::Write>(db: &Database, output: &mut W) -> io::Result<(
         key.extension.hash == dhash("credits")
         || key.extension.hash == dhash("dialog_index")
         || key.extension.hash == dhash("sequence_manager")
+        || key.extension.hash == dhash("continent")
+        || (key.extension.hash == dhash("continents") && key.path.text.is_some())
+        || (key.extension.hash == dhash("world") && key.path.text.is_some())
     });
 
     let mut found = FnvHashSet::<Rc<str>>::default();
@@ -25,9 +28,12 @@ pub fn do_scan<W: std::io::Write>(db: &Database, output: &mut W) -> io::Result<(
             bundle.seek_read(&mut bytes, item.offset as u64)?;
             let doc = crate::formats::scriptdata::binary::from_binary(&bytes, false);
             let iter = match item.key.extension.text {
-                Some("credits") => scan_credits2(&doc),
+                Some("credits") => scan_credits(&doc),
                 Some("dialog_index") => scan_dialog_index(&doc),
                 Some("sequence_manager") => scan_sequence_manager(&doc),
+                Some("continent") => scan_continent(&doc),
+                Some("continents") => scan_continents(&doc, Rc::from(item.key.path.text.unwrap())),
+                Some("world") => scan_world(&doc, Rc::from(item.key.path.text.unwrap())),
                 _ => continue
             };
             found.extend(iter);
@@ -59,9 +65,9 @@ macro_rules! scan3 {
     (@a $chain:tt $id:tt $path:tt) => {
         ($chain.chain($path))
     };
-    ($($fname:ident {$($body:tt)+})+) => {
+    ($($fname:ident ($($argpiece:tt)*) {$($body:tt)+})+) => {
         $(
-            fn $fname<'a>(doc: &'a Document) -> Box<dyn Iterator<Item=Rc<str>> + 'a> {
+            fn $fname<'a>(doc: &'a Document, $($argpiece)*) -> Box<dyn Iterator<Item=Rc<str>> + 'a> {
                 let res = scan3![@a (std::iter::empty()) doc doc |> $($body)+];
                 return Box::new(res);
             }
@@ -70,22 +76,22 @@ macro_rules! scan3 {
 }
 
 scan3! {
-    scan_credits2 {
+    scan_credits() {
         root() |> indexed() |> metatable("image") |> { key("src") ; key("SRC") } |> strings() |> map(|i| Rc::from(i.to_ascii_lowercase()))
     }
     
-    scan_dialog_index {
+    scan_dialog_index() {
         root() |> indexed() |> metatable("include") |> key("name") |> strings()
         |> map(|i| Rc::from(format!("gamedata/dialogs/{}", i)))
     }
-    scan_sequence_manager {
+    scan_sequence_manager() {
         root() 
         |> indexed() |> metatable("unit")
         |> indexed() |> metatable("sequence")
         |> indexed() |> metatable("material_config")
         |> key("name") |> strings() |> fmap(unquote_lua)
-    }/*
-    scan_environment {
+    }
+    scan_environment() {
         root() |> indexed() |> metatable("data") |> indexed() |> metatable("others") |> {
             key("global_world_overlay_texture") ;
             key("global_texture") ;
@@ -93,7 +99,8 @@ scan3! {
             key("underlay")
         } |> strings()
     }
-    scan_continent_instances {
+    
+    scan_continent() {
         root() |> key("instances") |> indexed() |> key("folder") |> strings()
         |> fmap(|i| {
             let trimmed = i.strip_suffix("/world").unwrap_or(&i);
@@ -103,9 +110,46 @@ scan3! {
                 i
             ].into_iter()
         })
-    }*/
+        ;
+
+        root() |> key("statics") |> indexed() |> key("unit_data") |> {
+            key("name") ;
+            key("editable_gui") |> key("font")
+        } |> strings()
+    }
+
+    scan_continents(path: Rc<str>) {
+        root() |> indexed() |> key("name") |> strings() |> map(move |s|{
+            Rc::from(format!("{0}/{1}/{1}", parentof(&path), s))
+        })
+    }
+
+    scan_world(path: Rc<str>) {
+        root() |> key("environment") |> {
+            key("environment_areas") |> indexed() |> key("environment");
+            key("environment_values") |> key("environment") ;
+            key("effects") |> indexed() |> key("name")
+        } |> strings() ;
+
+        root() |> {
+            {
+                key("brush") ;
+                key("sounds") ;
+                key("world_camera") ;
+                key("ai_nav_graphs")
+            } |> key("file") ;
+            key("world_data") |> key("continents_file") ;
+            literal_str("cover_data")
+        } |> strings() |> map(move |i| Rc::from(format!("{}/{}", parentof(&path), i)))
+    }
 }
 
+fn parentof(s: &str) -> &str {
+    match s.rfind('/') {
+        None => "",
+        Some(idx) => &s[..idx]
+    }
+}
 
 fn unquote_lua(input: Rc<str>) -> Option<Rc<str>> {
     let trimmed = input.trim();
@@ -195,6 +239,14 @@ mod ops2 {
             F: FnMut(I::Item) -> B
     {
         input.map(f)
+    }
+    
+    pub fn literal_str<TR, TIn>(_: TIn, s: &str) -> std::iter::Once<TR>
+    where
+        TR: From<Rc<str>>,
+    {
+        let v = Rc::from(s);
+        std::iter::once(TR::from(v))
     }
 
     pub fn fmap<I: Iterator, U: IntoIterator, F>(input: I, f: F) -> std::iter::FlatMap<I, U, F>

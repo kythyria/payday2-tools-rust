@@ -104,6 +104,7 @@ pub enum DocValue {
     Table(RcCell<DocTable>)
 }
 impl From<f32> for DocValue { fn from(src: f32) -> DocValue { DocValue::Number(OrderedFloat(src)) } }
+impl From<Rc<str>> for DocValue { fn from(src: Rc<str>) -> DocValue { DocValue::String(src)}}
 
 macro_rules! dv_try_from {
     ($v:ident, $t:ty) => {
