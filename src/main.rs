@@ -55,6 +55,11 @@ fn main() {
             (@arg input: <INPUT> "File to read or - for stdin")
             (@arg output: [OUTPUT] default_value("-") "File to write, - for stdout")
         )
+        (@subcommand scan =>
+            (about: "Scan bundles for strings")
+            (@arg assetdir: <ASSET_DIR> "Directory containing bundle_db.blb")
+            (@arg output: <OUTPUT> "File to write the strings to")
+        )
     );
     let arg_matches = app.get_matches();
 
@@ -84,6 +89,12 @@ fn main() {
             let out_name = sc_args.value_of("output").unwrap();
             let format = value_t!(sc_args, "format", ConvertType).unwrap_or_else(|e| e.exit());
             do_convert(in_name, out_name, format);
+        },
+        ("scan", Some(sc_args)) => {
+            let hl_name = arg_matches.value_of("hashlist");
+            let bdir = sc_args.value_of("assetdir").unwrap();
+            let outname = sc_args.value_of("output").unwrap();
+            do_scan(hl_name, bdir, outname);
         }
         _ => {
             println!("Unknown command, use --help for a list.");
@@ -186,6 +197,13 @@ fn do_mount(mountpoint: &str, hashlist_filename: Option<&str>, asset_dir: &str) 
     let hashlist = get_hashlist(hashlist_filename).unwrap();
     let db = get_packagedb(hashlist, asset_dir).unwrap();
     filesystem::mount_cooked_database(mountpoint, db.hashes.clone(), Arc::new(db));
+}
+
+fn do_scan(hashlist_filename: Option<&str>, asset_dir: &str, outname: &str) {
+    let hashlist = get_hashlist(hashlist_filename).unwrap();
+    let db = get_packagedb(hashlist, asset_dir).unwrap();
+    let mut outfile = std::fs::OpenOptions::new().create(true).write(true).open(outname).unwrap();
+    hashlist_scan::do_scan(&db, &mut outfile).unwrap();
 }
 
 fn do_print_scriptdata(filename: &str) {
