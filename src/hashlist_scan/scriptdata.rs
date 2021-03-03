@@ -20,7 +20,9 @@ macro_rules! scan3 {
     };
     ($($fname:ident ($($argpiece:tt)*) {$($body:tt)+})+) => {
         $(
-            pub fn $fname<'a>(doc: &'a Document, $($argpiece)*) -> Box<dyn Iterator<Item=Rc<str>> + 'a> {
+            pub fn $fname<'a>(buf: &[u8], $($argpiece)*) -> Box<dyn Iterator<Item=Rc<str>>> {
+                let doc_owned = crate::formats::scriptdata::binary::from_binary(&buf, false);
+                let doc = &doc_owned;
                 let res = scan3![@a (std::iter::empty()) doc doc |> $($body)+];
                 return Box::new(res);
             }

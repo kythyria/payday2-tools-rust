@@ -8,7 +8,9 @@ use crate::bundles::database::{Database, ReadItem};
 use crate::diesel_hash::{hash_str as dhash};
 
 mod scriptdata;
-use scriptdata::*;
+
+mod xml;
+use xml::*;
 
 pub fn do_scan<W: std::io::Write>(db: &Database, output: &mut W) -> io::Result<()> {
     let to_read = db.filter_key_sort_physical(|key| {
@@ -42,7 +44,7 @@ fn do_scan_pass(to_read: Vec<(&Path, Vec<ReadItem>)>) -> io::Result<FnvHashSet<R
             let scanned = do_scan_buffer(bytes, item);
             match scanned {
                 Err(e) => eprintln!("Failed reading \"{:?}\": {:?}", item.key, e),
-                Ok(Some(v)) => found.extend(v),
+                Ok(v) => found.extend(v),
                 _ => ()
             }
         }
@@ -50,19 +52,18 @@ fn do_scan_pass(to_read: Vec<(&Path, Vec<ReadItem>)>) -> io::Result<FnvHashSet<R
     return Ok(found);
 }
 
-fn do_scan_buffer(buf: Vec<u8>, item: ReadItem) -> Result<Option<Vec<Rc<str>>>,()>{
-    let doc = crate::formats::scriptdata::binary::from_binary(&buf, false);
-    let iter = match item.key.extension.text {
-        Some("credits") => scan_credits(&doc),
-        Some("dialog_index") => scan_dialog_index(&doc),
-        Some("sequence_manager") => scan_sequence_manager(&doc),
-        Some("continent") => scan_continent(&doc),
-        Some("continents") => scan_continents(&doc, Rc::from(item.key.path.text.unwrap())),
-        Some("world") => scan_world(&doc, Rc::from(item.key.path.text.unwrap())),
-        Some("mission") => scan_mission(&doc),
-        _ => return Ok(None)
+fn do_scan_buffer(buf: Vec<u8>, item: ReadItem) -> Result<Vec<Rc<str>>, Box<dyn std::error::Error>>{
+    let iter_res: Result<Box<dyn Iterator<Item=Rc<str>>>, Box<dyn std::error::Error>> = match item.key.extension.text {
+        Some("credits") => Ok(scriptdata::scan_credits(&buf)),
+        Some("dialog_index") => Ok(scriptdata::scan_dialog_index(&buf)),
+        Some("sequence_manager") => Ok(scriptdata::scan_sequence_manager(&buf)),
+        Some("continent") => Ok(scriptdata::scan_continent(&buf)),
+        Some("continents") => Ok(scriptdata::scan_continents(&buf, Rc::from(item.key.path.text.unwrap()))),
+        Some("world") => Ok(scriptdata::scan_world(&buf, Rc::from(item.key.path.text.unwrap()))),
+        Some("mission") => Ok(scriptdata::scan_mission(&buf)),
+        _ => panic!("Selected a file {:?} to scan and then didn't scan it", item.key)
     };
-    let result = iter.collect::<Vec<_>>();
-    return Ok(Some(result));
+    let result = iter_res.unwrap().collect::<Vec<_>>();
+    return Ok(result);
 }
 
