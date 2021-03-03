@@ -30,141 +30,87 @@ fn tokenise(buf: &[u8]) -> DynResult<xmlparser::Tokenizer> {
 macro_rules! attribute_scanner {
     ($name:ident, $($attr:ident),+) => {
         pub fn $name(buf: &[u8]) -> TryStringIterator {
-            let tokens = tokenise(buf)?;
-            let mut res = Vec::<Rc<str>>::new();
-            for tok in tokens {
-                if let Ok(xmlparser::Token::Attribute { local, value, .. }) = tok {
-                    let name = local.as_str();
-                    if false $(|| name == stringify!($attr))+ {
-                        res.push(Rc::from(value.as_str()));
-                    }
+            scan_by_attributes(buf, |_, attname, value, res| {
+                if false $(|| attname == stringify!($attr))+ {
+                    res.push(Rc::from(value));
                 }
-                else if let Err(e) = tok {
-                    return Err(Box::new(e));
-                }
-            }
-            Ok(Box::new(res.into_iter()))
+            })
         }
     }
 }
 
-//attribute_scanner!(scan_object, name, culling_object, default_material, file, object, materials);
 attribute_scanner!(scan_animation_state_machine, file);
 attribute_scanner!(scan_animation_subset, file);
 attribute_scanner!(scan_effect, texture, material_config, model, object, effect);
 
 pub fn scan_animation_def(buf: &[u8]) -> TryStringIterator {
-    let tokens = tokenise(buf)?;
-    let mut res = Vec::<Rc<str>>::new();
-
     //xpath: //bone/@name | //subset/@file
-
-    let mut elem_stack = Vec::<&str>::with_capacity(4);
-    for tok in tokens {
-        use xmlparser::Token::*;
-        match tok {
-            Err(e) => return Err(Box::new(e)),
-            Ok(ElementStart{local, ..}) => elem_stack.push(local.as_str()),
-            Ok(ElementEnd{end: xmlparser::ElementEnd::Empty, ..}) => { elem_stack.pop(); },
-            Ok(ElementEnd{end: xmlparser::ElementEnd::Close(_, tn), ..}) => {
-                try_pop_element(&mut elem_stack, tn)?;
-            },
-            Ok(Attribute{local, value, ..}) => {
-                let ce = *elem_stack.last().unwrap();
-                if (ce == "bone" && local.as_str() == "name") || ce == "subset" && local.as_str() == "file" {
-                    res.push(Rc::from(value.as_str()))
-                }
-            }
-            _ => ()
+    scan_by_attributes(buf, |stack, attname, value, res| {
+        let ce = *stack.last().unwrap();
+        if (ce == "bone" && attname == "name") || (ce == "subset" && attname == "file") {
+            res.push(Rc::from(value))
         }
-    }
-
-    Ok(Box::new(res.into_iter()))
+    })
 }
 
 pub fn scan_object(buf: &[u8]) -> TryStringIterator {
-    let tokens = tokenise(buf)?;
-    let mut res = Vec::<Rc<str>>::new();
-
     //xpath: //@name | //@culling_object | //@default_material | //@file | //@object
     //       | /diesel/@materials | split(//@materials, ",")
-
-    let mut elem_stack = Vec::<&str>::with_capacity(4);
-    for tok in tokens {
-        use xmlparser::Token::*;
-        match tok {
-            Err(e) => return Err(Box::new(e)),
-            Ok(ElementStart{local, ..}) => elem_stack.push(local.as_str()),
-            Ok(ElementEnd{end: xmlparser::ElementEnd::Empty, ..}) => { elem_stack.pop(); },
-            Ok(ElementEnd{end: xmlparser::ElementEnd::Close(_, tn), ..}) => {
-                try_pop_element(&mut elem_stack, tn)?;
-            },
-            Ok(Attribute{local, value, ..}) => {
-                let name = local.as_str();
-                let ce = *elem_stack.last().unwrap();
-                if name=="name"
-                    ||name=="culling_object"
-                    ||name=="default_material"
-                    ||name=="file"
-                    ||name=="object"
-                {
-                    res.push(Rc::from(value.as_str()));
-                }
-
-                if name == "materials" && ce == "diesel" {
-                    res.push(Rc::from(value.as_str()))
-                }
-
-                if name == "materials" && ce != "diesel" {
-                    res.extend(value.as_str().split(",").map(str::trim).map(Rc::from));
-                }
-            }
-            _ => ()
+    scan_by_attributes(buf, |stack, attname, value, res| {
+        let ce = *stack.last().unwrap();
+        if attname=="name"
+            ||attname=="culling_object"
+            ||attname=="default_material"
+            ||attname=="file"
+            ||attname=="object"
+        {
+            res.push(Rc::from(value));
         }
-    }
 
-    Ok(Box::new(res.into_iter()))
+        if attname == "materials" && ce == "diesel" {
+            res.push(Rc::from(value));
+        }
+
+        if attname == "materials" && ce != "diesel" {
+            res.extend(value.split(",").map(str::trim).map(Rc::from));
+        }
+    })
 }
 
 pub fn scan_scene(buf: &[u8]) -> TryStringIterator {
-    let tokens = tokenise(buf)?;
-    let mut res = Vec::<Rc<str>>::new();
-
     //xpath: //load_scene/@file | //load_scene/@materials | //object/@name
-
-    let mut elem_stack = Vec::<&str>::with_capacity(4);
-    for tok in tokens {
-        use xmlparser::Token::*;
-        match tok {
-            Err(e) => return Err(Box::new(e)),
-            Ok(ElementStart{local, ..}) => elem_stack.push(local.as_str()),
-            Ok(ElementEnd{end: xmlparser::ElementEnd::Empty, ..}) => { elem_stack.pop(); },
-            Ok(ElementEnd{end: xmlparser::ElementEnd::Close(_, tn), ..}) => {
-                try_pop_element(&mut elem_stack, tn)?;
-            },
-            Ok(Attribute{local, value, ..}) => {
-                let ce = *elem_stack.last().unwrap();
-                let attname = local.as_str();
-                if (ce == "load_scene" && attname == "file")
-                || (ce == "load_scene" && attname == "materials")
-                || (ce == "object"     && attname == "name")
-                {
-                    res.push(Rc::from(value.as_str()))
-                }
-            }
-            _ => ()
+    scan_by_attributes(buf, |stack, attname, value, res| {
+        let ce = *stack.last().unwrap();
+        if (ce == "load_scene" && attname == "file")
+        || (ce == "load_scene" && attname == "materials")
+        || (ce == "object"     && attname == "name")
+        {
+            res.push(Rc::from(value))
         }
-    }
-
-    Ok(Box::new(res.into_iter()))
+    })
 }
 
+
 pub fn scan_gui(buf: &[u8]) -> TryStringIterator {
+    //xpath: @font_s | @font | //bitmap/@texture_s | //preload/@texture
+    scan_by_attributes(buf, |stack, attname, value, res| {
+        let ce = *stack.last().unwrap();
+        if (attname == "font_s")
+        || (attname == "font")
+        || (ce == "bitmap" && attname == "texture_s")
+        || (ce == "preload" && attname == "texture")
+        {
+            res.push(Rc::from(value))
+        }
+    })
+}
+
+fn scan_by_attributes<F>(buf: &[u8], mapper: F) -> TryStringIterator
+where
+    F: Fn(&[&str], &str, &str, &mut Vec<Rc<str>>)
+{
     let tokens = tokenise(buf)?;
     let mut res = Vec::<Rc<str>>::new();
-
-    //xpath: @font_s | @font | //bitmap/@texture_s | //preload/@texture
-
     let mut elem_stack = Vec::<&str>::with_capacity(4);
     for tok in tokens {
         use xmlparser::Token::*;
@@ -176,15 +122,8 @@ pub fn scan_gui(buf: &[u8]) -> TryStringIterator {
                 try_pop_element(&mut elem_stack, tn)?;
             },
             Ok(Attribute{local, value, ..}) => {
-                let ce = *elem_stack.last().unwrap();
                 let attname = local.as_str();
-                if (attname == "font_s")
-                || (attname == "font")
-                || (ce == "bitmap" && attname == "texture_s")
-                || (ce == "preload" && attname == "texture")
-                {
-                    res.push(Rc::from(value.as_str()))
-                }
+                mapper(&elem_stack, attname, value.as_str(), &mut res);
             }
             _ => ()
         }
