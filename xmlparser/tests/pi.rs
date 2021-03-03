@@ -104,35 +104,35 @@ test!(declaration_err_09, "<?xml \t\n m?>",
     Token::Error("invalid XML declaration at 1:1 cause expected 'version' at 2:2".to_string())
 );
 
-// XML declaration allowed only at the start of the document.
-test!(declaration_err_10, " <?xml version='1.0'?>",
-    Token::Error("unknown token at 1:2".to_string())
-);
-
-// XML declaration allowed only at the start of the document.
-test!(declaration_err_11, "<!-- comment --><?xml version='1.0'?>",
-    Token::Comment(" comment ", 0..16),
-    Token::Error("unknown token at 1:17".to_string())
-);
-
-// Duplicate.
-test!(declaration_err_12, "<?xml version='1.0'?><?xml version='1.0'?>",
-    Token::Declaration("1.0", None, None, 0..21),
-    Token::Error("unknown token at 1:22".to_string())
-);
-
-test!(declaration_err_13, "<?target \u{0000}content>",
+test!(declaration_err_10, "<?target \u{0000}content>",
     Token::Error("invalid processing instruction at 1:1 cause a non-XML character '\\u{0}' found at 1:10".to_string())
 );
 
-test!(declaration_err_14, "<?xml version='1.0'encoding='UTF-8'?>",
+test!(declaration_err_11, "<?xml version='1.0'encoding='UTF-8'?>",
     Token::Error("invalid XML declaration at 1:1 cause expected space not 'e' at 1:20".to_string())
 );
 
-test!(declaration_err_15, "<?xml version='1.0' encoding='UTF-8'standalone='yes'?>",
+test!(declaration_err_12, "<?xml version='1.0' encoding='UTF-8'standalone='yes'?>",
     Token::Error("invalid XML declaration at 1:1 cause expected space not 's' at 1:37".to_string())
 );
 
-test!(declaration_err_16, "<?xml version='1.0'",
+test!(declaration_err_13, "<?xml version='1.0'",
     Token::Error("invalid XML declaration at 1:1 cause expected '?>' at 1:20".to_string())
+);
+
+// XML declaration allowed only at the start of the document.
+test!(declaration_odd_01, " <?xml version='1.0'?>",
+    Token::PI("xml", Some("version=\'1.0\'"), 1..22)
+);
+
+// XML declaration allowed only at the start of the document.
+test!(declaration_odd_02, "<!-- comment --><?xml version='1.0'?>",
+    Token::Comment(" comment ", 0..16),
+    Token::PI("xml", Some("version=\'1.0\'"), 16..37)
+);
+
+// Duplicate.
+test!(declaration_odd_03, "<?xml version='1.0'?><?xml version='1.0'?>",
+    Token::Declaration("1.0", None, None, 0..21),
+    Token::PI("xml", Some("version=\'1.0\'"), 21..42)
 );

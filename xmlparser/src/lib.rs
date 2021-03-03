@@ -396,11 +396,7 @@ impl<'a> Tokenizer<'a> {
                 } else if s.starts_with(b"<!--") {
                     Some(Self::parse_comment(s))
                 } else if s.starts_with(b"<?") {
-                    if s.starts_with(b"<?xml ") {
-                        Some(Err(Error::UnknownToken(s.gen_text_pos())))
-                    } else {
-                        Some(Self::parse_pi(s))
-                    }
+                    Some(Self::parse_pi(s))
                 } else if s.starts_with_space() {
                     s.skip_spaces();
                     self.parse_next_impl()
@@ -415,11 +411,7 @@ impl<'a> Tokenizer<'a> {
                 } else if s.starts_with(b"<!--") {
                     Some(Self::parse_comment(s))
                 } else if s.starts_with(b"<?") {
-                    if s.starts_with(b"<?xml ") {
-                        Some(Err(Error::UnknownToken(s.gen_text_pos())))
-                    } else {
-                        Some(Self::parse_pi(s))
-                    }
+                    Some(Self::parse_pi(s))
                 } else if s.starts_with(b"]") {
                     // DTD ends with ']' S? '>', therefore we have to skip possible spaces.
                     s.advance(1);
@@ -460,11 +452,7 @@ impl<'a> Tokenizer<'a> {
                 if s.starts_with(b"<!--") {
                     Some(Self::parse_comment(s))
                 } else if s.starts_with(b"<?") {
-                    if s.starts_with(b"<?xml ") {
-                        Some(Err(Error::UnknownToken(s.gen_text_pos())))
-                    } else {
-                        Some(Self::parse_pi(s))
-                    }
+                    Some(Self::parse_pi(s))
                 } else if s.starts_with(b"<!") {
                     Some(Err(Error::UnknownToken(s.gen_text_pos())))
                 } else if s.starts_with(b"<") {
@@ -492,11 +480,7 @@ impl<'a> Tokenizer<'a> {
                                 }
                             }
                             Ok(b'?') => {
-                                if !s.starts_with(b"<?xml ") {
-                                    Some(Self::parse_pi(s))
-                                } else {
-                                    Some(Err(Error::UnknownToken(s.gen_text_pos())))
-                                }
+                                Some(Self::parse_pi(s))
                             }
                             Ok(b'/') => {
                                 if self.depth > 0 {
