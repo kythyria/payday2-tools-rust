@@ -12,10 +12,10 @@ pub struct BanksInfo {
 
 #[derive(Debug)]
 pub enum BankParseFailure {
-    SliceError(std::array::TryFromSliceError),
+    SliceError(TryFromBytesError),
     BadString(std::str::Utf8Error)
 }
-impl From<std::array::TryFromSliceError> for BankParseFailure { fn from(e: std::array::TryFromSliceError) -> BankParseFailure { BankParseFailure::SliceError(e) } }
+impl From<TryFromBytesError> for BankParseFailure { fn from(e: TryFromBytesError) -> BankParseFailure { BankParseFailure::SliceError(e) } }
 impl From<std::str::Utf8Error> for BankParseFailure { fn from(e: std::str::Utf8Error) -> BankParseFailure { BankParseFailure::BadString(e) } }
 
 pub fn try_from_bytes(src: &[u8]) -> Result<BanksInfo, BankParseFailure> {

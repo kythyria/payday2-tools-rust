@@ -209,7 +209,7 @@ fn do_scan(hashlist_filename: Option<&str>, asset_dir: &str, outname: &str) {
 fn do_print_scriptdata(filename: &str) {
     let sd = std::fs::read(filename).unwrap();
     let doc = formats::scriptdata::binary::from_binary(&sd, false);
-    let gx = formats::scriptdata::generic_xml::dump(&doc);
+    let gx = formats::scriptdata::generic_xml::dump(&doc.unwrap());
     println!("{}", gx);
     //formats::scriptdata::lua_like::dump(&doc, &mut std::io::stdout()).unwrap();
     //println!("{:?}", doc.root())
@@ -230,14 +230,14 @@ fn do_convert(input_filename: &str, output_filename: &str, output_type: ConvertT
     let output = match output_type {
         ConvertType::Lua => {
             let mut ob = Vec::<u8>::new();
-            formats::scriptdata::lua_like::dump(&doc, &mut ob).unwrap();
+            formats::scriptdata::lua_like::dump(&doc.unwrap(), &mut ob).unwrap();
             ob
         },
         ConvertType::Generic => {
-            formats::scriptdata::generic_xml::dump(&doc).into_bytes()
+            formats::scriptdata::generic_xml::dump(&doc.unwrap()).into_bytes()
         }
         ConvertType::Custom => {
-            formats::scriptdata::custom_xml::dump(&doc).into_bytes()
+            formats::scriptdata::custom_xml::dump(&doc.unwrap()).into_bytes()
         }
     };
 

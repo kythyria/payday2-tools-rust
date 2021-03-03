@@ -60,6 +60,11 @@ impl<'a> HashStrKey<'a> {
         }
     }
 }
+impl std::fmt::Display for HashStrKey<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}.{}.{}", self.path, self.language, self.extension)
+    }
+}
 
 pub struct Database {
     pub hashes: Arc<HashIndex>,

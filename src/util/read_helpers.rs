@@ -1,5 +1,14 @@
 use std::convert::TryInto;
 
+#[derive(Debug)]
+pub struct TryFromBytesError { pub idx: usize }
+impl std::fmt::Display for TryFromBytesError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Failed to get integer from bytes at position {}", self.idx)
+    }
+}
+impl std::error::Error for TryFromBytesError {}
+
 macro_rules! read_le {
     ($($name:ident : $len:expr => $type:ident;)*) => {
         $(pub fn $name(src: &[u8], idx: usize) -> $type {
@@ -7,9 +16,10 @@ macro_rules! read_le {
         }
 
         impl TryFromIndexedLE for $type {
-            type Error = std::array::TryFromSliceError;
+            type Error = TryFromBytesError;
             fn try_from_le(src: &[u8], idx: usize) -> Result<Self, Self::Error> {
-                Ok($type::from_le_bytes(src[idx..(idx+$len)].try_into()?))
+                let slice = src.get(idx..(idx+$len)).ok_or(TryFromBytesError{idx})?;
+                Ok($type::from_le_bytes(slice.try_into().or(Err(TryFromBytesError{idx}))?))
             }
         })*
     }

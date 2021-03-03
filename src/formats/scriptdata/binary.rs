@@ -134,8 +134,8 @@ impl FromBinaryState<'_> {
     }
 }
 
-pub fn from_binary(input: &[u8], is_raid: bool ) -> Document {
-    let is_x64 = is_raid || read_u32_le(input, 0) == 568494624;
+pub fn from_binary(input: &[u8], is_raid: bool ) -> Result<Document, Box<dyn std::error::Error>> {
+    let is_x64 = is_raid || u32::try_from_le(input, 0)? == 568494624;
     
     let mut state = FromBinaryState {
         input,
@@ -157,5 +157,5 @@ pub fn from_binary(input: &[u8], is_raid: bool ) -> Document {
     let root = state.value_from_binary(root_offset);
     state.doc.set_root(Some(root));
     
-    return state.doc;
+    return Ok(state.doc);
 }

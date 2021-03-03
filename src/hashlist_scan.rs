@@ -42,11 +42,12 @@ fn do_scan_pass(to_read: Vec<(&Path, Vec<ReadItem>)>) -> io::Result<FnvHashSet<R
     for (path, items) in to_read {
         let bundle = File::open(path)?;
         for item in items {
-            let mut bytes = Vec::<u8>::with_capacity(item.length);
+            let mut bytes = Vec::<u8>::new();
+            bytes.resize(item.length, 0);
             bundle.seek_read(&mut bytes, item.offset as u64)?;
-            let scanned = do_scan_buffer(bytes, item);
+            let scanned = do_scan_buffer(&bytes, item);
             match scanned {
-                Err(e) => eprintln!("Failed reading \"{:?}\": {:?}", item.key, e),
+                Err(e) => eprintln!("Failed reading {} byte file \"{}\": {}", bytes.len(), item.key, e),
                 Ok(v) => found.extend(v),
                 _ => ()
             }
@@ -55,15 +56,15 @@ fn do_scan_pass(to_read: Vec<(&Path, Vec<ReadItem>)>) -> io::Result<FnvHashSet<R
     return Ok(found);
 }
 
-fn do_scan_buffer(buf: Vec<u8>, item: ReadItem) -> Result<Vec<Rc<str>>, Box<dyn std::error::Error>>{
+fn do_scan_buffer(buf: &[u8], item: ReadItem) -> Result<Vec<Rc<str>>, Box<dyn std::error::Error>>{
     let iter_res: Result<Box<dyn Iterator<Item=Rc<str>>>, Box<dyn std::error::Error>> = match item.key.extension.text {
-        Some("credits") => Ok(scriptdata::scan_credits(&buf)),
-        Some("dialog_index") => Ok(scriptdata::scan_dialog_index(&buf)),
-        Some("sequence_manager") => Ok(scriptdata::scan_sequence_manager(&buf)),
-        Some("continent") => Ok(scriptdata::scan_continent(&buf)),
-        Some("continents") => Ok(scriptdata::scan_continents(&buf, Rc::from(item.key.path.text.unwrap()))),
-        Some("world") => Ok(scriptdata::scan_world(&buf, Rc::from(item.key.path.text.unwrap()))),
-        Some("mission") => Ok(scriptdata::scan_mission(&buf)),
+        Some("credits") => scriptdata::scan_credits(&buf),
+        Some("dialog_index") => scriptdata::scan_dialog_index(&buf),
+        Some("sequence_manager") => scriptdata::scan_sequence_manager(&buf),
+        Some("continent") => scriptdata::scan_continent(&buf),
+        Some("continents") => scriptdata::scan_continents(&buf, Rc::from(item.key.path.text.unwrap())),
+        Some("world") => scriptdata::scan_world(&buf, Rc::from(item.key.path.text.unwrap())),
+        Some("mission") => scriptdata::scan_mission(&buf),
         Some("object") => xml::scan_object(&buf),
         Some("animation_state_machine") => xml::scan_animation_state_machine(&buf),
         Some("animation_subset") => xml::scan_animation_subset(&buf),

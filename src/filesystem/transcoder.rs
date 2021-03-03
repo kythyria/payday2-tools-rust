@@ -211,13 +211,13 @@ fn transcode_strings(hi: &HashIndex, input: &[u8]) -> Vec<u8> {
 
 fn transcode_sd_generic(_hi: &HashIndex, input: &[u8]) -> Vec<u8> {
     let doc = crate::formats::scriptdata::binary::from_binary(input, false);
-    let gx = crate::formats::scriptdata::generic_xml::dump(&doc);
+    let gx = crate::formats::scriptdata::generic_xml::dump(&doc.unwrap());
     return gx.into_bytes();
 }
 
 fn transcode_sd_custom(_hi: &HashIndex, input: &[u8]) -> Vec<u8> {
     let doc = crate::formats::scriptdata::binary::from_binary(input, false);
-    let gx = crate::formats::scriptdata::custom_xml::dump(&doc);
+    let gx = crate::formats::scriptdata::custom_xml::dump(&doc.unwrap());
     return gx.into_bytes();
 }
 
