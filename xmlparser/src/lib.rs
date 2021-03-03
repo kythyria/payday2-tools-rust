@@ -908,8 +908,6 @@ impl<'a> Tokenizer<'a> {
 
     // Name Eq AttValue
     fn parse_attribute(s: &mut Stream<'a>) -> StreamResult<Token<'a>> {
-        let attr_start = s.pos();
-        let has_space = s.starts_with_space();
         s.skip_spaces();
 
         if let Ok(c) = s.curr_byte() {
@@ -928,16 +926,6 @@ impl<'a> Tokenizer<'a> {
                     return Ok(Token::ElementEnd { end: ElementEnd::Open, span });
                 }
                 _ => {}
-            }
-        }
-
-        if !has_space {
-            if !s.at_end() {
-                return Err(StreamError::InvalidSpace(
-                    s.curr_byte_unchecked(), s.gen_text_pos_from(attr_start))
-                );
-            } else {
-                return Err(StreamError::UnexpectedEndOfStream);
             }
         }
 

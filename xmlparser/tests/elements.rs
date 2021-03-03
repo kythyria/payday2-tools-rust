@@ -217,8 +217,9 @@ test!(attribute_err_06, "<c a='\0'/>",
     Token::Error("invalid attribute at 1:3 cause a non-XML character '\\u{0}' found at 1:7".to_string())
 );
 
-test!(attribute_err_07, "<c a='v'b='v'/>",
+test!(attribute_odd_01, "<c a='v'b='v'/>",
     Token::ElementStart("", "c", 0..2),
     Token::Attribute("", "a", "v", 3..8),
-    Token::Error("invalid attribute at 1:9 cause expected space not 'b' at 1:9".to_string())
+    Token::Attribute("", "b", "v", 8..13),
+    Token::ElementEnd(ElementEnd::Empty, 13..15)
 );
