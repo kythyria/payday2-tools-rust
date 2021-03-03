@@ -43,20 +43,27 @@ test_err!(comment_err_15, "<!--<!---");
 test_err!(comment_err_16, "<!--<!--x");
 test_err!(comment_err_17, "<!--<!--x-");
 test_err!(comment_err_18, "<!--<!--x--");
-test_err!(comment_err_19, "<!--<!--x-->");
-test_err!(comment_err_20, "<!--<!-x");
-test_err!(comment_err_21, "<!--<!-x-");
-test_err!(comment_err_22, "<!--<!-x--");
-test_err!(comment_err_23, "<!--<!x");
-test_err!(comment_err_24, "<!--<!x-");
-test_err!(comment_err_25, "<!--<!x--");
-test_err!(comment_err_26, "<!--<<!--x-->");
-test_err!(comment_err_27, "<!--<!<!--x-->");
-test_err!(comment_err_28, "<!--<!-<!--x-->");
-test_err!(comment_err_29, "<!----!->");
-test_err!(comment_err_30, "<!----!x>");
-test_err!(comment_err_31, "<!-----x>");
-test_err!(comment_err_32, "<!----->");
-test_err!(comment_err_33, "<!------>");
-test_err!(comment_err_34, "<!-- --->");
-test_err!(comment_err_35, "<!--a--->");
+test_err!(comment_err_19, "<!--<!-x");
+test_err!(comment_err_20, "<!--<!-x-");
+test_err!(comment_err_21, "<!--<!-x--");
+test_err!(comment_err_22, "<!--<!x");
+test_err!(comment_err_23, "<!--<!x-");
+test_err!(comment_err_24, "<!--<!x--");
+test_err!(comment_err_25, "<!----!->");
+test_err!(comment_err_26, "<!----!x>");
+test_err!(comment_err_27, "<!-----x>");
+
+
+
+// These violations of the XML specification nonetheless must be parsed
+// as successes: the comment must be ended by --> and contain any other
+// string that we like.
+test!(comment_odd_01, "<!--<!--x-->",    Token::Comment("<!--x",    0..12));
+test!(comment_odd_02, "<!--<<!--x-->",   Token::Comment("<<!--x",   0..13));
+test!(comment_odd_03, "<!--<!<!--x-->",  Token::Comment("<!<!--x",  0..14));
+test!(comment_odd_04, "<!--<!-<!--x-->", Token::Comment("<!-<!--x", 0..15));
+test!(comment_odd_05, "<!----->",        Token::Comment("-",        0..8));
+test!(comment_odd_06, "<!------>",       Token::Comment("--",       0..9));
+test!(comment_odd_07, "<!-- --->",       Token::Comment(" -",       0..9));
+test!(comment_odd_08, "<!--a--->",       Token::Comment("a-",       0..9));
+test!(comment_odd_10, "<!--b -- a-->",   Token::Comment("b -- a",   0..13));

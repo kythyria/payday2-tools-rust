@@ -686,14 +686,6 @@ impl<'a> Tokenizer<'a> {
         let text = s.consume_chars(|s, c| !(c == '-' && s.starts_with(b"-->")))?;
         s.skip_string(b"-->")?;
 
-        if text.as_str().contains("--") {
-            return Err(StreamError::InvalidCommentData);
-        }
-
-        if text.as_str().ends_with('-') {
-            return Err(StreamError::InvalidCommentEnd);
-        }
-
         let span = s.slice_back(start);
 
         Ok(Token::Comment { text, span })
