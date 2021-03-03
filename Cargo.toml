@@ -14,3 +14,10 @@ fnv = "1.0.7"
 clap = "2.33.3"
 xmlwriter = "0.1.0"
 nom = "6.1.2"
+xmlparser = "0.13.3"
+
+[workspace]
+members = [ "xmlparser" ]
+
+[patch.crates-io]
+xmlparser = { path = 'xmlparser' }

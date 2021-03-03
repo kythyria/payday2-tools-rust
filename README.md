@@ -9,3 +9,7 @@ As a result there are two dependencies:
 + The [Dokany](https://dokan-dev.github.io/) userspace filesystem framework.
 
 This is a CLI app, you are referred to the `--help` parameter for syntax.
+
+# Credits
+Contains a fork of https://github.com/RazrFalcon/xmlparser modified to be
+spec-violatingly permissive.
