@@ -10,7 +10,6 @@ use crate::diesel_hash::{hash_str as dhash};
 mod scriptdata;
 
 mod xml;
-use xml::*;
 
 pub fn do_scan<W: std::io::Write>(db: &Database, output: &mut W) -> io::Result<()> {
     let to_read = db.filter_key_sort_physical(|key| {
@@ -21,6 +20,10 @@ pub fn do_scan<W: std::io::Write>(db: &Database, output: &mut W) -> io::Result<(
         || (key.extension.hash == dhash("continents") && key.path.text.is_some())
         || (key.extension.hash == dhash("world") && key.path.text.is_some())
         || key.extension.hash == dhash("mission")
+        || key.extension.hash == dhash("object")
+        || key.extension.hash == dhash("animation_state_machine")
+        || key.extension.hash == dhash("animation_subset")
+        || key.extension.hash == dhash("effect")
     });
 
     let mut found = do_scan_pass(to_read)?;
@@ -61,9 +64,13 @@ fn do_scan_buffer(buf: Vec<u8>, item: ReadItem) -> Result<Vec<Rc<str>>, Box<dyn 
         Some("continents") => Ok(scriptdata::scan_continents(&buf, Rc::from(item.key.path.text.unwrap()))),
         Some("world") => Ok(scriptdata::scan_world(&buf, Rc::from(item.key.path.text.unwrap()))),
         Some("mission") => Ok(scriptdata::scan_mission(&buf)),
+        Some("object") => xml::scan_object(&buf),
+        Some("animation_state_machine") => xml::scan_animation_state_machine(&buf),
+        Some("animation_subset") => xml::scan_animation_subset(&buf),
+        Some("effect") => xml::scan_effect(&buf),
         _ => panic!("Selected a file {:?} to scan and then didn't scan it", item.key)
     };
-    let result = iter_res.unwrap().collect::<Vec<_>>();
-    return Ok(result);
+    let result = iter_res.map(Iterator::collect::<Vec<_>>);
+    return result;
 }
 
