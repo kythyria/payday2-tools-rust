@@ -24,6 +24,9 @@ pub fn do_scan<W: std::io::Write>(db: &Database, output: &mut W) -> io::Result<(
         || key.extension.hash == dhash("animation_state_machine")
         || key.extension.hash == dhash("animation_subset")
         || key.extension.hash == dhash("effect")
+        || key.extension.hash == dhash("animation_def")
+        || key.extension.hash == dhash("scene")
+        || key.extension.hash == dhash("gui")
     });
 
     let mut found = do_scan_pass(to_read)?;
@@ -58,17 +61,20 @@ fn do_scan_pass(to_read: Vec<(&Path, Vec<ReadItem>)>) -> io::Result<FnvHashSet<R
 
 fn do_scan_buffer(buf: &[u8], item: ReadItem) -> Result<Vec<Rc<str>>, Box<dyn std::error::Error>>{
     let iter_res: Result<Box<dyn Iterator<Item=Rc<str>>>, Box<dyn std::error::Error>> = match item.key.extension.text {
-        Some("credits") => scriptdata::scan_credits(&buf),
-        Some("dialog_index") => scriptdata::scan_dialog_index(&buf),
-        Some("sequence_manager") => scriptdata::scan_sequence_manager(&buf),
-        Some("continent") => scriptdata::scan_continent(&buf),
-        Some("continents") => scriptdata::scan_continents(&buf, Rc::from(item.key.path.text.unwrap())),
-        Some("world") => scriptdata::scan_world(&buf, Rc::from(item.key.path.text.unwrap())),
-        Some("mission") => scriptdata::scan_mission(&buf),
+        Some("credits") => scriptdata::scan_credits(buf),
+        Some("dialog_index") => scriptdata::scan_dialog_index(buf),
+        Some("sequence_manager") => scriptdata::scan_sequence_manager(buf),
+        Some("continent") => scriptdata::scan_continent(buf),
+        Some("continents") => scriptdata::scan_continents(buf, Rc::from(item.key.path.text.unwrap())),
+        Some("world") => scriptdata::scan_world(buf, Rc::from(item.key.path.text.unwrap())),
+        Some("mission") => scriptdata::scan_mission(buf),
         Some("object") => xml::scan_object(&buf),
-        Some("animation_state_machine") => xml::scan_animation_state_machine(&buf),
-        Some("animation_subset") => xml::scan_animation_subset(&buf),
-        Some("effect") => xml::scan_effect(&buf),
+        Some("animation_state_machine") => xml::scan_animation_state_machine(buf),
+        Some("animation_subset") => xml::scan_animation_subset(buf),
+        Some("effect") => xml::scan_effect(buf),
+        Some("animation_def") => xml::scan_animation_def(buf),
+        Some("scene") => xml::scan_scene(buf),
+        Some("gui") => xml::scan_scene(buf),
         _ => panic!("Selected a file {:?} to scan and then didn't scan it", item.key)
     };
     let result = iter_res.map(Iterator::collect::<Vec<_>>);
