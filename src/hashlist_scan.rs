@@ -27,6 +27,8 @@ pub fn do_scan<W: std::io::Write>(db: &Database, output: &mut W) -> io::Result<(
         || key.extension.hash == dhash("animation_def")
         || key.extension.hash == dhash("scene")
         || key.extension.hash == dhash("gui")
+        || key.extension.hash == dhash("merged_font")
+        || key.extension.hash == dhash("material_config")
     });
 
     let mut found = do_scan_pass(to_read)?;
@@ -75,6 +77,8 @@ fn do_scan_buffer(buf: &[u8], item: ReadItem) -> Result<Vec<Rc<str>>, Box<dyn st
         Some("animation_def") => xml::scan_animation_def(buf),
         Some("scene") => xml::scan_scene(buf),
         Some("gui") => xml::scan_scene(buf),
+        Some("merged_font") => xml::scan_merged_font(buf),
+        Some("material_config") => xml::scan_material_config(buf),
         _ => panic!("Selected a file {:?} to scan and then didn't scan it", item.key)
     };
     let result = iter_res.map(Iterator::collect::<Vec<_>>);

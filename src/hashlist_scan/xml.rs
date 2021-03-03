@@ -105,6 +105,29 @@ pub fn scan_gui(buf: &[u8]) -> TryStringIterator {
     })
 }
 
+pub fn scan_merged_font(buf: &[u8]) -> TryStringIterator {
+    //xpath: /merged_font/font/@name
+    scan_by_attributes(buf, |stack, attname, value, res| {
+        if stack.get(0) == Some(&"merged_font")
+        && stack.get(1) == Some(&"font")
+        && attname == "name" {
+            res.push(Rc::from(value));
+        }
+    })
+}
+
+pub fn scan_material_config(buf: &[u8]) -> TryStringIterator {
+    //xpath: /materials/@group | /materials/material/@name | //@file
+    scan_by_attributes(buf, |stack, attname, value, res| {
+        if attname == "file"
+        || (stack.get(0) == Some(&"materials") && attname == "group")
+        || (stack.get(0) == Some(&"materials") && stack.get(1) == Some(&"material") && attname == "name")
+        {
+            res.push(Rc::from(value));
+        }
+    })
+}
+
 fn scan_by_attributes<F>(buf: &[u8], mapper: F) -> TryStringIterator
 where
     F: Fn(&[&str], &str, &str, &mut Vec<Rc<str>>)
