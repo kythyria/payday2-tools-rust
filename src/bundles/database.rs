@@ -197,13 +197,6 @@ impl<'a> Database {
     }
 }
 
-pub struct FilterSortPhysicalIterator<'a> {
-    database: &'a Database,
-    predicate: fn(&HashIndex, (HashedStr, HashedStr, HashedStr)) -> bool,
-    seen: FnvHashSet<(HashedStr<'a>, HashedStr<'a>, HashedStr<'a>)>,
-    current_package: usize
-}
-
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct ReadItem<'a> {
     pub key: HashStrKey<'a>,

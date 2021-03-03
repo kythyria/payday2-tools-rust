@@ -1,11 +1,11 @@
-use std::{fs::File, iter::FromIterator};
+use std::{fs::File, iter::FromIterator, path::Path};
 use std::io;
 use std::os::windows::fs::FileExt;
 use std::rc::Rc;
 use fnv::FnvHashSet;
 
 use crate::formats::scriptdata::*;
-use crate::bundles::database::{Database};
+use crate::bundles::database::{Database, ReadItem};
 use crate::diesel_hash::{hash_str as dhash};
 
 pub fn do_scan<W: std::io::Write>(db: &Database, output: &mut W) -> io::Result<()> {
@@ -19,28 +19,7 @@ pub fn do_scan<W: std::io::Write>(db: &Database, output: &mut W) -> io::Result<(
         || key.extension.hash == dhash("mission")
     });
 
-    let mut found = FnvHashSet::<Rc<str>>::default();
-
-    for (path, items) in to_read {
-        let bundle = File::open(path)?;
-        let mut bytes = Vec::with_capacity(items.iter().map(|i| i.length).max().unwrap_or(0));
-        for item in items {
-            bytes.resize(item.length, 0);
-            bundle.seek_read(&mut bytes, item.offset as u64)?;
-            let doc = crate::formats::scriptdata::binary::from_binary(&bytes, false);
-            let iter = match item.key.extension.text {
-                Some("credits") => scan_credits(&doc),
-                Some("dialog_index") => scan_dialog_index(&doc),
-                Some("sequence_manager") => scan_sequence_manager(&doc),
-                Some("continent") => scan_continent(&doc),
-                Some("continents") => scan_continents(&doc, Rc::from(item.key.path.text.unwrap())),
-                Some("world") => scan_world(&doc, Rc::from(item.key.path.text.unwrap())),
-                Some("mission") => scan_mission(&doc),
-                _ => continue
-            };
-            found.extend(iter);
-        }
-    }
+    let mut found = do_scan_pass(to_read)?;
 
     let mut ordered: Vec<Rc<str>> = Vec::from_iter(found.drain());
     ordered.sort();
@@ -48,6 +27,41 @@ pub fn do_scan<W: std::io::Write>(db: &Database, output: &mut W) -> io::Result<(
         writeln!(output, "{}", s)?;
     }
     Ok(())
+}
+
+fn do_scan_pass(to_read: Vec<(&Path, Vec<ReadItem>)>) -> io::Result<FnvHashSet<Rc<str>>> {
+    let mut found = FnvHashSet::<Rc<str>>::default();
+
+    for (path, items) in to_read {
+        let bundle = File::open(path)?;
+        for item in items {
+            let mut bytes = Vec::<u8>::with_capacity(item.length);
+            bundle.seek_read(&mut bytes, item.offset as u64)?;
+            let scanned = do_scan_buffer(bytes, item);
+            match scanned {
+                Err(e) => eprintln!("Failed reading \"{:?}\": {:?}", item.key, e),
+                Ok(Some(v)) => found.extend(v),
+                _ => ()
+            }
+        }
+    }
+    return Ok(found);
+}
+
+fn do_scan_buffer(buf: Vec<u8>, item: ReadItem) -> Result<Option<Vec<Rc<str>>>,()>{
+    let doc = crate::formats::scriptdata::binary::from_binary(&buf, false);
+    let iter = match item.key.extension.text {
+        Some("credits") => scan_credits(&doc),
+        Some("dialog_index") => scan_dialog_index(&doc),
+        Some("sequence_manager") => scan_sequence_manager(&doc),
+        Some("continent") => scan_continent(&doc),
+        Some("continents") => scan_continents(&doc, Rc::from(item.key.path.text.unwrap())),
+        Some("world") => scan_world(&doc, Rc::from(item.key.path.text.unwrap())),
+        Some("mission") => scan_mission(&doc),
+        _ => return Ok(None)
+    };
+    let result = iter.collect::<Vec<_>>();
+    return Ok(Some(result));
 }
 
 macro_rules! scan3 {
