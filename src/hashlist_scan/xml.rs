@@ -128,6 +128,92 @@ pub fn scan_material_config(buf: &[u8]) -> TryStringIterator {
     })
 }
 
+pub fn scan_unit(buf: &[u8]) -> TryStringIterator {
+    /* XPath:
+        /unit/anim_state_machine/@name | /unit/object/@file | /unit/network/@remote_unit
+      | /unit/extensions/extension[@class='CopDamage']/var[@name='_head_gear']/@value
+      | /unit/extensions/extension[@class='CopDamage']/var[@name='_head_gear_object']/@value
+      | /unit/extensions/extension[@class='CopDamage']/var[@name='_head_gear_decal_mesh']/@value
+      | /unit/dependencies/depends_on/attribute::*
+    */
+
+    let tokens = tokenise(buf)?;
+    let mut res = Vec::<Rc<str>>::new();
+    let mut elem_stack = Vec::<&str>::with_capacity(4);
+
+    let mut capture_extension = false;
+    let mut capture_var = false;
+    let mut value_to_capture = None::<&str>;
+
+    for tok in tokens {
+        use xmlparser::Token::*;
+        match tok {
+            Err(e) => return Err(Box::new(e)),
+            Ok(ElementStart{local, ..}) => elem_stack.push(local.as_str()),
+            Ok(ElementEnd{end: xmlparser::ElementEnd::Empty, ..}) => { elem_stack.pop(); },
+            Ok(ElementEnd{end: xmlparser::ElementEnd::Close(_, tn), ..}) => {
+                try_pop_element(&mut elem_stack, tn)?;
+
+                if capture_extension && capture_var {
+                    if let Some(value) = value_to_capture {
+                        res.push(Rc::from(value));
+                    }
+                }
+
+                if elem_stack.len() == 3 {
+                    value_to_capture = None;
+                    capture_var = false;
+                }
+                if elem_stack.len() == 2 {
+                    capture_extension = false;
+                }
+            },
+            Ok(Attribute{local, value, ..}) => {
+                let attname = local.as_str();
+                if elem_stack.get(0) != Some(&"unit") { continue; }
+
+                if (elem_stack.len() == 2 && elem_stack.get(1) == Some(&"anim_state_machine") && attname == "name")
+                || (elem_stack.len() == 2 && elem_stack.get(1) == Some(&"object") && attname == "file")
+                || (elem_stack.len() == 2 && elem_stack.get(1) == Some(&"network") && attname == "remote_unit")
+                {
+                    res.push(Rc::from(value.as_str()));
+                }
+
+                if elem_stack.len() == 3 && elem_stack.get(1) == Some(&"dependencies")
+                && elem_stack.get(2) == Some(&"depends_on") {
+                    res.push(Rc::from(value.as_str()));
+                }
+
+                if elem_stack.len() == 3 && elem_stack.get(1) == Some(&"extensions")
+                && elem_stack.get(2) == Some(&"extension")
+                && attname == "class" && value.as_str() == "CopDamage" {
+                    capture_extension = true;
+                }
+
+                if elem_stack.len() == 3 && elem_stack.get(1) == Some(&"extensions")
+                && elem_stack.get(2) == Some(&"extension")
+                && elem_stack.get(3) == Some(&"var")
+                && attname == "var"
+                && (
+                    value.as_str() == "_head_gear" 
+                    || value.as_str() == "_head_gear_object"
+                    || value.as_str() == "_head_gear_decal_mesh"
+                ) {
+                    capture_var = true;
+                }
+
+                if attname == "value" {
+                    value_to_capture = Some(value.as_str())
+                }
+
+            }
+            _ => ()
+        }
+    }
+
+    Ok(Box::new(res.into_iter()))
+}
+
 fn scan_by_attributes<F>(buf: &[u8], mapper: F) -> TryStringIterator
 where
     F: Fn(&[&str], &str, &str, &mut Vec<Rc<str>>)
