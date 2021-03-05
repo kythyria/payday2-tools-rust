@@ -74,7 +74,7 @@ scan3! {
     }
 
     scan_continents(path: Rc<str>) {
-        root() |> indexed() |> key("name") |> strings() |> map(move |s|{
+        root() |> entries() |> key("name") |> strings() |> map(move |s|{
             Rc::from(format!("{0}/{1}/{1}", parentof(&path), s))
         })
     }

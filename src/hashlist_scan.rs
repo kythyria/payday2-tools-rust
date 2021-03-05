@@ -31,6 +31,7 @@ pub fn do_scan<W: std::io::Write>(db: &Database, output: &mut W) -> io::Result<(
         || key.extension.hash == dhash("merged_font")
         || key.extension.hash == dhash("material_config")
         || key.extension.hash == dhash("unit")
+        || key.extension.hash == dhash("environment")
     });
 
     eprintln_time!("Data scan pass 1, scanning");
@@ -65,8 +66,7 @@ fn do_scan_pass(to_read: Vec<(&Path, Vec<ReadItem>)>) -> io::Result<FnvHashSet<R
             let scanned = do_scan_buffer(&bytes, item);
             match scanned {
                 Err(e) => eprintln!("Failed reading {} byte file \"{}\": {}", bytes.len(), item.key, e),
-                Ok(v) => found.extend(v),
-                _ => ()
+                Ok(v) => found.extend(v)
             }
         }
     }
@@ -82,6 +82,7 @@ fn do_scan_buffer(buf: &[u8], item: ReadItem) -> Result<Vec<Rc<str>>, Box<dyn st
         Some("continents") => scriptdata::scan_continents(buf, Rc::from(item.key.path.text.unwrap())),
         Some("world") => scriptdata::scan_world(buf, Rc::from(item.key.path.text.unwrap())),
         Some("mission") => scriptdata::scan_mission(buf),
+        Some("environment") => scriptdata::scan_environment(buf),
         Some("object") => xml::scan_object(&buf),
         Some("animation_state_machine") => xml::scan_animation_state_machine(buf),
         Some("animation_subset") => xml::scan_animation_subset(buf),

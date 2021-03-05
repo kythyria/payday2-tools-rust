@@ -41,7 +41,27 @@ macro_rules! attribute_scanner {
 
 attribute_scanner!(scan_animation_state_machine, file);
 attribute_scanner!(scan_animation_subset, file);
-attribute_scanner!(scan_effect, texture, material_config, model, object, effect);
+//attribute_scanner!(scan_effect, texture, material_config, model, object, effect);
+
+pub fn scan_effect(buf: &[u8]) -> TryStringIterator {
+    //xpath: //@texture | //@material_config | //@model | //@object | //@effect
+    //       | //effect/@name | //use/@name
+    scan_by_attributes(buf, |stack, attname, value, res| {
+        let ce = *stack.last().unwrap();
+        if attname == "texture"
+        || attname == "material_config"
+        || attname == "model"
+        || attname == "object"
+        || attname == "effect"
+        {
+            res.push(Rc::from(value));
+        }
+
+        if (ce == "effect" || ce == "use") && attname == "name" {
+            res.push(Rc::from(value));
+        }
+    })
+}
 
 pub fn scan_animation_def(buf: &[u8]) -> TryStringIterator {
     //xpath: //bone/@name | //subset/@file
