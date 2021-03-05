@@ -4,6 +4,8 @@ pub mod rc_cell;
 
 use std::fmt::Write;
 
+pub type BoxResult<T> = Result<T, Box<dyn std::error::Error>>;
+
 // Per RFC 8259:
 // All Unicode characters may be placed within the
 // quotation marks, except for the characters that MUST be escaped:
@@ -40,4 +42,17 @@ pub fn escape_json_str(what: &str) -> String {
     }
     buffer.push('"');
     buffer
+}
+
+#[macro_use]
+pub mod timeprint {
+    #[macro_export]
+    macro_rules! eprintln_time {
+        ($fmt:literal, $($args:tt)*) => {
+            eprintln!(concat!("[{}] ", $fmt), ::chrono::Utc::now().format("%F %H:%M:%S%.3f"), $($args)*)
+        };
+        ($fmt:literal) => {
+            eprintln!(concat!("[{}] ", $fmt), ::chrono::Utc::now().format("%F %H:%M:%S%.3f"))
+        };
+    }
 }

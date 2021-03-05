@@ -1,4 +1,4 @@
-use std::cmp::Ord;
+use std::{cmp::Ord, os::windows::prelude::FileExt};
 use std::cmp::Ordering;
 use std::convert::TryInto;
 use std::path::PathBuf;
@@ -316,6 +316,17 @@ impl<'a> DatabaseItem<'a> {
                 return Some((&package.data_path, packentry.offset as usize, packentry.length as usize));
             }
         }
+    }
+
+    pub fn read_data(&self) -> Result<std::rc::Rc<[u8]>, std::io::Error> {
+        if let Some((path, offset, length)) = self.get_backing_details() {
+            let fi = std::fs::File::open(path)?;
+            let mut bytes = Vec::new();
+            bytes.resize(length as usize, 0);
+            fi.seek_read(&mut bytes, offset as u64);
+            Ok(std::rc::Rc::from(bytes))
+        }
+        else { Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Is a directory")) }
     }
 }
 

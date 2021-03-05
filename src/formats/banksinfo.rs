@@ -17,6 +17,12 @@ pub enum BankParseFailure {
 }
 impl From<TryFromBytesError> for BankParseFailure { fn from(e: TryFromBytesError) -> BankParseFailure { BankParseFailure::SliceError(e) } }
 impl From<std::str::Utf8Error> for BankParseFailure { fn from(e: std::str::Utf8Error) -> BankParseFailure { BankParseFailure::BadString(e) } }
+impl std::error::Error for BankParseFailure {}
+impl std::fmt::Display for BankParseFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Unable to parse banksinfo file: {:?}", self)
+    }
+}
 
 pub fn try_from_bytes(src: &[u8]) -> Result<BanksInfo, BankParseFailure> {
     let bnk_count = u32::try_from_le(src, 0)? as usize;

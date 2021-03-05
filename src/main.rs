@@ -1,9 +1,11 @@
 #![allow(dead_code)]
 
+#[macro_use]
+mod util;
+
 mod diesel_hash;
 mod hashindex;
 mod bundles;
-mod util;
 mod filesystem;
 mod formats;
 mod hashlist_scan;

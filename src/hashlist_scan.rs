@@ -8,10 +8,11 @@ use crate::bundles::database::{Database, ReadItem};
 use crate::diesel_hash::{hash_str as dhash};
 
 mod scriptdata;
-
 mod xml;
+mod soundbanks;
 
 pub fn do_scan<W: std::io::Write>(db: &Database, output: &mut W) -> io::Result<()> {
+    eprintln_time!("Data scan pass 1, preparing file list");
     let to_read = db.filter_key_sort_physical(|key| {
         key.extension.hash == dhash("credits")
         || key.extension.hash == dhash("dialog_index")
@@ -32,8 +33,18 @@ pub fn do_scan<W: std::io::Write>(db: &Database, output: &mut W) -> io::Result<(
         || key.extension.hash == dhash("unit")
     });
 
+    eprintln_time!("Data scan pass 1, scanning");
     let mut found = do_scan_pass(to_read)?;
+    eprintln!("");
 
+    eprintln_time!("Analysing existing_banks.banksinfo");
+    let sb_res = soundbanks::scan(db);
+    match sb_res {
+        Err(e) => eprintln_time!("Unable to analyse soundbanks: {}", e),
+        Ok(strs) => found.extend(strs.into_iter())
+    }
+
+    eprintln_time!("Scan complete. Saving {} strings", found.len());
     let mut ordered: Vec<Rc<str>> = Vec::from_iter(found.drain());
     ordered.sort();
     for s in &ordered {
