@@ -200,6 +200,33 @@ impl<'a> Database {
 
         return filtered_packs;
     }
+
+    pub fn files(&'a self) -> impl Iterator<Item=DatabaseItem<'a>> {
+        FileItemIterator {
+            db: self,
+            curr: 0
+        }
+    }
+}
+
+struct FileItemIterator<'a> {
+    db: &'a Database,
+    curr: u32
+}
+impl<'a> Iterator for FileItemIterator<'a> {
+    type Item = DatabaseItem<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if (self.curr as usize) >= self.db.items.len() { return None; }
+            let item = self.db.get_by_inode(self.curr);
+            self.curr += 1;
+            match item.item_type() {
+                ItemType::Folder => continue,
+                ItemType::File => return Some(item)
+            }
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -220,9 +247,13 @@ impl<'a> DatabaseItem<'a> {
         self.db.items.get(self.item_number as usize).unwrap()
     }
 
-    pub fn key(&self) -> (HashedStr, HashedStr, HashedStr) {
+    pub fn key(&self) -> HashStrKey<'a> {
         let item = self.item();
-        (self.db.hashes.get_hash(item.path), self.db.hashes.get_hash(item.language), self.db.hashes.get_hash(item.extension) )
+        HashStrKey {
+            path: self.db.hashes.get_hash(item.path),
+            language: self.db.hashes.get_hash(item.language),
+            extension: self.db.hashes.get_hash(item.extension)
+        }
     }
 
     pub fn path(&self) -> HashedStr {
@@ -356,7 +387,7 @@ impl<'a> Iterator for ChildIterator<'a> {
 }
 
 pub fn from_bdb<'a>(mut hashlist: HashIndex, bdb: &bundledb_reader::BundleDbFile, packages: &Vec<loader::ParsedBundle>) -> Database {
-    println!("{:?} from_bdb() start", SystemTime::now());
+    eprintln_time!("from_bdb() start");
     let mut items = Vec::<ItemRecord>::new();
     let mut itemkeys_by_file_id = FnvHashMap::<u32, (u64, u64, u64)>::default();
     let mut folder_paths = FnvHashSet::<u64>::default();
@@ -535,7 +566,7 @@ pub fn from_bdb<'a>(mut hashlist: HashIndex, bdb: &bundledb_reader::BundleDbFile
         package_catalog.push(pr);
     }
 
-    println!("{:?} from_bdb() end", SystemTime::now());
+    eprintln_time!("from_bdb() end");
     Database {
         hashes: Arc::new(hashlist),
         item_index,

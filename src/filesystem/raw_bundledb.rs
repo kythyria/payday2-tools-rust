@@ -11,7 +11,7 @@ use winapi::shared::ntstatus;
 use winapi::shared::winerror;
 use winapi::um::winnt;
 
-use crate::bundles::database::{Database, DatabaseItem, ItemType};
+use crate::bundles::database::{Database, DatabaseItem, HashStrKey, ItemType};
 use crate::hashindex::HashedStr;
 use crate::diesel_hash;
 use super::{ReadOnlyFs,FsReadHandle,FsDirEntry};
@@ -79,10 +79,10 @@ fn split_path_to_key(p: &str) -> (u64, u64, u64) {
 }
 
 
-fn key_to_name(key: &(HashedStr, HashedStr, HashedStr)) -> String {
-    let path = format!("{}", key.0);
-    let lang = format!("{}", key.1);
-    let extn = format!("{}", key.2);
+fn key_to_name(key: &HashStrKey) -> String {
+    let path = format!("{}", key.path);
+    let lang = format!("{}", key.language);
+    let extn = format!("{}", key.extension);
 
     let mut name = path.rsplit('/').next().unwrap().to_owned();
     let hasdot = name.contains(".");

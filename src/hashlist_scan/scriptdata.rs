@@ -24,7 +24,7 @@ macro_rules! scan3 {
                 let doc_owned = crate::formats::scriptdata::binary::from_binary(&buf, false)?;
                 let doc = &doc_owned;
                 let res = scan3![@a (std::iter::empty()) doc doc |> $($body)+];
-                return Ok(Box::new(res));
+                return Ok(Box::new(res.map(|s| s)));
             }
         )+
     }

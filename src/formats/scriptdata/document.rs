@@ -135,6 +135,26 @@ dv_try_from!(Vector, Vector<OrderedFloat>);
 dv_try_from!(String, Rc<str>);
 dv_try_from!(Table, RcCell<DocTable>);
 
+impl std::convert::TryFrom<&DocValue> for Box<str> {
+    type Error = ();
+    fn try_from(v: &DocValue) -> Result<Box<str>, ()> {
+        match v {
+            DocValue::String(s) => Ok(Box::from(s.as_ref())),
+            _ => Err(())
+        }
+    }
+}
+
+impl std::convert::TryFrom<DocValue> for Box<str> {
+    type Error = ();
+    fn try_from(v: DocValue) -> Result<Box<str>, ()> {
+        match v {
+            DocValue::String(s) => Ok(Box::from(s.as_ref())),
+            _ => Err(())
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct DocTable {
     metatable: Option<Rc<str>>,

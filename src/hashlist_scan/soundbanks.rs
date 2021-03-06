@@ -8,7 +8,7 @@ use crate::diesel_hash::{hash_str as dhash};
 use crate::formats::banksinfo;
 use crate::util::BoxResult as Result;
 
-pub fn scan(database: &Database) -> Result<Vec<Rc<str>>> {
+pub fn scan(database: &Database) -> Result<Vec<Box<str>>> {
 
     let banksinfo = get_banks_info(database)?;
 
@@ -34,7 +34,7 @@ pub fn scan(database: &Database) -> Result<Vec<Rc<str>>> {
         }
         None
     }).collect();
-    return Ok(pr.iter().map(|i| Rc::from(i.as_ref())).collect());
+    return Ok(pr);
 }
 
 fn get_banks_info(database: &Database) -> Result<banksinfo::BanksInfo> {

@@ -10,6 +10,7 @@ use crate::diesel_hash::{hash_str as dhash};
 mod scriptdata;
 mod xml;
 mod soundbanks;
+mod cubelights;
 
 pub fn do_scan<W: std::io::Write>(db: &Database, output: &mut W) -> io::Result<()> {
     eprintln_time!("Data scan pass 1, preparing file list");
@@ -42,8 +43,11 @@ pub fn do_scan<W: std::io::Write>(db: &Database, output: &mut W) -> io::Result<(
     let sb_res = soundbanks::scan(db);
     match sb_res {
         Err(e) => eprintln_time!("Unable to analyse soundbanks: {}", e),
-        Ok(strs) => found.extend(strs.into_iter())
+        Ok(strs) => found.extend(strs.into_iter().map(|s| Rc::from(s.as_ref())))
     }
+
+    eprintln_time!("Brute forcing cubelight names");
+    found.extend(cubelights::scan(db).iter().map(|s| Rc::from(s.as_ref())));
 
     eprintln_time!("Scan complete. Saving {} strings", found.len());
     let mut ordered: Vec<Rc<str>> = Vec::from_iter(found.drain());
