@@ -88,9 +88,28 @@ impl std::default::Default for Document {
 
 #[derive(Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Debug, Hash)]
 pub struct Vector<T> { pub x: T, pub y: T, pub z: T }
+impl From<(f32, f32, f32)> for Vector<OrderedFloat> {
+    fn from((x,y,z): (f32, f32, f32)) -> Vector<OrderedFloat> {
+        Vector {
+            x: OrderedFloat(x),
+            y: OrderedFloat(y),
+            z: OrderedFloat(z)
+        }
+    }
+}
 
 #[derive(Copy, Clone, PartialOrd, PartialEq, Ord, Eq, Debug, Hash)]
 pub struct Quaternion<T> { pub x: T, pub y: T, pub z: T, pub w: T }
+impl From<(f32, f32, f32, f32)> for Quaternion<OrderedFloat> {
+    fn from((x,y,z,w): (f32, f32, f32, f32)) -> Quaternion<OrderedFloat> {
+        Quaternion {
+            x: OrderedFloat(x),
+            y: OrderedFloat(y),
+            z: OrderedFloat(z),
+            w: OrderedFloat(w)
+        }
+    }
+}
 
 #[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Debug, Hash)]
 pub enum DocValue {
@@ -105,6 +124,16 @@ pub enum DocValue {
 }
 impl From<f32> for DocValue { fn from(src: f32) -> DocValue { DocValue::Number(OrderedFloat(src)) } }
 impl From<Rc<str>> for DocValue { fn from(src: Rc<str>) -> DocValue { DocValue::String(src)}}
+impl From<(f32, f32, f32)> for DocValue {
+    fn from(tup: (f32, f32, f32)) -> DocValue {
+        DocValue::Vector(Vector::from(tup))
+    }
+}
+impl From<(f32, f32, f32, f32)> for DocValue {
+    fn from(tup: (f32, f32, f32, f32)) -> DocValue {
+        DocValue::Quaternion(Quaternion::from(tup))
+    }
+}
 
 macro_rules! dv_try_from {
     ($v:ident, $t:ty) => {

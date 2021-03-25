@@ -365,6 +365,13 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
+    /// Calculates an absolute position at `pos`.
+    ///
+    /// This operation is very expensive. Use only for errors.
+    pub fn gen_text_pos_from(&self, pos: usize) -> TextPos {
+        self.stream.gen_text_pos_from(pos)
+    }
+
     fn parse_next_impl(&mut self) -> Option<Result<Token<'a>>> {
         let s = &mut self.stream;
 
