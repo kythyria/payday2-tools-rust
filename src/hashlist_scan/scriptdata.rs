@@ -1,5 +1,4 @@
 use std::rc::Rc;
-use crate::formats::scriptdata::*;
 
 macro_rules! scan3 {
     (@a $chain:tt $id:tt $path:tt |> {$($childs:tt)+} $($rest:tt)* ) => {

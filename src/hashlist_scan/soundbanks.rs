@@ -1,4 +1,4 @@
-use std::{io::{ErrorKind, Error as IoError}, rc::Rc};
+use std::io::{ErrorKind, Error as IoError};
 use std::fmt::Write;
 
 use rayon::prelude::*;

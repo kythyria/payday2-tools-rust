@@ -33,9 +33,13 @@
 //! its name actually overrides the key.
 
 use std::fmt;
+use std::fmt::Write;
+use std::str::FromStr;
 use std::rc::Rc;
 
-use fnv::FnvHashSet;
+use anyhow::{anyhow, bail};
+use fnv::{FnvHashMap, FnvHashSet};
+use roxmltree;
 use xmlwriter::XmlWriter;
 
 use crate::util::rc_cell::*;
@@ -153,4 +157,234 @@ impl fmt::Display for ScalarValueString {
             DocValue::String(s)     => write!(f, "{}", s)
         }
     }
+}
+
+#[derive(Debug)]
+enum LoadError {
+    NoValue,
+    SpuriousAttribute,
+    SpuriousContent,
+    DanglingRef,
+    DuplicateId,
+    RootIsRef,
+    RootIsBroken
+}
+
+pub fn load(src: &str) -> anyhow::Result<Document> {
+    match roxmltree::Document::parse(src) {
+        Err(e) => bail!(e),
+        Ok(in_doc) => {
+            let mut loader = Loader::new(&in_doc);
+            loader.parse_everything();
+            loader.finish()
+        }
+    }
+}
+
+struct PendingRef {
+    source: RcCell<DocTable>,
+    entry: DocValue,
+    position: usize
+}
+
+enum ParseNode<'a> {
+    Resolved(DocValue),
+    Ref(&'a str),
+    Err
+}
+
+struct Loader<'input> {
+    source_doc: &'input roxmltree::Document<'input>,
+    output_doc: Document,
+    pending_refs: FnvHashMap<&'input str, Vec<PendingRef>>,
+    refs: FnvHashMap<&'input str, RcCell<DocTable>>,
+    errors: Vec<(LoadError, usize)>,
+    current_place: Option<(RcCell<DocTable>, DocValue)>
+}
+
+impl<'a> Loader<'a> {
+    fn new(source_doc: &'a roxmltree::Document<'a>) -> Loader<'a> {
+        Loader {
+            source_doc,
+            output_doc: Document::new(),
+            pending_refs: FnvHashMap::default(),
+            refs: FnvHashMap::default(),
+            errors: Vec::new(),
+            current_place: None
+        }
+    }
+
+    fn add_pending_ref(&mut self, rname: &'a str, source: RcCell<DocTable>, entry: DocValue, position: usize) {
+        let list = self.pending_refs.entry(rname).or_default();
+        list.push(PendingRef {
+            source, entry, position
+        })
+    }
+
+    fn resolve_ref(&mut self, refname: &'a str, target: RcCell<DocTable>) {
+        if let Some(pends) = self.pending_refs.remove(refname) {
+            for pr in pends {
+                let mut tab = pr.source.borrow_mut();
+                tab.insert(pr.entry, DocValue::Table(target.clone()));
+            }
+        }
+    }
+
+    fn parse_everything(&mut self) {
+        let root = self.source_doc.root_element();
+        match self.parse_element(root) {
+            ParseNode::Resolved(dv) => self.output_doc.set_root(Some(dv)),
+            ParseNode::Err => self.errors.push((LoadError::RootIsBroken, root.range().start)),
+            ParseNode::Ref(_) => self.errors.push((LoadError::RootIsRef, root.range().start))
+        }
+    }
+
+    fn parse_element(&mut self, node: roxmltree::Node<'a, 'a>) -> ParseNode<'a> {
+        match node.tag_name().name() {
+            "value_node" => ParseNode::Resolved(self.parse_value_node(node)),
+            _ => self.parse_table(node)
+        }
+    }
+
+    fn parse_value_node(&mut self, node: roxmltree::Node) -> DocValue {
+        if node.attributes().len() > 1 {
+            self.errors.push((LoadError::SpuriousAttribute, node.range().start));
+            return DocValue::Bool(false);
+        }
+        if node.has_children() {
+            self.errors.push((LoadError::SpuriousContent,node.range().start));
+            return DocValue::Bool(false);
+        }
+        if let Some(val) = node.attribute("value") {
+            return parse_scalar(&mut self.output_doc, val);
+        }
+        else {
+            self.errors.push((LoadError::NoValue, node.range().start));
+            return DocValue::Bool(false);
+        }
+    }
+
+    fn parse_table(&mut self, node: roxmltree::Node<'a, 'a>) -> ParseNode<'a> {
+        if let Some(refname) = node.attribute("_ref") {
+            if node.attributes().len() > 1 {
+                self.errors.push((LoadError::SpuriousAttribute, node.range().start));
+                return ParseNode::Err;
+            }
+            if node.has_children() {
+                self.errors.push((LoadError::SpuriousContent, node.range().start));
+                return ParseNode::Err;
+            }
+
+            if let Some(target) = self.refs.get(refname) {
+                return ParseNode::Resolved(DocValue::Table(target.clone()));
+            }
+            else {
+                return ParseNode::Ref(refname)
+            }
+        }
+
+        let tabr = RcCell::<DocTable>::default();
+        {
+            let mut tab = tabr.borrow_mut();
+
+            if node.tag_name().name() != "table" {
+                let mt = self.output_doc.cache_string(node.tag_name().name());
+                tab.set_metatable(Some(mt));
+            }
+
+            for attr in node.attributes() {
+                if attr.name() == "_id" {
+                    if self.refs.contains_key(attr.value()) {
+                        self.errors.push((LoadError::DuplicateId, attr.range().start));
+                    }
+                    else {
+                        self.resolve_ref(attr.value(), tabr.clone());
+                    }
+                    continue;
+                }
+
+                let val = parse_scalar(&mut self.output_doc, attr.value());
+                let key = self.output_doc.cache_string(attr.name());
+                tab.insert(DocValue::from(key), val);
+            }
+
+            let mut idx = 1.0;
+            for n in node.children().filter(|n| n.is_element()) {
+                let key_n = DocValue::from(idx);
+                let key_s = if n.tag_name().name() != "table" {
+                    Some(DocValue::from(self.output_doc.cache_string(n.tag_name().name())))
+                }
+                else {
+                    None
+                };
+
+                match self.parse_element(n) {
+                    ParseNode::Err => (),
+                    ParseNode::Resolved(dv) => {
+                        tab.insert(DocValue::from(idx), dv.clone());
+                        if let Some(k) = key_s {
+                            tab.insert(k, dv);
+                        }
+                    },
+                    ParseNode::Ref(r) => {
+                        self.add_pending_ref(r, tabr.clone(), key_n, n.range().start);
+                        if let Some(k) = key_s {
+                            self.add_pending_ref(r, tabr.clone(), k, n.range().start);
+                        }
+                    }
+                }
+                idx += 1.0;
+            }
+        }
+
+        return ParseNode::Resolved(DocValue::Table(tabr));
+    }
+
+    fn finish(mut self) -> anyhow::Result<Document> {
+        if self.errors.len() == 0 {
+            self.output_doc.gc();
+            return Ok(self.output_doc);
+        }
+
+        let mut errmsg = String::from("Generic_xml document has bad structure:\n");
+        for (err, pos) in self.errors {
+            match write!(errmsg, "    {:?} at {}", err, self.source_doc.text_pos_at(pos)) {
+                Ok(_) => (),
+                Err(_) => panic!("Somehow failed to build a list of error messages. SOMEHOW.")
+            }
+        }
+        Err(anyhow!(errmsg))
+    }
+}
+
+fn parse_scalar(doc: &mut Document, text: &str) -> DocValue {
+    if text == "true" {
+        return DocValue::Bool(true)
+    }
+
+    if text == "false" {
+        return DocValue::Bool(false)
+    }
+
+    if text.starts_with("@ID") && text.ends_with("@") {
+        let hex = &text[3..(text.len()-1)];
+        if let Ok(val) = u64::from_str_radix(hex, 16) {
+            return DocValue::IdString(crate::hashindex::Hash(val));
+        }
+    }
+
+    if let Ok(val) = f32::from_str(text) {
+        return DocValue::from(val);
+    }
+
+    if let Ok(parts) = text.splitn(4, ' ').map(f32::from_str).collect::<Result<Vec<_>,_>>() {
+        if parts.len() == 3 {
+            return DocValue::from((parts[0], parts[1], parts[2]));
+        }
+        if parts.len() == 4 {
+            return DocValue::from((parts[0], parts[1], parts[2], parts[3]));
+        }
+    }
+
+    return DocValue::String(doc.cache_string(text));
 }

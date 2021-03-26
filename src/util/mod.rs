@@ -56,3 +56,14 @@ pub mod timeprint {
         };
     }
 }
+
+/// Implement the obvious From for a tuple variant with a single member.
+macro_rules! variant_from {
+    ($en:ident::$var:ident, $t:ty) => {
+        impl From<$t> for $en {
+            fn from(src: $t) -> $en {
+                $en::$var(src)
+            }
+        }
+    }
+}

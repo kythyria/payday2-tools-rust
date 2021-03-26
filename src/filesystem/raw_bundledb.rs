@@ -12,7 +12,6 @@ use winapi::shared::winerror;
 use winapi::um::winnt;
 
 use crate::bundles::database::{Database, DatabaseItem, HashStrKey, ItemType};
-use crate::hashindex::HashedStr;
 use crate::diesel_hash;
 use super::{ReadOnlyFs,FsReadHandle,FsDirEntry};
 

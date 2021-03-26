@@ -122,8 +122,10 @@ pub enum DocValue {
     Quaternion(Quaternion<OrderedFloat>),
     Table(RcCell<DocTable>)
 }
+variant_from!(DocValue::Bool, bool);
+variant_from!(DocValue::String, Rc<str>);
+variant_from!(DocValue::Table, RcCell<DocTable>);
 impl From<f32> for DocValue { fn from(src: f32) -> DocValue { DocValue::Number(OrderedFloat(src)) } }
-impl From<Rc<str>> for DocValue { fn from(src: Rc<str>) -> DocValue { DocValue::String(src)}}
 impl From<(f32, f32, f32)> for DocValue {
     fn from(tup: (f32, f32, f32)) -> DocValue {
         DocValue::Vector(Vector::from(tup))
@@ -197,8 +199,8 @@ impl DocTable {
         self.dict_like.insert(key, value);
     }
     pub fn get_metatable(&self) -> Option<Rc<str>> { self.metatable.clone() }
-    pub fn set_metatable<T: Into<Option<Rc<str>>>>(&mut self, newtable: T) {
-        self.metatable = newtable.into();
+    pub fn set_metatable<T: Into<Rc<str>>>(&mut self, newmeta: Option<T>) {
+        self.metatable = newmeta.map(Into::into);
     }
 
     /// Total number of items in the table

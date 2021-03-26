@@ -1,4 +1,4 @@
-use std::cell::{RefCell, Ref};
+use std::cell::{Ref, RefCell, RefMut};
 use std::cmp::*;
 use std::rc::{Rc, Weak};
 
@@ -15,6 +15,10 @@ impl<T> RcCell<T> {
 
     pub fn borrow(&self) -> Ref<T> {
         self.0.borrow()
+    }
+
+    pub fn borrow_mut(&self) -> RefMut<T> {
+        self.0.borrow_mut()
     }
 }
 

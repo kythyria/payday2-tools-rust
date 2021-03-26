@@ -354,7 +354,7 @@ impl<'a> DatabaseItem<'a> {
             let fi = std::fs::File::open(path)?;
             let mut bytes = Vec::new();
             bytes.resize(length as usize, 0);
-            fi.seek_read(&mut bytes, offset as u64);
+            fi.seek_read(&mut bytes, offset as u64)?;
             Ok(std::rc::Rc::from(bytes))
         }
         else { Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Is a directory")) }
