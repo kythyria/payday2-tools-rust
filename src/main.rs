@@ -17,15 +17,87 @@ use std::io::{Read,Write};
 use std::sync::Arc;
 
 use clap::{clap_app, arg_enum, value_t};
+use structopt::StructOpt;
 
 use hashindex::HashIndex;
 
 arg_enum! {
     #[derive(Debug, Clone, Copy, Ord, Eq, PartialOrd, PartialEq, Hash)]
     enum ConvertType {
+        Binary,
         Lua,
         Generic,
         Custom
+    }
+}
+
+#[derive(Debug, StructOpt)]
+#[structopt(name="Payday 2 CLI Tools", about="Does various things related to the game Payday 2")]
+struct Opt {
+    /// Path of hashlist to use. By default look in cwd and then next to the executable.
+    #[structopt(short, long)]
+    hashlist: Option<String>,
+
+    #[structopt(subcommand)]
+    command: Command
+}
+
+#[derive(Debug, StructOpt)]
+enum Command {
+    /// Calculate Diesel hash of each argument
+    Hash {
+        /// String(s) to hash
+        to_hash: Vec<String>
+    },
+
+    /// Look up hashes in the hashlist
+    Unhash {
+        /// Parse hashes as decimal numbers rather than hex
+        #[structopt(short, long)]
+        decimal: bool,
+
+        /// Hashes to search for
+        to_unhash: Vec<String>
+    },
+
+    /// Read package headers and don't do anything with them
+    #[structopt(name="read-packages")]
+    ReadPackages {
+        /// Directory containing bundle_db.blb
+        asset_dir: String
+    },
+
+    /// Mount packages as a volume using Dokany
+    Mount {
+        /// Directory containing bundle_db.blb
+        asset_dir: String,
+        /// Drive letter to mount on
+        mountpoint: String
+    },
+
+    /// Scan packages for strings
+    Scan {
+        /// Directory containing bundle_db.blb
+        asset_dir: String,
+        /// File to write the strings to
+        output: String
+    },
+
+    /// Convert between scriptdata formats
+    Convert {
+        /// Input format
+        #[structopt(short="i", long="input-format")]
+        input_format: Option<ConvertType>,
+
+        ///Output format
+        #[structopt(short, long, default_value="generic")]
+        output_format: ConvertType,
+
+        /// File to read
+        input: String,
+        /// File to write
+        #[structopt(default_value="-")]
+        output: String
     }
 }
 
@@ -240,6 +312,9 @@ fn do_convert(input_filename: &str, output_filename: &str, output_type: ConvertT
         }
         ConvertType::Custom => {
             formats::scriptdata::custom_xml::dump(&doc.unwrap()).into_bytes()
+        }
+        ConvertType::Binary => {
+            unimplemented!()
         }
     };
 
