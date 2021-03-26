@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::io::{Read,Write};
 use std::sync::Arc;
 
-use clap::{clap_app, arg_enum, value_t};
+use clap::arg_enum;
 use structopt::StructOpt;
 
 use hashindex::HashIndex;
@@ -86,7 +86,7 @@ enum Command {
     /// Convert between scriptdata formats
     Convert {
         /// Input format
-        #[structopt(short="i", long="input-format")]
+        #[structopt(short="if", long="input-format")]
         input_format: Option<ConvertType>,
 
         ///Output format
@@ -102,83 +102,39 @@ enum Command {
 }
 
 fn main() {
-    let app = clap_app!(("Payday 2 CLI Tools") =>
-        (version: "0.1")
-        (about: "Does various things related to the game Payday 2")
-        (@arg hashlist: -h --hashlist [HASHLIST] "Load hashlist from this file [default: .exe location or CWD]")
-        (@subcommand hash =>
-            (about: "Calculate diesel hash of arguments")
-            (@arg to_hash: <STRING>... "String to hash")
-        )
-        (@subcommand unhash =>
-            (about: "Given diesel hashes, look them up in the hashlist")
-            (@arg to_unhash: <HASH>... "Hash to look up")
-        )
-        (@subcommand read_packages =>
-            (about: "Reads package headers and doesn't do anything with them")
-            (@arg assetdir: <ASSET_DIR> "Directory containing bundle_db.blb")
-        )
-        (@subcommand mount =>
-            (about: "Mount packages as a volume using Dokany")
-            (@arg assetdir: <ASSET_DIR> "Directory containing bundle_db.blb")
-            (@arg mountpoint: <MOUNT_POINT> "Drive letter to mount on")
-        )
-        (@subcommand convert => 
-            (about: "Convert binary scriptdata to text")
-            (@arg format: -f --format [FORMAT] possible_values(&ConvertType::variants()) default_value("generic") "Output format")
-            (@arg input: <INPUT> "File to read or - for stdin")
-            (@arg output: [OUTPUT] default_value("-") "File to write, - for stdout")
-        )
-        (@subcommand scan =>
-            (about: "Scan bundles for strings")
-            (@arg assetdir: <ASSET_DIR> "Directory containing bundle_db.blb")
-            (@arg output: <OUTPUT> "File to write the strings to")
-        )
-    );
-    let arg_matches = app.get_matches();
+    let opt = Opt::from_args();
+    println!("{:?}", opt);
 
-    match arg_matches.subcommand() {
-        ("hash", Some(sc_args)) => {
-            do_hash(sc_args.values_of("to_hash").unwrap().collect())
-        },
-        ("unhash", Some(sc_args)) => {
-            let hashlist_maybe = get_hashlist(arg_matches.value_of("hashlist"));
-            match hashlist_maybe {
-                None => return,
-                Some(hashlist) => do_unhash(hashlist, sc_args.values_of("to_unhash").unwrap().collect())
+    match opt.command {
+        Command::Hash{ to_hash } => {
+            for s in to_hash {
+                println!("{:>016x} {:?}", diesel_hash::hash_str(&s), s)
             }
         },
-        ("read_packages", Some(sc_args)) => {
-            let hashlist_maybe = get_hashlist(arg_matches.value_of("hashlist"));
-            match hashlist_maybe {
-                None => return,
-                Some(hashlist) => do_readpkg(hashlist, sc_args.value_of("assetdir").unwrap())
+        Command::Unhash{ to_unhash, decimal } => {
+            if let Some(hashlist) = get_hashlist(&opt.hashlist) {
+                let radix = if decimal { 10 } else { 16 };
+                do_unhash(hashlist, &to_unhash, radix)
             }
         },
-        ("mount", Some(sc_args)) => {
-            do_mount(sc_args.value_of("mountpoint").unwrap(), arg_matches.value_of("hashlist"), sc_args.value_of("assetdir").unwrap())
+        Command::ReadPackages{ asset_dir } => {
+            if let Some(hashlist) = get_hashlist(&opt.hashlist) {
+                do_readpkg(hashlist, &asset_dir)
+            }
         },
-        ("convert", Some(sc_args)) => {
-            let in_name = sc_args.value_of("input").unwrap();
-            let out_name = sc_args.value_of("output").unwrap();
-            let format = value_t!(sc_args, "format", ConvertType).unwrap_or_else(|e| e.exit());
-            do_convert(in_name, out_name, format);
+        Command::Mount{ asset_dir, mountpoint } => {
+            do_mount(&mountpoint, &opt.hashlist, &asset_dir)
         },
-        ("scan", Some(sc_args)) => {
-            let hl_name = arg_matches.value_of("hashlist");
-            let bdir = sc_args.value_of("assetdir").unwrap();
-            let outname = sc_args.value_of("output").unwrap();
-            do_scan(hl_name, bdir, outname);
+        Command::Scan{ asset_dir, output } => {
+            do_scan(&opt.hashlist, &asset_dir, &output)
+        },
+        Command::Convert{ input, output, input_format, output_format } => {
+            do_convert(&input, input_format, &output, output_format)
         }
-        _ => {
-            println!("Unknown command, use --help for a list.");
-            return;
-        }
-    }
-    return;
+    };
 }
 
-fn get_hashlist(hashlist_filename: Option<&str>) -> Option<HashIndex> {
+fn get_hashlist(hashlist_filename: &Option<String>) -> Option<HashIndex> {
     match try_get_hashlist(hashlist_filename) {
         Ok(hi) => Some(hi),
         Err(e) => {
@@ -191,7 +147,7 @@ fn get_hashlist(hashlist_filename: Option<&str>) -> Option<HashIndex> {
     }
 }
 
-fn try_get_hashlist(filename_arg: Option<&str>) -> Result<HashIndex, std::io::Error> {
+fn try_get_hashlist(filename_arg: &Option<String>) -> Result<HashIndex, std::io::Error> {
     if let Some(hf) = filename_arg {
         let hp = PathBuf::from(hf);
         return try_load_hashlist(&hp);
@@ -247,9 +203,9 @@ fn do_hash(texts: Vec<&str>) {
     }
 }
 
-fn do_unhash(hashlist: hashindex::HashIndex, texts: Vec<&str>) {
+fn do_unhash(hashlist: hashindex::HashIndex, texts: &Vec<String>, radix: u32) {
     for s in texts {
-        match u64::from_str_radix(s, 16) {
+        match u64::from_str_radix(s, radix) {
             Err(e) => println!("{:?} doesn't look like a hash ({})", s, e),
             Ok(i) => println!("{:?}", hashlist.get_hash(i))
         }
@@ -267,13 +223,13 @@ fn do_readpkg(hashlist: hashindex::HashIndex, asset_dir: &str) {
     }
 }
 
-fn do_mount(mountpoint: &str, hashlist_filename: Option<&str>, asset_dir: &str) {
+fn do_mount(mountpoint: &str, hashlist_filename: &Option<String>, asset_dir: &str) {
     let hashlist = get_hashlist(hashlist_filename).unwrap();
     let db = get_packagedb(hashlist, asset_dir).unwrap();
     filesystem::mount_cooked_database(mountpoint, db.hashes.clone(), Arc::new(db));
 }
 
-fn do_scan(hashlist_filename: Option<&str>, asset_dir: &str, outname: &str) {
+fn do_scan(hashlist_filename: &Option<String>, asset_dir: &str, outname: &str) {
     let hashlist = get_hashlist(hashlist_filename).unwrap();
     let db = get_packagedb(hashlist, asset_dir).unwrap();
     let mut outfile = std::fs::OpenOptions::new().create(true).write(true).open(outname).unwrap();
@@ -289,7 +245,7 @@ fn do_print_scriptdata(filename: &str) {
     //println!("{:?}", doc.root())
 }
 
-fn do_convert(input_filename: &str, output_filename: &str, output_type: ConvertType) {
+fn do_convert(input_filename: &str, _input_type: Option<ConvertType>, output_filename: &str, output_type: ConvertType) {
     let in_data: Vec<u8> = match input_filename {
         "-" => {
             let mut id = Vec::<u8>::new();
