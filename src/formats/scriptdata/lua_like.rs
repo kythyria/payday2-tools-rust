@@ -1,37 +1,38 @@
 use std::fmt;
-use std::io::{Write, Result as IoResult};
+use std::fmt::Write;
 
 use fnv::{FnvHashMap, FnvHashSet};
 
 use super::document::*;
 use crate::util::rc_cell::*;
 
-pub fn dump<O: Write>(doc: &Document, output: &mut O) -> IoResult<()> {
-    write!(output, "return ")?;
+pub fn dump(doc: &Document) -> String {
+    let mut output = String::new();
+    write!(output, "return ").unwrap();
     match doc.root() {
         Some(item) => {
             let mut state = DumpState {
-                output,
+                output: &mut output,
                 seen_table_ids: FnvHashMap::default(),
                 referenced_tables: doc.tables_used_repeatedly(),
                 next_id: 1
             };
-            dump_item(&item, &mut state, 0)?;
+            dump_item(&item, &mut state, 0).unwrap();
         },
-        None => write!(output, "nil")?
+        None => write!(output, "nil").unwrap()
     };
-    writeln!(output)?;
-    Ok(())
+    writeln!(output).unwrap();
+    output
 }
 
-struct DumpState<'o, O: Write> {
-    output: &'o mut O,
+struct DumpState<'o> {
+    output: &'o mut String,
     seen_table_ids: FnvHashMap<WeakCell<DocTable>, String>,
     referenced_tables: FnvHashSet<WeakCell<DocTable>>,
     next_id: u32
 }
 
-fn dump_item<O: Write>(item: &DocValue, state: &mut DumpState<O>, indent_level: usize) -> IoResult<()> {
+fn dump_item(item: &DocValue, state: &mut DumpState, indent_level: usize) -> Result<(), fmt::Error> {
     match item {
         DocValue::Bool(b) => {
             match b {
@@ -51,8 +52,6 @@ fn dump_item<O: Write>(item: &DocValue, state: &mut DumpState<O>, indent_level: 
 struct WriteLuaString<S: AsRef<str>>(S);
 impl<S: AsRef<str>> fmt::Display for WriteLuaString<S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use std::fmt::Write;
-
         f.write_char('"')?;
         for c in self.0.as_ref().chars() {
             match c {
@@ -73,7 +72,7 @@ impl<S: AsRef<str>> fmt::Display for WriteLuaString<S> {
     }
 }
 
-fn write_lua_table<O: Write>(table: &RcCell<DocTable>, state: &mut DumpState<O>, indent_level: usize) -> IoResult<()> {
+fn write_lua_table(table: &RcCell<DocTable>, state: &mut DumpState, indent_level: usize) -> Result<(), fmt::Error> {
     let downgraded = table.downgrade();
     if let Some(id) = state.seen_table_ids.get(&downgraded) {
         write!(state.output, "Ref(\'{}\')", id)?;
@@ -113,14 +112,14 @@ fn write_lua_table<O: Write>(table: &RcCell<DocTable>, state: &mut DumpState<O>,
     Ok(())
 }
 
-fn write_indent<O: Write>(output: &mut O, level: usize) -> IoResult<()>{
+fn write_indent<O: Write>(output: &mut O, level: usize) -> Result<(), fmt::Error> {
     for _ in 0..level {
         write!(output, "  ")?
     }
     Ok(())
 }
 
-fn write_key<O: Write>(item: &DocValue, state: &mut DumpState<O>, indent_level: usize) -> IoResult<()> {
+fn write_key(item: &DocValue, state: &mut DumpState, indent_level: usize) -> Result<(), fmt::Error> {
     match item {
         DocValue::String(s) => {
             if is_valid_ident(s) {

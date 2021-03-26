@@ -170,8 +170,10 @@ enum LoadError {
     RootIsBroken
 }
 
-pub fn load(src: &str) -> anyhow::Result<Document> {
-    match roxmltree::Document::parse(src) {
+pub fn load(src: &[u8]) -> anyhow::Result<Document> {
+    let src_str: &str = std::str::from_utf8(src)?;
+
+    match roxmltree::Document::parse(src_str) {
         Err(e) => bail!(e),
         Ok(in_doc) => {
             let mut loader = Loader::new(&in_doc);

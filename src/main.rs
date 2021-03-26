@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use std::io::{Read,Write};
 use std::sync::Arc;
 
+use anyhow::Context;
 use clap::arg_enum;
 use structopt::StructOpt;
 
@@ -86,7 +87,7 @@ enum Command {
     /// Convert between scriptdata formats
     Convert {
         /// Input format
-        #[structopt(short="if", long="input-format")]
+        #[structopt(long)]
         input_format: Option<ConvertType>,
 
         ///Output format
@@ -245,7 +246,7 @@ fn do_print_scriptdata(filename: &str) {
     //println!("{:?}", doc.root())
 }
 
-fn do_convert(input_filename: &str, _input_type: Option<ConvertType>, output_filename: &str, output_type: ConvertType) {
+fn do_convert(input_filename: &str, input_type: Option<ConvertType>, output_filename: &str, output_type: ConvertType) {
     let in_data: Vec<u8> = match input_filename {
         "-" => {
             let mut id = Vec::<u8>::new();
@@ -255,24 +256,23 @@ fn do_convert(input_filename: &str, _input_type: Option<ConvertType>, output_fil
         name => std::fs::read(name).unwrap()
     };
 
-    let doc = formats::scriptdata::binary::from_binary(&in_data, false);
-    
-    let output = match output_type {
-        ConvertType::Lua => {
-            let mut ob = Vec::<u8>::new();
-            formats::scriptdata::lua_like::dump(&doc.unwrap(), &mut ob).unwrap();
-            ob
-        },
-        ConvertType::Generic => {
-            formats::scriptdata::generic_xml::dump(&doc.unwrap()).into_bytes()
-        }
-        ConvertType::Custom => {
-            formats::scriptdata::custom_xml::dump(&doc.unwrap()).into_bytes()
-        }
-        ConvertType::Binary => {
-            unimplemented!()
-        }
+    let input_func = match input_type {
+        Some(ConvertType::Binary) => formats::scriptdata::binary::load,
+        Some(ConvertType::Custom) => formats::scriptdata::custom_xml::load,
+        _ => unimplemented!("Only custom and binary are currently implemented")
     };
+
+    let doc = input_func(&in_data).with_context(||{
+        format!("Decoding \"{}\" as {:?}", input_filename, input_type)
+    }).unwrap();
+
+    let output_func = match output_type {
+        ConvertType::Lua => formats::scriptdata::lua_like::dump,
+        ConvertType::Generic => formats::scriptdata::generic_xml::dump,
+        ConvertType::Custom => formats::scriptdata::custom_xml::dump,
+        ConvertType::Binary => unimplemented!()
+    };
+    let output = output_func(&doc).into_bytes();
 
     match output_filename {
         "-" => {
