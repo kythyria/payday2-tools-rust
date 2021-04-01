@@ -1,9 +1,11 @@
+use std::fmt::Write;
+
 use rayon::prelude::*;
 
 use crate::bundles::database::Database;
 use crate::diesel_hash::{hash_str as dhash};
 
-pub fn scan(database: &Database) -> Vec<Box<str>> {
+pub fn scan_cubelights(database: &Database) -> Vec<Box<str>> {
     let worlds: Vec<_> = database.files().filter_map(|item|{
         let k = item.key();
         if k.extension.hash != dhash("world") { return None }
@@ -15,8 +17,24 @@ pub fn scan(database: &Database) -> Vec<Box<str>> {
         None
     }).collect();
 
-    let cubelight_fmap = worlds.par_iter().flat_map(|world|{
-        force_cubelight_names(world, database)
+    let cubelight_fmap = worlds.par_iter().flat_map(|world| {
+        let alloc_len = world.len() + "/cube_lights/".len() + 6;
+        let world = *world;
+        (0..1000000).into_par_iter().map_init(
+            move ||{ String::with_capacity(alloc_len) },
+            move |buf, n| {
+                buf.clear();
+                write!(buf, "{}/cube_lights/{}", world, n).unwrap();
+                let hsh = dhash(&buf);
+                match database.get_by_hashes(hsh, dhash(""), dhash("texture")) {
+                    Some(_) => {
+                        let b = Box::<str>::from(buf.as_str());
+                        Some(b)
+                    },
+                    None => None
+                }
+            }
+        ).filter_map(|i| i)
     });
 
     let mut found: Vec<Box<str>> = cubelight_fmap.collect();
@@ -28,15 +46,4 @@ pub fn scan(database: &Database) -> Vec<Box<str>> {
     }));
 
     found
-}
-
-fn force_cubelight_names<'a>(world: &'a str, db: &'a Database) -> impl rayon::iter::ParallelIterator<Item=Box<str>> +'a {
-    (0..1000000).into_par_iter().filter_map(move |i| {
-        let path = format!("{}/cube_lights/{}", world, i);
-        let hsh = dhash(&path);
-        match db.get_by_hashes(hsh, dhash(""), dhash("texture")) {
-            Some(_) => Some(Box::from(path)),
-            None => None
-        }
-    })
 }
