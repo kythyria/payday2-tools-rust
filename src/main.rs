@@ -99,12 +99,15 @@ enum Command {
         /// File to write
         #[structopt(default_value="-")]
         output: String
+    },
+
+    Oil {
+        input: String
     }
 }
 
 fn main() {
     let opt = Opt::from_args();
-    println!("{:?}", opt);
 
     match opt.command {
         Command::Hash{ to_hash } => {
@@ -131,6 +134,10 @@ fn main() {
         },
         Command::Convert{ input, output, input_format, output_format } => {
             do_convert(&input, input_format, &output, output_format)
+        }
+        Command::Oil{ input } => {
+            let path: std::path::PathBuf = input.into();
+            formats::oil::print_sections(&path);
         }
     };
 }
