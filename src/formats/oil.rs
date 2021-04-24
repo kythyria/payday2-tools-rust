@@ -18,14 +18,13 @@
 use std::path::Path;
 
 use nom::IResult;
-use nom::bytes::complete::take;
-use nom::combinator::map_res;
-use nom::multi::length_data;
-use nom::number::complete::{le_u32, le_f64};
+use nom::combinator::{map_res, map};
+use nom::multi::{length_data, length_count};
+use nom::number::complete::{le_u16, le_u32, le_f64, le_u64};
 use nom::sequence::tuple;
 use nom::multi::fill;
 
-use crate::util::read_helpers::*;
+use crate::util::read_helpers::{TryFromIndexedLE, TryFromBytesError};
 
 struct UnparsedSection<'a> {
     type_code: u32,
@@ -40,10 +39,10 @@ enum TypeId {
     Node = 0,
     Anim = 3,
     Material = 4,
+    Geometry = 5,
     Anim2 = 12,
     Anim3 = 20,
     UnknownType11 = 11,
-    UnknownType5 = 5,
     UnknownType21 = 21
 }
 
@@ -70,8 +69,22 @@ trivialer_from!(std::str::Utf8Error, BadUtf8);
 fn mysterious_err<E>(error: nom::Err<E>) -> nom::Err<ParseError> {
     match error {
         nom::Err::Incomplete(_) => nom::Err::Failure(ParseError::UnexpectedEof),
-        nom::Err::Error(e) => nom::Err::Error(ParseError::Mysterious),
+        nom::Err::Error(_) => nom::Err::Error(ParseError::Mysterious),
         nom::Err::Failure(_) => nom::Err::Failure(ParseError::Mysterious)
+    }
+}
+
+struct UnparsedBytes(Vec<u8>);
+impl std::fmt::Debug for UnparsedBytes {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} ", self.0.len())?;
+        if false && self.0.len() > 64 {
+            write!(f, "[{}...]", AsHex(&self.0[0..64]))?;
+        }
+        else {
+            write!(f, "[{}]", AsHex(&self.0))?;
+        }
+        Ok(())
     }
 }
 
@@ -148,17 +161,89 @@ impl Node {
     }
 }
 
-fn read_prefixed_string<'a>(src: &'a [u8], offset: usize) -> Result<(&'a str, usize), ParseError> {
-    let strlen = u32::try_from_le(src, offset)? as usize;
-    let start = offset + 4;
-    let end = start + strlen;
-    if start >= src.len() || end > src.len() {
-        return Err(ParseError::UnexpectedEof)
+#[derive(Debug)]
+struct Geometry {
+    node_id: u32,
+
+    /// ID of mesh material
+    /// 0xFFFFFFFF == none
+    material_id: u32,
+    unknown1: u16,
+    channels: Vec<GeometryChannel>,
+    faces: Vec<GeometryFace>,
+    trailing_unparsed: UnparsedBytes
+}
+impl Geometry {
+    fn parse<'a>(value: &'a[u8]) -> IResult<&'a[u8], Self> {
+        let (remaining, (node_id, material_id, unknown1)) = tuple((le_u32, le_u32, le_u16))(value)?;
+        let (remaining, channels) = length_count(le_u32, GeometryChannel::parse)(remaining)?;
+        let (remaining, faces) = length_count(le_u32, GeometryFace::parse)(remaining)?;
+
+        Ok((b"", Geometry {
+            node_id,
+            material_id,
+            unknown1,
+            channels,
+            faces,
+            trailing_unparsed: UnparsedBytes(remaining.to_owned())
+        }))
     }
-    let bytes = &src[start..end];
-    Ok((std::str::from_utf8(bytes)?, end))
 }
 
+#[derive(Debug)]
+enum GeometryChannel {
+    Position(Vec<(f64, f64, f64)>),
+    Normal  (Vec<(f64, f64, f64)>),
+    Binormal(Vec<(f64, f64, f64)>),
+    Tangent (Vec<(f64, f64, f64)>),
+    TexCoord(Vec<(f64, f64)>)
+}
+impl GeometryChannel {
+    fn parse<'a>(value: &'a[u8]) -> IResult<&'a[u8], Self> {
+        let (remaining, kind) = le_u64(value)?;
+        let tup3d = tuple((le_f64, le_f64, le_f64));
+        let tup2d = tuple((le_f64, le_f64));
+        match kind {
+            0x0000000000000000 => map(length_count(le_u32, tup3d), |v| GeometryChannel::Position(v))(remaining),
+            0x0000000000000002 => map(length_count(le_u32, tup3d), |v| GeometryChannel::Normal(v))(remaining),
+            0x0000000000000003 => map(length_count(le_u32, tup3d), |v| GeometryChannel::Binormal(v))(remaining),
+            0x0000000000000004 => map(length_count(le_u32, tup3d), |v| GeometryChannel::Tangent(v))(remaining),
+            0x0000000100000001 => map(length_count(le_u32, tup2d), |v| GeometryChannel::TexCoord(v))(remaining),
+            _ => Err(nom::Err::Failure(nom::error::Error::new(remaining, nom::error::ErrorKind::OneOf)))
+        }
+    }
+}
+
+#[derive(Debug)]
+struct GeometryFace {
+    material_id: u32,
+    unknown1: u32,
+    loops: Vec<GeometryFaceloop>
+}
+impl GeometryFace {
+    fn parse<'a>(value: &'a[u8]) -> IResult<&'a[u8], Self> {
+        let (remaining, (material_id, unknown1, loops)) = tuple((le_u32, le_u32, length_count(le_u32, GeometryFaceloop::parse)))(value)?;
+        Ok((remaining, GeometryFace {
+            material_id, unknown1, loops
+        }))
+    }
+}
+
+#[derive(Debug)]
+struct GeometryFaceloop {
+    channel: u32,
+    a: u32,
+    b: u32,
+    c: u32
+}
+impl GeometryFaceloop {
+    fn parse<'a>(value: &'a[u8]) -> IResult<&'a[u8], Self> {
+        let (remaining, (channel, a, b, c)) = tuple((le_u32, le_u32, le_u32, le_u32))(value)?;
+        Ok((remaining, GeometryFaceloop {
+            channel, a, b, c
+        }))
+    }
+}
 
 fn prefixed_string<'a>(input: &'a [u8]) -> nom::IResult<&'a [u8], &'a str> {
     map_res(length_data(le_u32), std::str::from_utf8)(input)
@@ -219,6 +304,7 @@ pub fn print_sections(filename: &Path) {
         match sec.type_code {
             0 => println!("{:6} {:6} {:?}", sec.offset, sec.length, Node::parse(sec.bytes)),
             4 => println!("{:6} {:6} {:?}", sec.offset, sec.length, Material::parse(sec.bytes)),
+            5 => println!("{:6} {:6} {:?}", sec.offset, sec.length, Geometry::parse(sec.bytes)),
             20 => println!("{:6} {:6} {:?}", sec.offset, sec.length, Anim3::parse(sec.bytes)),
             _ => {
                 let slice = if sec.bytes.len() > 64 { &sec.bytes[0..64] } else { sec.bytes };

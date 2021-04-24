@@ -112,7 +112,8 @@ fn main() {
     match opt.command {
         Command::Hash{ to_hash } => {
             for s in to_hash {
-                println!("{:>016x} {:?}", diesel_hash::hash_str(&s), s)
+                let h = diesel_hash::hash_str(&s);
+                println!("{0:>016x} {0:>20} {1:?}", h, s)
             }
         },
         Command::Unhash{ to_unhash, decimal } => {
