@@ -214,9 +214,16 @@ fn do_hash(texts: Vec<&str>) {
 
 fn do_unhash(hashlist: hashindex::HashIndex, texts: &Vec<String>, radix: u32) {
     for s in texts {
-        match u64::from_str_radix(s, radix) {
-            Err(e) => println!("{:?} doesn't look like a hash ({})", s, e),
-            Ok(i) => println!("{:?}", hashlist.get_hash(i))
+        match diesel_hash::parse_flexibly(s, radix) {
+            Ok(i) => {
+                let hash_le = hashlist.get_hash(i);
+                let hash_be = hashlist.get_hash(u64::from_be_bytes(i.to_le_bytes()));
+                println!("{:?}", hash_le);
+                if hash_be.text.is_some() {
+                    println!("{:?}", hash_be);
+                }
+            },
+            Err(()) => println!("{:?} doesn't look like a hash", s)
         }
     }
 }

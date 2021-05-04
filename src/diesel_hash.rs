@@ -42,6 +42,22 @@ pub fn from_str(s: &str) -> u64 {
     hash_str(s)
 }
 
+/// Try to parse with the specific radix and also recognise the `@ID...@` syntax.
+pub fn parse_flexibly(s: &str, radix: u32) -> Result<u64, ()> {
+    if s.len() == 20 {
+        if &s[0..3] == "@ID" && &s[19..20] == "@" {
+            let s = &s[3..19];
+            if let Ok(i) = u64::from_str_radix(s, 16) {
+                return Ok(u64::from_be_bytes(i.to_le_bytes()));
+            }
+        }
+    }
+    if let Ok(i) = u64::from_str_radix(s, radix) {
+        return Ok(i);
+    }
+    return Err(());
+}
+
 pub const fn hash_level(k : &[u8], level: u64) -> u64 {
     let mut len: u64 = k.len() as u64;
     let mut a: u64 = level;
