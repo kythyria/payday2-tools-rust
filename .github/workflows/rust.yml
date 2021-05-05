@@ -22,11 +22,11 @@ jobs:
       with:
         path: target/release/pd2tools-rust.exe
     - uses: "marvinpinto/action-automatic-releases@latest"
-        with:
-          repo_token: "${{ secrets.GITHUB_TOKEN }}"
-          automatic_release_tag: "latest"
-          prerelease: true
-          title: "Latest version"
-          files: "target/release/pd2tools-rust.exe"
+      with:
+        repo_token: "${{ secrets.GITHUB_TOKEN }}"
+        automatic_release_tag: "latest"
+        prerelease: true
+        title: "Latest version"
+        files: "target/release/pd2tools-rust.exe"
 #    - name: Run tests
 #      run: cargo test --verbose
