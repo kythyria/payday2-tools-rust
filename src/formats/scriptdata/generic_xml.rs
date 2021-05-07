@@ -1,10 +1,12 @@
 use std::fmt::Display;
 use std::rc::Rc;
+use std::str::FromStr;
 
 use fnv::{FnvHashMap, FnvHashSet};
 use xmlwriter::*;
 
 use super::document::{Document, DocTable, DocValue};
+use super::{TextEvent, SchemaError, TextParseError};
 use crate::util::rc_cell::*;
 
 pub fn dump(doc: &Document) -> String {
@@ -174,4 +176,129 @@ impl Writer {
         self.start_entry(name, None, Type::Table, None, Value::Ref(target));
         self.end_entry();
     }
+}
+
+pub fn load_events<'a>(doc: &'a roxmltree::Document<'a>) -> Vec<Result<TextEvent<'a>, TextParseError>> {
+    let mut output = Vec::new();
+
+    let rn = doc.root_element();
+    if rn.has_tag_name("generic_scriptdata") {
+        collect_events(rn, &mut output);
+    }
+    else {
+        output.push(Err(SchemaError::WrongElement{expected: "generic_scriptdata"}.at(&rn)));
+    }
+
+    return output;
+}
+
+fn collect_events<'a, 'input>(node: roxmltree::Node<'a, 'input>, output: &mut Vec<Result<TextEvent<'a>, TextParseError>>) {
+    match (node.attribute("index"), node.attribute("key")) {
+        (Some(_), Some(_)) => output.push(Err(SchemaError::KeyAndIndex.at(&node))),
+        (None, Some(key)) => output.push(Ok(TextEvent::Key(key))),
+        (Some(idx), None) => {
+            if let Ok(idx) = u32::from_str(idx) {
+                output.push(Ok(TextEvent::Index(idx)))
+            }
+            else {
+                output.push(Err(SchemaError::BadIndex.at(&node)))
+            }
+        },
+        (None, None) => {
+            if !node.is_root() {
+                output.push(Err(SchemaError::NoKeyOrIndex.at(&node)))
+            }
+        }
+    }
+    match node.attribute("type") {
+        None => output.push( Err(SchemaError::MissingType.at(&node)) ),
+
+        Some("table") => collect_events_table(node, output),
+
+        Some(t) => match node.attribute("value") {
+            Some(v) => output.push(collect_events_scalar(t, v).map_err(|e| e.at(&node))),
+            None => output.push(Err(SchemaError::MissingValue.at(&node)))
+        }
+    }
+}
+
+fn collect_events_scalar<'a>(ty: &'a str, val: &'a str) -> Result<TextEvent<'a>, SchemaError> {
+    match ty {
+        "bool" => match val {
+            "true" => Ok(TextEvent::Bool(true)),
+            "false" => Ok(TextEvent::Bool(false)),
+            _ => Err(SchemaError::InvalidBool)
+        },
+        "number" => match f32::from_str(val) {
+            Ok(n) => Ok(TextEvent::Number(n)),
+            Err(_) => Err(SchemaError::InvalidFloat)
+        },
+        "idstring" => {
+            if val.len() == 16 {
+                if let Ok(val) = u64::from_str_radix(val, 16) {
+                    return Ok(TextEvent::IdString(val.swap_bytes()))
+                }
+            }
+            Err(SchemaError::InvalidIdString)
+        },
+        "string" => Ok(TextEvent::String(val)),
+        "vector" => {
+            let v: Vec<_> = val.split(' ').map(f32::from_str).filter_map(Result::ok).collect();
+            if v.len() != 3 {
+                return Err(SchemaError::InvalidVector)
+            }
+
+            Ok(TextEvent::Vector(v[0], v[1], v[2]))
+        },
+        "quaternion" => {
+            let v: Vec<_> = val.split(' ').map(f32::from_str).filter_map(Result::ok).collect();
+            if v.len() != 4 {
+                return Err(SchemaError::InvalidVector)
+            }
+
+            Ok(TextEvent::Quaternion(v[0], v[1], v[2], v[3]))
+        }
+        _ => Err(SchemaError::UnknownItemType)
+    }
+}
+
+fn collect_events_table<'a, 'input>(node: roxmltree::Node<'a, 'input>, output: &mut Vec<Result<TextEvent<'a>, TextParseError>>) {
+    if node.has_attribute("value") {
+        output.push(Err(SchemaError::TableHasValue.at(&node)));
+        return;
+    }
+    let r#ref = node.attribute("_ref");
+    let id = node.attribute("_id");
+    let meta = node.attribute("metatable");
+
+    if r#ref.is_some() && id.is_some() {
+        output.push(Err(SchemaError::RefAndId.at(&node)));
+    }
+
+    if let Some(r#ref) = r#ref {
+        if node.first_element_child().is_some() {
+            output.push(Err(SchemaError::RefHasChildren.at(&node)));
+            return;
+        }
+
+        output.push(Ok(TextEvent::Reference(r#ref)));
+        return;
+    }
+
+    output.push(Ok(TextEvent::StartTable{
+        id, meta
+    }));
+
+    let mut mcn = node.first_element_child();
+    while let Some(cn) = mcn {
+        if cn.has_tag_name("entry") {
+            collect_events(cn, output);
+        }
+        else {
+            output.push(Err(SchemaError::WrongElement{expected: "entry"}.at(&cn)));
+        }
+        mcn = cn.next_sibling_element();
+    }
+
+    output.push(Ok(TextEvent::EndTable));
 }
