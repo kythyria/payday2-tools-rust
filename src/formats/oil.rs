@@ -18,6 +18,7 @@
 use std::path::Path;
 
 use nom::IResult;
+use nom::bytes::complete::take;
 use nom::combinator::{map_res, map};
 use nom::multi::{length_data, length_count};
 use nom::number::complete::{le_u16, le_u32, le_f64, le_u64};
@@ -250,6 +251,58 @@ impl GeometryFaceloop {
     }
 }
 
+#[derive(Debug)]
+struct Light {
+    node_id: u32,
+    unknown_1: u32,
+    color: (f64, f64, f64),
+    multiplier: f64,
+    attenuation_end: f64,
+    attenuation_start: f64,
+    unknown_2: (f64, (u32, u32)),
+    unknown_3: (f64, (u32, u32)),
+    unknown_4: (f64, (u32, u32)),
+    unknown_5: (f64, (u32, u32)),
+    aspect_ratio: f64,
+    trailing_unparsed: UnparsedBytes
+}
+impl Light {
+    fn parse<'a>(value: &'a[u8]) -> IResult<&'a[u8], Self> {
+        let (remaining, node_id) = le_u32(value)?;
+        let (remaining, unknown_1) = le_u32(remaining)?;
+        let (remaining, color) = tuple((le_f64, le_f64, le_f64))(remaining)?;
+        let (remaining, multiplier) = le_f64(remaining)?;
+        // should these be the other way around?
+        let (remaining, attenuation_end) = le_f64(remaining)?;
+        let (remaining, attenuation_start) = le_f64(remaining)?;
+        let (remaining, unknown_2) = maybe_f64(remaining)?;
+        let (remaining, unknown_3) = maybe_f64(remaining)?;
+        let (remaining, unknown_4) = maybe_f64(remaining)?;
+        let (remaining, unknown_5) = maybe_f64(remaining)?;
+        let (remaining, aspect_ratio) = le_f64(remaining)?;
+        Ok((b"", Light {
+            node_id,
+            unknown_1,
+            color,
+            multiplier,
+            attenuation_end,
+            attenuation_start,
+            unknown_2,
+            unknown_3,
+            unknown_4,
+            unknown_5,
+            aspect_ratio,
+            trailing_unparsed: UnparsedBytes(Vec::from(remaining))
+        }))
+    }
+}
+
+fn maybe_f64<'a>(value: &'a[u8]) -> IResult<&'a[u8], (f64, (u32, u32))> {
+    let (remaining, double) = le_f64(value)?;
+    let (_, ints) = tuple((le_u32, le_u32))(value)?;
+    Ok((remaining, (double, ints)))
+}
+
 fn prefixed_string<'a>(input: &'a [u8]) -> nom::IResult<&'a [u8], &'a str> {
     map_res(length_data(le_u32), std::str::from_utf8)(input)
 }
@@ -310,6 +363,7 @@ pub fn print_sections(filename: &Path) {
             0 => println!("{:6} {:6} {:?}", sec.offset, sec.length, Node::parse(sec.bytes)),
             4 => println!("{:6} {:6} {:?}", sec.offset, sec.length, Material::parse(sec.bytes)),
             5 => println!("{:6} {:6} {:?}", sec.offset, sec.length, Geometry::parse(sec.bytes)),
+            10 => println!("{:6} {:6} {:?}", sec.offset, sec.length, Light::parse(sec.bytes)),
             20 => println!("{:6} {:6} {:?}", sec.offset, sec.length, Anim3::parse(sec.bytes)),
             _ => {
                 println!("{:6} {:6} {:4} {:}", sec.offset, sec.length, sec.type_code, AsHex(sec.bytes))
