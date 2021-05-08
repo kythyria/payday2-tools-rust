@@ -281,12 +281,12 @@ fn collect_events_table<'a, 'input>(node: roxmltree::Node<'a, 'input>, output: &
             return;
         }
 
-        output.push(Ok(TextEvent::Reference(r#ref)));
+        output.push(Ok(TextEvent::Reference(r#ref.into())));
         return;
     }
 
     output.push(Ok(TextEvent::StartTable{
-        id, meta
+        id: id.into(), meta
     }));
 
     let mut mcn = node.first_element_child();

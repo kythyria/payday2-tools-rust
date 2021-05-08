@@ -19,7 +19,7 @@
 //! * Otherwise it is a table whose `_meta` entry is the element name, stored
 //!   in binary scriptdata using the `metatable` property. Add it to the
 //!   containing table as the next array-like entry *and* as a dict-like
-//!   entry whose key is the element name.
+//!   entry whose key is the element name if such does not already exist.
 //! * Each attribute of an element representing a table is a dict-like entry
 //!   whose key is the attribute name and whose value is the result of
 //!   parsing the attribute value as a scalar string.
@@ -44,6 +44,7 @@ use xmlwriter::XmlWriter;
 
 use crate::util::rc_cell::*;
 use super::document::{Document, DocTable, DocValue};
+use super::{TextEvent, TextId, SchemaError, TextParseError};
 use super::id_tracker::*;
 
 pub fn dump(doc: &Document) -> String {
@@ -389,4 +390,122 @@ fn parse_scalar(doc: &mut Document, text: &str) -> DocValue {
     }
 
     return DocValue::String(doc.cache_string(text));
+}
+
+pub fn load_events<'a>(doc: &'a roxmltree::Document<'a>) -> Vec<Result<TextEvent<'a>, TextParseError>> {
+    let mut output = Vec::new();
+    let rn = doc.root_element();
+    collect_table_node(rn, &mut output);
+    return output;
+}
+
+fn collect_table_node<'a, 'input>(node: roxmltree::Node<'a, 'input>, output: &mut Vec<Result<TextEvent<'a>, TextParseError>>) {
+    let id = table_node_id(node);
+    let meta = if !node.has_tag_name("table") {
+        Some(node.tag_name().name())
+    }
+    else {
+        node.attribute("_meta")
+    };
+
+    output.push(Ok(TextEvent::StartTable { id, meta }));
+
+    let mut seen_keys = FnvHashSet::<&str>::default();
+
+    for att in node.attributes() {
+        match att.name() {
+            "_id" => {},
+            "_meta" => {},
+            "_ref" => {},
+            key => {
+                seen_keys.insert(key);
+                output.push(Ok(TextEvent::Key(key)));
+                output.push(Ok(read_value(att.value())));
+            }
+        }
+    }
+
+    let mut to_emit_refs = Vec::<(&str, TextId)>::new();
+
+    let mut current_index = 1;
+    
+    let mut mcn = node.first_element_child();
+    while let Some(cn) = mcn {
+        if cn.has_tag_name("value_node") {
+            output.push(Ok(TextEvent::Index(current_index)));
+            current_index += 1;
+
+            output.push(read_value_node(cn));
+        }
+        else if cn.has_tag_name("table") {
+            output.push(Ok(TextEvent::Index(current_index)));
+            current_index += 1;
+
+            collect_table_node(cn, output);
+        }
+        else if let Some(r) = cn.attribute("_ref") {
+            output.push(Ok(TextEvent::Reference(TextId::Str(r))));
+        }
+        else {
+            output.push(Ok(TextEvent::Index(current_index)));
+            current_index += 1;
+            collect_table_node(cn, output);
+            
+            let key = cn.tag_name().name();
+            if seen_keys.insert(key) {
+                to_emit_refs.push((key, table_node_id(cn)));
+            }
+        }
+        mcn = cn.next_sibling_element();
+    }
+
+    for (k,r) in to_emit_refs {
+        output.push(Ok(TextEvent::Key(k)));
+        output.push(Ok(TextEvent::Reference(r)));
+    }
+    output.push(Ok(TextEvent::EndTable));
+}
+
+fn table_node_id<'a, 'input>(node: roxmltree::Node<'a, 'input>) -> TextId<'a> {
+    if let Some(id) = node.attribute("_id") {
+        TextId::Str(id)
+    }
+    else if !node.is_root() {
+        TextId::Int(node.range().start)
+    }
+    else {
+        TextId::None
+    }
+}
+
+fn read_value_node<'a, 'input>(node: roxmltree::Node<'a, 'input>) -> Result<TextEvent<'a>, TextParseError> {
+    if let Some(text) = node.attribute("value") {
+        return Ok(read_value(text));
+    }
+    else {
+        return Err(SchemaError::MissingValue.at(&node));
+    }
+}
+
+fn read_value(text: &str) -> TextEvent {
+    if text == "true" { return TextEvent::Bool(true); }
+    if text == "false" { return TextEvent::Bool(false); }
+    if text.starts_with("@ID") && text.ends_with("@") {
+        let hex = &text[3..(text.len()-1)];
+        if let Ok(val) = u64::from_str_radix(hex, 16) {
+            return TextEvent::IdString(val);
+        }
+    }
+    if let Ok(val) = f32::from_str(text) {
+        return TextEvent::Number(val);
+    }
+    if let Ok(parts) = text.splitn(4, ' ').map(f32::from_str).collect::<Result<Vec<_>,_>>() {
+        if parts.len() == 3 {
+            return TextEvent::Vector(parts[0], parts[1], parts[2]);
+        }
+        if parts.len() == 4 {
+            return TextEvent::Quaternion(parts[0], parts[1], parts[2], parts[3]);
+        }
+    }
+    return TextEvent::String(text);
 }

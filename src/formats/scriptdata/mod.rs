@@ -30,7 +30,7 @@ pub mod lua_like;
 pub mod generic_xml;
 pub mod custom_xml;
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum TextEvent<'a> {
     Bool(bool),
     Number(f32),
@@ -39,14 +39,36 @@ pub enum TextEvent<'a> {
     Vector(f32, f32, f32),
     Quaternion(f32, f32, f32, f32),
     StartTable{
-        id: Option<&'a str>,
+        id: TextId<'a>,
         meta: Option<&'a str>
     },
     EndTable,
-    Reference(&'a str),
+    Reference(TextId<'a>),
     Key(&'a str),
     Index(u32)
 }
+
+#[derive(Debug, Copy, Clone)]
+pub enum TextId<'a> {
+    Str(&'a str),
+    Int(usize),
+    None
+}
+impl<'a> From<Option<&'a str>> for TextId<'a> {
+    fn from(src: Option<&'a str>) -> Self {
+        match src {
+            Some(s) => Self::Str(s),
+            None => Self::None
+        }
+    }
+}
+impl<'a> From<&'a str> for TextId<'a> {
+    fn from(s: &'a str) -> Self {
+        Self::Str(s)
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
 pub enum SchemaError {
     WrongElement {
         expected: &'static str
@@ -76,8 +98,9 @@ impl SchemaError {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
 pub enum TextParseError {
-    DomError(roxmltree::Error),
+    //DomError(roxmltree::Error),
     SchemaError{
         pos: roxmltree::TextPos,
         kind: SchemaError

@@ -90,9 +90,13 @@ enum Command {
         #[structopt(long)]
         input_format: Option<ConvertType>,
 
-        ///Output format
+        /// Output format
         #[structopt(short, long, default_value="generic")]
         output_format: ConvertType,
+
+        /// Print the events read by the event-based parser.
+        #[structopt(short, long)]
+        events: bool,
 
         /// File to read
         input: String,
@@ -133,8 +137,8 @@ fn main() {
         Command::Scan{ asset_dir, output } => {
             do_scan(&opt.hashlist, &asset_dir, &output)
         },
-        Command::Convert{ input, output, input_format, output_format } => {
-            do_convert(&input, input_format, &output, output_format)
+        Command::Convert{ input, output, input_format, output_format, events } => {
+            do_convert(&input, input_format, &output, output_format, events)
         }
         Command::Oil{ input } => {
             let path: std::path::PathBuf = input.into();
@@ -261,7 +265,7 @@ fn do_print_scriptdata(filename: &str) {
     //println!("{:?}", doc.root())
 }
 
-fn do_convert(input_filename: &str, input_type: Option<ConvertType>, output_filename: &str, output_type: ConvertType) {
+fn do_convert(input_filename: &str, input_type: Option<ConvertType>, output_filename: &str, output_type: ConvertType, events: bool) {
     let in_data: Vec<u8> = match input_filename {
         "-" => {
             let mut id = Vec::<u8>::new();
@@ -270,6 +274,20 @@ fn do_convert(input_filename: &str, input_type: Option<ConvertType>, output_file
         },
         name => std::fs::read(name).unwrap()
     };
+
+    if events {
+        let in_text = std::str::from_utf8(&in_data).unwrap();
+        let in_tree = roxmltree::Document::parse(&in_text).unwrap();
+        let events = match input_type {
+            Some(ConvertType::Custom) => formats::scriptdata::custom_xml::load_events(&in_tree),
+            Some(ConvertType::Generic) => formats::scriptdata::generic_xml::load_events(&in_tree),
+            _ => unimplemented!("Not a format supporting events")
+        };
+        let ok_events: Vec<_> = events.iter().filter_map(|i| i.ok()).collect();
+        let err_events: Vec<_> = events.iter().filter_map(|i| i.err()).collect();
+        println!("{:?}", events);
+        //println!("{:?}", err_events);
+    }
 
     let input_func = match input_type {
         Some(ConvertType::Binary) => formats::scriptdata::binary::load,
@@ -280,6 +298,8 @@ fn do_convert(input_filename: &str, input_type: Option<ConvertType>, output_file
     let doc = input_func(&in_data).with_context(||{
         format!("Decoding \"{}\" as {:?}", input_filename, input_type)
     }).unwrap();
+
+    
 
     let output_func = match output_type {
         ConvertType::Lua => formats::scriptdata::lua_like::dump,
