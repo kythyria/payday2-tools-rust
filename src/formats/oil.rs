@@ -192,24 +192,29 @@ impl Geometry {
 
 #[derive(Debug)]
 enum GeometryChannel {
-    Position(Vec<(f64, f64, f64)>),
-    Normal  (Vec<(f64, f64, f64)>),
-    Binormal(Vec<(f64, f64, f64)>),
-    Tangent (Vec<(f64, f64, f64)>),
-    TexCoord(Vec<(f64, f64)>)
+    Position(u32, Vec<(f64, f64, f64)>),
+    Normal  (u32, Vec<(f64, f64, f64)>),
+    Binormal(u32, Vec<(f64, f64, f64)>),
+    Tangent (u32, Vec<(f64, f64, f64)>),
+    TexCoord(u32, Vec<(f64, f64)>),
+    Colour  (u32, Vec<(f64, f64, f64)>)
 }
 impl GeometryChannel {
     fn parse<'a>(value: &'a[u8]) -> IResult<&'a[u8], Self> {
-        let (remaining, kind) = le_u64(value)?;
+        let (remaining, (kind, layer)) = tuple((le_u32, le_u32))(value)?;
         let tup3d = tuple((le_f64, le_f64, le_f64));
         let tup2d = tuple((le_f64, le_f64));
         match kind {
-            0x0000000000000000 => map(length_count(le_u32, tup3d), |v| GeometryChannel::Position(v))(remaining),
-            0x0000000000000002 => map(length_count(le_u32, tup3d), |v| GeometryChannel::Normal(v))(remaining),
-            0x0000000000000003 => map(length_count(le_u32, tup3d), |v| GeometryChannel::Binormal(v))(remaining),
-            0x0000000000000004 => map(length_count(le_u32, tup3d), |v| GeometryChannel::Tangent(v))(remaining),
-            0x0000000100000001 => map(length_count(le_u32, tup2d), |v| GeometryChannel::TexCoord(v))(remaining),
-            _ => Err(nom::Err::Failure(nom::error::Error::new(remaining, nom::error::ErrorKind::OneOf)))
+            0x00000000 => map(length_count(le_u32, tup3d), |v| GeometryChannel::Position(layer, v))(remaining),
+            0x00000001 => map(length_count(le_u32, tup2d), |v| GeometryChannel::TexCoord(layer, v))(remaining),
+            0x00000002 => map(length_count(le_u32, tup3d), |v| GeometryChannel::Normal(layer, v))(remaining),
+            0x00000003 => map(length_count(le_u32, tup3d), |v| GeometryChannel::Binormal(layer, v))(remaining),
+            0x00000004 => map(length_count(le_u32, tup3d), |v| GeometryChannel::Tangent(layer, v))(remaining),
+            0x00000005 => map(length_count(le_u32, tup3d), |v| GeometryChannel::Colour(layer, v))(remaining),
+            _ => {
+                println!("Unknown geometry kind {:016x}", kind);
+                Err(nom::Err::Failure(nom::error::Error::new(remaining, nom::error::ErrorKind::OneOf)))
+            }
         }
     }
 }
@@ -307,8 +312,7 @@ pub fn print_sections(filename: &Path) {
             5 => println!("{:6} {:6} {:?}", sec.offset, sec.length, Geometry::parse(sec.bytes)),
             20 => println!("{:6} {:6} {:?}", sec.offset, sec.length, Anim3::parse(sec.bytes)),
             _ => {
-                let slice = if sec.bytes.len() > 64 { &sec.bytes[0..64] } else { sec.bytes };
-                println!("{:6} {:6} {:4} {:}", sec.offset, sec.length, sec.type_code, AsHex(slice))
+                println!("{:6} {:6} {:4} {:}", sec.offset, sec.length, sec.type_code, AsHex(sec.bytes))
             }
         }
         
