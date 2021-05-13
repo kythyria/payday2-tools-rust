@@ -15,7 +15,7 @@
 //! }
 //! ```
 
-use std::path::Path;
+use std::{convert::TryFrom, path::Path};
 
 use nom::IResult;
 use nom::bytes::complete::take;
@@ -24,6 +24,7 @@ use nom::multi::{length_data, length_count};
 use nom::number::complete::{le_u16, le_u32, le_f64, le_u64};
 use nom::sequence::tuple;
 use nom::multi::fill;
+use nom_derive::{Nom, NomLE, Parse, };
 
 use crate::util::read_helpers::{TryFromIndexedLE, TryFromBytesError};
 
@@ -43,8 +44,9 @@ enum TypeId {
     Geometry = 5,
     Anim2 = 12,
     Anim3 = 20,
-    UnknownType11 = 11,
-    UnknownType21 = 21
+    Light = 10,
+    UnknownType11 = 11, // this seems to be a single counted block.
+    UnknownType21 = 21 // mentioned next to a log message about "beats and triggers"
 }
 
 #[derive(Debug)]
@@ -251,23 +253,59 @@ impl GeometryFaceloop {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, NomLE)]
+#[repr(u32)]
+enum LightType {
+    Spot = 0,
+    Directional = 1,
+    Omni = 2
+}
+
+#[derive(Debug, PartialEq, NomLE)]
+#[repr(u32)]
+enum SpotlightShape {
+    Rectangular = 0,
+    Circular = 1
+}
+
+#[derive(Debug, NomLE)]
+#[nom(DebugDerive)]
+struct LightColor {
+    pub r: f64,
+    pub g: f64,
+    pub b: f64
+}
+
+#[derive(Debug, NomLE)]
 struct Light {
     node_id: u32,
-    unknown_1: u32,
-    color: (f64, f64, f64),
+
+    #[nom(Parse="LightType::parse")]
+    lamp_type: LightType, // Given the position, probably type (0=spot, 1=directional, 2=omni/point)
+
+    #[nom(Parse="LightColor::parse")]
+    color: LightColor,
     multiplier: f64,
     attenuation_end: f64,
     attenuation_start: f64,
-    unknown_2: (f64, (u32, u32)),
-    unknown_3: (f64, (u32, u32)),
-    unknown_4: (f64, (u32, u32)),
-    unknown_5: (f64, (u32, u32)),
+    unknown_2: f64,
+    unknown_3: f64,
+    falloff: f64,
+    hotspot: f64,
     aspect_ratio: f64,
-    trailing_unparsed: UnparsedBytes
+
+    #[nom(Parse="bool_u8")]
+    overshoot: bool,
+
+    #[nom(Parse="SpotlightShape::parse")]
+    shape: SpotlightShape,
+    target: u32,
+
+    #[nom(Parse="bool_u8")]
+    on: bool
 }
-impl Light {
-    fn parse<'a>(value: &'a[u8]) -> IResult<&'a[u8], Self> {
+/*impl Light {
+    fn parse1<'a>(value: &'a[u8]) -> IResult<&'a[u8], Self> {
         let (remaining, node_id) = le_u32(value)?;
         let (remaining, unknown_1) = le_u32(remaining)?;
         let (remaining, color) = tuple((le_f64, le_f64, le_f64))(remaining)?;
@@ -275,26 +313,52 @@ impl Light {
         // should these be the other way around?
         let (remaining, attenuation_end) = le_f64(remaining)?;
         let (remaining, attenuation_start) = le_f64(remaining)?;
-        let (remaining, unknown_2) = maybe_f64(remaining)?;
-        let (remaining, unknown_3) = maybe_f64(remaining)?;
-        let (remaining, unknown_4) = maybe_f64(remaining)?;
-        let (remaining, unknown_5) = maybe_f64(remaining)?;
+        let (remaining, unknown_2) = le_f64(remaining)?;
+        let (remaining, unknown_3) = le_f64(remaining)?;
+        let (remaining, falloff) = le_f64(remaining)?;
+        let (remaining, hotspot) = le_f64(remaining)?;
         let (remaining, aspect_ratio) = le_f64(remaining)?;
         Ok((b"", Light {
             node_id,
-            unknown_1,
+            lamp_type: unknown_1,
             color,
             multiplier,
             attenuation_end,
             attenuation_start,
             unknown_2,
             unknown_3,
-            unknown_4,
-            unknown_5,
+            falloff,
+            hotspot,
             aspect_ratio,
+            overshoot,
+            shape,
+            target,
+            on
             trailing_unparsed: UnparsedBytes(Vec::from(remaining))
         }))
     }
+}*/
+
+/// "Beats and triggers" block.
+struct Unknown21 {
+    unknown_1: u32, // probably a count of unknown_2
+    unknown_2: Vec<Unknown21Item>
+}
+
+struct Unknown21Item {
+    unknown_1: u32,
+    unknown_2: String,
+    unknown_3: f64,
+    unknown_4: u32,    // The maya2017 exporter always writes 0xFFFFFFFF,
+    unknown_5: String, // Exporter always writes "beat" or "trigger" here
+    unknown_6: u32     // Exporter always writes 0
+}
+
+fn bool_u8<'a>(value: &'a[u8]) -> IResult<&'a [u8], bool> {
+    map(nom::bytes::complete::take(1usize), |v: &[u8]| match v[0] {
+        0 => false,
+        _ => true
+    })(value)
 }
 
 fn maybe_f64<'a>(value: &'a[u8]) -> IResult<&'a[u8], (f64, (u32, u32))> {
