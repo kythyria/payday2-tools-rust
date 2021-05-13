@@ -24,7 +24,7 @@ use nom::multi::{length_data, length_count};
 use nom::number::complete::{le_u16, le_u32, le_f64, le_u64};
 use nom::sequence::tuple;
 use nom::multi::fill;
-use nom_derive::{Nom, NomLE, Parse, };
+use nom_derive::{NomLE, Parse};
 
 use crate::util::read_helpers::{TryFromIndexedLE, TryFromBytesError};
 
@@ -69,6 +69,20 @@ macro_rules! trivialer_from {
 trivialer_from!(TryFromBytesError, UnexpectedEof);
 trivialer_from!(std::str::Utf8Error, BadUtf8);
 
+/// Generate a parse_le method for things only having parse.
+///
+/// `nom_derive::NomLE` doesn't generate parse_le for structs for some reason.
+macro_rules! le_shim {
+    ($t:ty) => {
+        impl $t {
+            pub fn parse_le <'nom>(orig_i: &'nom [u8]) -> nom::IResult<&'nom [u8], Self>
+            {
+                Self::parse(orig_i)
+            }
+        }
+    }
+}
+
 fn mysterious_err<E>(error: nom::Err<E>) -> nom::Err<ParseError> {
     match error {
         nom::Err::Incomplete(_) => nom::Err::Failure(ParseError::UnexpectedEof),
@@ -91,80 +105,45 @@ impl std::fmt::Debug for UnparsedBytes {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, NomLE)]
+#[nom(Complete)]
 struct Anim3 {
     start_time: f64,
     end_time: f64,
-    author_tag: String,
-    source: String,
-    scene_type: String,
-    trailing_unparsed: Vec<u8>
-}
-impl Anim3 {
-    fn parse<'a>(value: &'a[u8]) -> IResult<&'a[u8], Anim3> {
-        let mut tup = tuple((le_f64, le_f64, prefixed_string, prefixed_string, prefixed_string));
-        let (remaining, (start_time, end_time, author_tag, source, scene_type)) = tup(value)?;
-        
-        Ok((b"", Anim3 {
-            start_time,
-            end_time,
-            author_tag: author_tag.into(),
-            source: source.into(),
-            scene_type: scene_type.into(),
-            trailing_unparsed: remaining.to_owned()
-        }))
-    }
-}
 
-#[derive(Debug)]
+    #[nom(Parse="prefixed_string")] author_tag: String,
+    #[nom(Parse="prefixed_string")] source: String,
+    #[nom(Parse="prefixed_string")] scene_type: String,
+}
+le_shim!(Anim3);
+
+#[derive(Debug, NomLE)]
+#[nom(Complete)]
 struct Material {
     id: u32,
+
+    #[nom(Parse="prefixed_string")]
     name: String,
-    parent_id: u32,
-    trailing_unparsed: Vec<u8>
+
+    parent_id: u32
 }
 
-impl Material {
-    fn parse<'a>(value: &'a[u8]) -> IResult<&'a[u8], Material> {
-        let mut tup = tuple((le_u32, prefixed_string, le_u32));
-        let (remaining, (id, name, parent_id)) = tup(value)?;
-
-        Ok((b"", Material {
-            id,
-            name: name.into(),
-            parent_id,
-            trailing_unparsed: remaining.to_owned()
-        }))
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, NomLE)]
+#[nom(Complete)]
 struct Node {
     id: u32,
     name: String,
-    transform: [f64; 16],
-    pivot_transform: [f64; 16],
+
+    #[nom(Parse="matrix_4x4")] transform: [f64; 16],
+    #[nom(Parse="matrix_4x4")] pivot_transform: [f64; 16],
+
     parent_id: u32,
     trailing_unparsed: Vec<u8>
 }
+le_shim!(Node);
 
-impl Node {
-    fn parse<'a>(value: &'a[u8]) -> IResult<&'a[u8], Node> {
-        let mut tup = tuple((le_u32, prefixed_string, matrix_4x4, matrix_4x4, le_u32));
-        let (remaining, (id, name, transform, pivot_transform, parent_id)) = tup(value)?;
-
-        Ok((b"", Node {
-            id,
-            name: name.to_owned(),
-            transform,
-            pivot_transform,
-            parent_id,
-            trailing_unparsed: remaining.to_owned()
-        }))
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, NomLE)]
+#[nom(Complete)]
 struct Geometry {
     node_id: u32,
 
@@ -172,26 +151,10 @@ struct Geometry {
     /// 0xFFFFFFFF == none
     material_id: u32,
     unknown1: u16,
-    channels: Vec<GeometryChannel>,
-    faces: Vec<GeometryFace>,
-    trailing_unparsed: UnparsedBytes
+    #[nom(LengthCount="le_u32")] channels: Vec<GeometryChannel>,
+    #[nom(LengthCount="le_u32")] faces: Vec<GeometryFace>
 }
-impl Geometry {
-    fn parse<'a>(value: &'a[u8]) -> IResult<&'a[u8], Self> {
-        let (remaining, (node_id, material_id, unknown1)) = tuple((le_u32, le_u32, le_u16))(value)?;
-        let (remaining, channels) = length_count(le_u32, GeometryChannel::parse)(remaining)?;
-        let (remaining, faces) = length_count(le_u32, GeometryFace::parse)(remaining)?;
-
-        Ok((b"", Geometry {
-            node_id,
-            material_id,
-            unknown1,
-            channels,
-            faces,
-            trailing_unparsed: UnparsedBytes(remaining.to_owned())
-        }))
-    }
-}
+le_shim!(Geometry);
 
 #[derive(Debug)]
 enum GeometryChannel {
@@ -203,7 +166,7 @@ enum GeometryChannel {
     Colour  (u32, Vec<(f64, f64, f64)>)
 }
 impl GeometryChannel {
-    fn parse<'a>(value: &'a[u8]) -> IResult<&'a[u8], Self> {
+    fn parse_le<'a>(value: &'a[u8]) -> IResult<&'a[u8], Self> {
         let (remaining, (kind, layer)) = tuple((le_u32, le_u32))(value)?;
         let tup3d = tuple((le_f64, le_f64, le_f64));
         let tup2d = tuple((le_f64, le_f64));
@@ -222,36 +185,24 @@ impl GeometryChannel {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, NomLE)]
 struct GeometryFace {
     material_id: u32,
     unknown1: u32,
+
+    #[nom(LengthCount="le_u32")]
     loops: Vec<GeometryFaceloop>
 }
-impl GeometryFace {
-    fn parse<'a>(value: &'a[u8]) -> IResult<&'a[u8], Self> {
-        let (remaining, (material_id, unknown1, loops)) = tuple((le_u32, le_u32, length_count(le_u32, GeometryFaceloop::parse)))(value)?;
-        Ok((remaining, GeometryFace {
-            material_id, unknown1, loops
-        }))
-    }
-}
+le_shim!(GeometryFace);
 
-#[derive(Debug)]
+#[derive(Debug, NomLE)]
 struct GeometryFaceloop {
     channel: u32,
     a: u32,
     b: u32,
     c: u32
 }
-impl GeometryFaceloop {
-    fn parse<'a>(value: &'a[u8]) -> IResult<&'a[u8], Self> {
-        let (remaining, (channel, a, b, c)) = tuple((le_u32, le_u32, le_u32, le_u32))(value)?;
-        Ok((remaining, GeometryFaceloop {
-            channel, a, b, c
-        }))
-    }
-}
+le_shim!(GeometryFaceloop);
 
 #[derive(Debug, PartialEq, Eq, NomLE)]
 #[repr(u32)]
@@ -260,6 +211,7 @@ enum LightType {
     Directional = 1,
     Omni = 2
 }
+le_shim!(LightType);
 
 #[derive(Debug, PartialEq, NomLE)]
 #[repr(u32)]
@@ -267,23 +219,21 @@ enum SpotlightShape {
     Rectangular = 0,
     Circular = 1
 }
+le_shim!(SpotlightShape);
 
 #[derive(Debug, NomLE)]
-#[nom(DebugDerive)]
 struct LightColor {
     pub r: f64,
     pub g: f64,
     pub b: f64
 }
+le_shim!(LightColor);
 
 #[derive(Debug, NomLE)]
+#[nom(Complete)]
 struct Light {
     node_id: u32,
-
-    #[nom(Parse="LightType::parse")]
     lamp_type: LightType, // Given the position, probably type (0=spot, 1=directional, 2=omni/point)
-
-    #[nom(Parse="LightColor::parse")]
     color: LightColor,
     multiplier: f64,
     attenuation_end: f64,
@@ -297,47 +247,12 @@ struct Light {
     #[nom(Parse="bool_u8")]
     overshoot: bool,
 
-    #[nom(Parse="SpotlightShape::parse")]
     shape: SpotlightShape,
     target: u32,
 
     #[nom(Parse="bool_u8")]
     on: bool
 }
-/*impl Light {
-    fn parse1<'a>(value: &'a[u8]) -> IResult<&'a[u8], Self> {
-        let (remaining, node_id) = le_u32(value)?;
-        let (remaining, unknown_1) = le_u32(remaining)?;
-        let (remaining, color) = tuple((le_f64, le_f64, le_f64))(remaining)?;
-        let (remaining, multiplier) = le_f64(remaining)?;
-        // should these be the other way around?
-        let (remaining, attenuation_end) = le_f64(remaining)?;
-        let (remaining, attenuation_start) = le_f64(remaining)?;
-        let (remaining, unknown_2) = le_f64(remaining)?;
-        let (remaining, unknown_3) = le_f64(remaining)?;
-        let (remaining, falloff) = le_f64(remaining)?;
-        let (remaining, hotspot) = le_f64(remaining)?;
-        let (remaining, aspect_ratio) = le_f64(remaining)?;
-        Ok((b"", Light {
-            node_id,
-            lamp_type: unknown_1,
-            color,
-            multiplier,
-            attenuation_end,
-            attenuation_start,
-            unknown_2,
-            unknown_3,
-            falloff,
-            hotspot,
-            aspect_ratio,
-            overshoot,
-            shape,
-            target,
-            on
-            trailing_unparsed: UnparsedBytes(Vec::from(remaining))
-        }))
-    }
-}*/
 
 /// "Beats and triggers" block.
 struct Unknown21 {
@@ -361,14 +276,11 @@ fn bool_u8<'a>(value: &'a[u8]) -> IResult<&'a [u8], bool> {
     })(value)
 }
 
-fn maybe_f64<'a>(value: &'a[u8]) -> IResult<&'a[u8], (f64, (u32, u32))> {
-    let (remaining, double) = le_f64(value)?;
-    let (_, ints) = tuple((le_u32, le_u32))(value)?;
-    Ok((remaining, (double, ints)))
-}
-
-fn prefixed_string<'a>(input: &'a [u8]) -> nom::IResult<&'a [u8], &'a str> {
-    map_res(length_data(le_u32), std::str::from_utf8)(input)
+fn prefixed_string<'a>(input: &'a [u8]) -> nom::IResult<&'a [u8], String> {
+    map_res(length_data(le_u32), |i: &[u8]| -> Result<String, std::str::Utf8Error> {
+        let st = std::str::from_utf8(i)?;
+        Ok(String::from(st))
+    })(input)
 }
 
 fn matrix_4x4<'a>(input: &'a [u8]) -> nom::IResult<&'a [u8], [f64; 16]> {
