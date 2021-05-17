@@ -6,15 +6,16 @@ mod util;
 mod diesel_hash;
 mod hashindex;
 mod bundles;
-mod filesystem;
 mod formats;
 mod hashlist_scan;
+
+#[cfg(feature="dokan")]
+mod filesystem;
 
 use std::vec::Vec;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::io::{Read,Write};
-use std::sync::Arc;
 
 use anyhow::Context;
 use clap::arg_enum;
@@ -68,6 +69,7 @@ enum Command {
         asset_dir: String
     },
 
+    #[cfg(feature="dokan")]
     /// Mount packages as a volume using Dokany
     Mount {
         /// Directory containing bundle_db.blb
@@ -105,6 +107,7 @@ enum Command {
         output: String
     },
 
+    /// Parse an OIL-format model file and print all recognised information.
     Oil {
         input: String
     }
@@ -131,8 +134,13 @@ fn main() {
                 do_readpkg(hashlist, &asset_dir)
             }
         },
+        #[cfg(feature="dokan")]
         Command::Mount{ asset_dir, mountpoint } => {
-            do_mount(&mountpoint, &opt.hashlist, &asset_dir)
+            use std::sync::Arc;
+
+            let hashlist = get_hashlist(&opt.hashlist).unwrap();
+            let db = get_packagedb(hashlist, &asset_dir).unwrap();
+            filesystem::mount_cooked_database(mountpoint, db.hashes.clone(), Arc::new(db));
         },
         Command::Scan{ asset_dir, output } => {
             do_scan(&opt.hashlist, &asset_dir, &output)
@@ -241,12 +249,6 @@ fn do_readpkg(hashlist: hashindex::HashIndex, asset_dir: &str) {
             db.print_stats();
         }
     }
-}
-
-fn do_mount(mountpoint: &str, hashlist_filename: &Option<String>, asset_dir: &str) {
-    let hashlist = get_hashlist(hashlist_filename).unwrap();
-    let db = get_packagedb(hashlist, asset_dir).unwrap();
-    filesystem::mount_cooked_database(mountpoint, db.hashes.clone(), Arc::new(db));
 }
 
 fn do_scan(hashlist_filename: &Option<String>, asset_dir: &str, outname: &str) {
