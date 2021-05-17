@@ -17,24 +17,30 @@ jobs:
     steps:
     - uses: actions/checkout@v2
 
-    - name: Cache cargo registry
-      uses: actions/cache@v2
-      continue-on-error: false
+    - name: Cache Cargo registry
+      uses: actions/cache@v1
       with:
-        path: |
-          %USERPROFILE%\.cargo\registry
-          %USERPROFILE%\.cargo\git
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**\Cargo.lock') }}
+        path: ~/.cargo/registry
+        key: ${{ runner.os }}-stable-cargo-registry-${{ hashFiles('**/Cargo.lock', hashFiles('**/Cargo.toml')) }}
         restore-keys: |
-          ${{ runner.os }}-cargo-
+          ${{ runner.os }}-stable-cargo-registry-${{ hashFiles('**/Cargo.lock', hashFiles('**/Cargo.toml')) }}
+          ${{ runner.os }}-stable-cargo-registry-
+    - name: Cache Cargo index
+      uses: actions/cache@v1
+      with:
+        path: ~/.cargo/git
+        key: ${{ runner.os }}-stable-cargo-index-${{ hashFiles('**/Cargo.lock', hashFiles('**/Cargo.toml')) }}
+        restore-keys: |
+          ${{ runner.os }}-stable-cargo-index-${{ hashFiles('**/Cargo.lock', hashFiles('**/Cargo.toml')) }}
+          ${{ runner.os }}-stable-cargo-index-
 
     - name: Cargo Target Cache
       uses: actions/cache@v2
       with:
         path: target
-        key: ${{ runner.os }}-cargo-target-${{ hashFiles('Cargo.toml') }}
+        key: ${{ runner.os }}-cargo-target-${{ hashFiles('**/Cargo.lock', hashFiles('**/Cargo.toml')) }}
         restore-keys: |
-          ${{ runner.os }}-cargo-target-${{ hashFiles('Cargo.toml') }}
+          ${{ runner.os }}-cargo-target-${{ hashFiles('**/Cargo.lock', hashFiles('**/Cargo.toml')) }}
           ${{ runner.os }}-cargo-target
 
 
