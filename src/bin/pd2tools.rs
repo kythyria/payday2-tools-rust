@@ -1,6 +1,4 @@
 use std::vec::Vec;
-use std::fs;
-use std::path::{Path, PathBuf};
 use std::io::{Read,Write};
 
 use anyhow::Context;
@@ -8,7 +6,6 @@ use clap::arg_enum;
 use structopt::StructOpt;
 
 use pd2tools_rust::*;
-use hashindex::HashIndex;
 
 arg_enum! {
     #[derive(Debug, Clone, Copy, Ord, Eq, PartialOrd, PartialEq, Hash)]
@@ -121,14 +118,6 @@ fn main() {
                 do_readpkg(hashlist, &asset_dir)
             }
         },
-        #[cfg(feature="dokan")]
-        Command::Mount{ asset_dir, mountpoint } => {
-            use std::sync::Arc;
-
-            let hashlist = get_hashlist(&opt.hashlist).unwrap();
-            let db = get_packagedb(hashlist, &asset_dir).unwrap();
-            filesystem::mount_cooked_database(mountpoint, db.hashes.clone(), Arc::new(db));
-        },
         Command::Scan{ asset_dir, output } => {
             do_scan(&opt.hashlist, &asset_dir, &output)
         },
@@ -142,11 +131,6 @@ fn main() {
     };
 }
 
-fn do_hash(texts: Vec<&str>) {
-    for s in texts {
-        println!("{:>016x} {:?}", diesel_hash::hash_str(s), s);
-    }
-}
 
 fn do_unhash(hashlist: hashindex::HashIndex, texts: &Vec<String>, radix: u32) {
     for s in texts {
@@ -180,15 +164,6 @@ fn do_scan(hashlist_filename: &Option<String>, asset_dir: &str, outname: &str) {
     let db = get_packagedb(hashlist, asset_dir).unwrap();
     let mut outfile = std::fs::OpenOptions::new().create(true).write(true).open(outname).unwrap();
     hashlist_scan::do_scan(&db, &mut outfile).unwrap();
-}
-
-fn do_print_scriptdata(filename: &str) {
-    let sd = std::fs::read(filename).unwrap();
-    let doc = formats::scriptdata::binary::from_binary(&sd, false);
-    let gx = formats::scriptdata::generic_xml::dump(&doc.unwrap());
-    println!("{}", gx);
-    //formats::scriptdata::lua_like::dump(&doc, &mut std::io::stdout()).unwrap();
-    //println!("{:?}", doc.root())
 }
 
 fn do_convert(input_filename: &str, input_type: Option<ConvertType>, output_filename: &str, output_type: ConvertType, events: bool) {
