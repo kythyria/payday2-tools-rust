@@ -13,7 +13,7 @@ lto = true
 default = []
 
 [dependencies]
-dokan = { version = "0.1.0", optional = true }
+dokan = "0.1.0"
 widestring = "0.4.3"
 winapi = "0.3.9"
 fnv = "1.0.7"
