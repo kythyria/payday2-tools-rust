@@ -27,6 +27,8 @@ jobs:
         automatic_release_tag: "latest"
         prerelease: true
         title: "Latest version"
-        files: "target/release/pd2tools-rust.exe"
+        files: |
+          target/release/pd2tools-bundlefs.exe
+          target/release/pd2tools.exe
 #    - name: Run tests
 #      run: cargo test --verbose
