@@ -16,6 +16,18 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+
+    - name: Cache cargo registry
+      uses: actions/cache@v2
+      continue-on-error: false
+      with:
+        path: |
+          %USERPROFILE%\.cargo\registry
+          %USERPROFILE%\.cargo\git
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**\Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
+
     - name: Build
       run: cargo build --verbose --release
     - uses: actions/upload-artifact@v2
