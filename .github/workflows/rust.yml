@@ -28,11 +28,23 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-cargo-
 
+    - name: Cargo Target Cache
+      uses: actions/cache@v2
+      with:
+        path: target
+        key: ${{ runner.os }}-cargo-target-${{ hashFiles('Cargo.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-target-${{ hashFiles('Cargo.toml') }}
+          ${{ runner.os }}-cargo-target
+
+
     - name: Build
       run: cargo build --verbose --release
     - uses: actions/upload-artifact@v2
       with:
-        path: target/release/pd2tools-rust.exe
+        path: |
+          target/release/pd2tools-bundlefs.exe
+          target/release/pd2tools.exe
     - uses: "marvinpinto/action-automatic-releases@latest"
       with:
         repo_token: "${{ secrets.GITHUB_TOKEN }}"
