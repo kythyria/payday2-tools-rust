@@ -444,7 +444,15 @@ fn collect_table_node<'a, 'input>(node: roxmltree::Node<'a, 'input>, output: &mu
             collect_table_node(cn, output);
         }
         else if let Some(r) = cn.attribute("_ref") {
+            output.push(Ok(TextEvent::Index(current_index)));
+            current_index += 1;
+
             output.push(Ok(TextEvent::Reference(TextId::Str(r))));
+
+            let key = cn.tag_name().name();
+            if seen_keys.insert(key) {
+                to_emit_refs.push((key, table_node_id(cn)));
+            }
         }
         else {
             output.push(Ok(TextEvent::Index(current_index)));

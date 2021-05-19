@@ -48,7 +48,7 @@ pub enum TextEvent<'a> {
     Index(u32)
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Hash)]
 pub enum TextId<'a> {
     Str(&'a str),
     Int(usize),
@@ -106,3 +106,4 @@ pub enum TextParseError {
         kind: SchemaError
     }
 }
+

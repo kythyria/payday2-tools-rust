@@ -296,3 +296,7 @@ impl<'a> Iterator for ArrayPartIterator<'a> {
         }
     }
 }
+
+pub fn from_events() -> Document {
+    unimplemented!()
+}

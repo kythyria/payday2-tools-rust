@@ -13,21 +13,21 @@ Two binaries are provided.
 # Invocation
 Because the tools are a work in progress, `--help` will print something different. The items not listed here may be defective, pointless, or merely accidentally omitted.
 
-## `pd2tools hash ARG...`
+### `pd2tools hash ARG...`
 Print the hash of each argument
 
-## `pd2tools [-h HASHLIST] unhash [-d] ARG...`
+### `pd2tools [-h HASHLIST] unhash [-d] ARG...`
 Search the hashlist for each argument, trying both big and little endian.
 
 If `-d` is specified, assume the hash is decimal, otherwise hex.
 
-## `pd2tools [-h HASHLIST] scan ASSETS_DIR OUTPUT_FILE`
+### `pd2tools [-h HASHLIST] scan ASSETS_DIR OUTPUT_FILE`
 Analyse the asset bundles to locate possible hashlist entries, printing all candidates to a file. If any new levels have been added, it will take several iterations of adding the new entries to the hashlist and rerunning to pick up everything it's capable of detecting.
 
-## `pd2tools convert --input-type FORMAT --output-type FORMAT INPUT_FILE [OUTPUT_FILE]
+### `pd2tools convert --input-type FORMAT --output-type FORMAT INPUT_FILE [OUTPUT_FILE]`
 Attempt to convert the `Binary` and `Custom`_xml scriptdata formats to `Generic`_xml or `Custom`_xml. This is a bit buggy, mostly useful for printing binary as generic_xml.
 
-## `pd2tools-bundlefs [-h HASHLIST] ASSETS_DIR MOUNTPOINT`
+### `pd2tools-bundlefs [-h HASHLIST] ASSETS_DIR MOUNTPOINT`
 **This requires Dokany.**
 
 Read the hashlist, examine the bundle headers in `ASSETS_DIR`, and mount what's found as a **read-only** filesystem. Do note that WSL1 is unable to see it for some reason, the author doesn't know why.

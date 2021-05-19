@@ -186,8 +186,8 @@ fn do_convert(input_filename: &str, input_type: Option<ConvertType>, output_file
         };
         let ok_events: Vec<_> = events.iter().filter_map(|i| i.ok()).collect();
         let err_events: Vec<_> = events.iter().filter_map(|i| i.err()).collect();
-        println!("{:?}", events);
-        //println!("{:?}", err_events);
+        println!("{:?}", ok_events);
+        println!("{:?}", err_events);
     }
 
     let input_func = match input_type {
