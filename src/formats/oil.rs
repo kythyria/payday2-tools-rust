@@ -27,6 +27,7 @@ use nom::multi::fill;
 use nom_derive::{NomLE, Parse};
 
 use crate::util::read_helpers::{TryFromIndexedLE, TryFromBytesError};
+use crate::util::parse_helpers;
 use pd2tools_macros::EnumTryFrom;
 
 struct UnparsedSection<'a> {
@@ -337,12 +338,13 @@ pub fn print_sections(filename: &Path) {
     };
 
     for sec in data {
-        match sec.type_code {
-            0 => println!("{:6} {:6} {:?}", sec.offset, sec.length, Node::parse(sec.bytes)),
-            4 => println!("{:6} {:6} {:?}", sec.offset, sec.length, Material::parse(sec.bytes)),
-            5 => println!("{:6} {:6} {:?}", sec.offset, sec.length, Geometry::parse(sec.bytes)),
-            10 => println!("{:6} {:6} {:?}", sec.offset, sec.length, Light::parse(sec.bytes)),
-            20 => println!("{:6} {:6} {:?}", sec.offset, sec.length, Anim3::parse(sec.bytes)),
+        let r#type = TypeId::try_from(sec.type_code as usize);
+        match r#type {
+            Ok(TypeId::Node) => println!("{:6} {:6} {:?}", sec.offset, sec.length, Node::parse(sec.bytes)),
+            Ok(TypeId::Material) => println!("{:6} {:6} {:?}", sec.offset, sec.length, Material::parse(sec.bytes)),
+            Ok(TypeId::Geometry) => println!("{:6} {:6} {:?}", sec.offset, sec.length, Geometry::parse(sec.bytes)),
+            Ok(TypeId::Light) => println!("{:6} {:6} {:?}", sec.offset, sec.length, Light::parse(sec.bytes)),
+            Ok(TypeId::Anim3) => println!("{:6} {:6} {:?}", sec.offset, sec.length, Anim3::parse(sec.bytes)),
             _ => {
                 println!("{:6} {:6} {:4} {:}", sec.offset, sec.length, sec.type_code, AsHex(sec.bytes))
             }

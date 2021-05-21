@@ -8,6 +8,9 @@ use nom::number::complete::{le_f32, le_u32, le_u64};
 use nom::sequence::{terminated, tuple};
 
 use crate::hashindex::Hash as Idstring;
+use crate::util::parse_helpers;
+use crate::util::parse_helpers::Parse;
+use pd2tools_macros::Parse;
 
 type Vec3f = vek::Vec3<f32>;
 type Mat4f = vek::Mat4<f32>;
@@ -49,6 +52,7 @@ impl Header {
 }
 
 /// Metadata about the model file. Release Diesel never, AFAIK, actually cares about this.
+#[derive(Parse)]
 struct AuthorSection {
     /// Very likely the "scene type" field
     name: Idstring,
@@ -59,19 +63,6 @@ struct AuthorSection {
     /// Absolute path of the original file.
     source_filename: String,
     unknown_2: u32
-}
-impl AuthorSection {
-    fn parse<'a>(input: &'a [u8]) -> IResult<&'a[u8], Self> {
-        let (input, (name, author_email, source_filename, unknown_2)) = tuple((
-            map(le_u64, Idstring),
-            map(cstring, String::from),
-            map(cstring, String::from),
-            le_u32
-        ))(input)?;
-        Ok((input, AuthorSection {
-            name, author_email, source_filename, unknown_2
-        }))
-    }
 }
 
 /// Scene object node
@@ -100,21 +91,25 @@ impl Object3dSection {
     }
 }
 
+/// Bounding box part of a Model
+///
+/// This can occur as the entirety of a Model if the `flavour` field is set
+/// to 6. Such are used for collision volumes, where only the size is needed
+/// and the physics engine can fill the rest in itself.
+///
+/// As part of `MeshModel`, it is used to control culling: if the bounding sphere
+/// in particular is offscreen, the model will be culled.
+#[derive(Parse)]
 struct Bounds {
+    /// One corner of the bounding box
     min: Vec3f,
+
+    /// Another corner of the bounding box
     max: Vec3f,
+
+    /// Radius of the bounding sphere whose centre is the model-space origin
     radius: f32,
     unknown_13: u32
-}
-impl Bounds {
-    fn parse<'a>(input: &'a [u8]) -> IResult<&'a[u8], Self> {
-        let (remain, (min, max, radius, unknown_13)) = tuple((
-            vec3f, vec3f, le_f32, le_u32
-        ))(input)?;
-        Ok((remain, Bounds {
-            min, max, radius, unknown_13
-        }))
-    }
 }
 
 struct MeshModel {
@@ -151,6 +146,7 @@ impl MeshModel {
 /// A single draw's worth of geometry
 ///
 /// If you get this wrong Diesel doesn't usually crash but will display nonsense.
+#[derive(Parse)]
 struct RenderAtom {
     /// Starting position in the Geometry (vertex buffer)
     base_vertex: u32,
@@ -166,16 +162,6 @@ struct RenderAtom {
 
     /// Index of the material slot this uses.
     material: u32
-}
-impl RenderAtom {
-    fn parse<'a>(input: &'a [u8]) -> IResult<&'a[u8], Self> {
-        let (remain, (base_vertex, triangle_count, base_index, geometry_slice_length, material)) = tuple((
-            le_u32, le_u32, le_u32, le_u32, le_u32, 
-        ))(input)?;
-        return Ok((remain, RenderAtom {
-            base_vertex, triangle_count, base_index, geometry_slice_length, material
-        }))
-    }
 }
 
 fn cstring<'a>(input: &'a [u8]) -> IResult<&'a[u8], &'a str> {
