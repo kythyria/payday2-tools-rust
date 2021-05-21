@@ -27,6 +27,7 @@ use nom::multi::fill;
 use nom_derive::{NomLE, Parse};
 
 use crate::util::read_helpers::{TryFromIndexedLE, TryFromBytesError};
+use pd2tools_macros::EnumTryFrom;
 
 struct UnparsedSection<'a> {
     type_code: u32,
@@ -35,7 +36,7 @@ struct UnparsedSection<'a> {
     bytes: &'a [u8]
 }
 
-#[derive(Debug)]
+#[derive(Debug, EnumTryFrom)]
 #[repr(u32)]
 enum TypeId {
     Node = 0,
@@ -48,6 +49,7 @@ enum TypeId {
     UnknownType11 = 11, // this seems to be a single counted block.
     UnknownType21 = 21 // mentioned next to a log message about "beats and triggers"
 }
+
 
 #[derive(Debug)]
 enum ParseError {

@@ -12,11 +12,11 @@
                 "args": [
                     "+stable-x86_64-pc-windows-msvc",
                     "build",
-                    "--bin=pd2tools-rust",
+                    "--bin=pd2tools",
                     "--package=pd2tools-rust"
                 ],
                 "filter": {
-                    "name": "pd2tools-rust",
+                    "name": "pd2tools",
                     "kind": "bin"
                 }
             },

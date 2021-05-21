@@ -8,7 +8,6 @@ pub mod hashindex;
 pub mod bundles;
 pub mod formats;
 pub mod hashlist_scan;
-
 pub mod filesystem;
 
 use std::fs;
@@ -28,7 +27,8 @@ pub fn get_packagedb<'a>(hashlist: hashindex::HashIndex, asset_dir: &str) -> Res
 }
 
 pub fn get_hashlist(hashlist_filename: &Option<String>) -> Option<HashIndex> {
-    match try_get_hashlist(hashlist_filename) {
+    eprintln_time!("get_hashlist() start");
+    let res = match try_get_hashlist(hashlist_filename) {
         Ok(hi) => Some(hi),
         Err(e) => {
             println!("Failed to read hashlist: {}", e);
@@ -37,7 +37,9 @@ pub fn get_hashlist(hashlist_filename: &Option<String>) -> Option<HashIndex> {
             }
             None
         }
-    }
+    };
+    eprintln_time!("get_hashlist() end");
+    res
 }
 
 fn try_get_hashlist(filename_arg: &Option<String>) -> Result<HashIndex, std::io::Error> {
