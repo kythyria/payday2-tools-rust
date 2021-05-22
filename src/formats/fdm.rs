@@ -164,18 +164,8 @@ struct RenderAtom {
     material: u32
 }
 
-fn cstring<'a>(input: &'a [u8]) -> IResult<&'a[u8], &'a str> {
-    let parser = terminated(take_until("\0"), tag(b"\0"));
-    map_res(parser, |i: &[u8]| std::str::from_utf8(i))(input)
-}
-
 fn matrix_4x4<'a>(input: &'a [u8]) -> nom::IResult<&'a [u8], Mat4f> {
     let mut out: [f32; 16] = [0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0];
     let (rest, ()) = fill(le_f32, &mut out)(input)?;
     Ok((rest, Mat4f::from_col_array(out)))
-}
-
-fn vec3f<'a>(input: &'a [u8]) -> nom::IResult<&'a [u8], Vec3f> {
-    let (rest, (x, y, z)) = tuple((le_f32, le_f32, le_f32))(input)?;
-    Ok((rest, Vec3f { x, y ,z }))
 }

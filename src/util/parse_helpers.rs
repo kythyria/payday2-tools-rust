@@ -6,12 +6,12 @@ use std::convert::TryInto;
 
 use nom::IResult;
 use nom::combinator::{map, map_res};
-use nom::multi::{fill, length_data};
-use nom::number::complete::{le_u16, le_u32, le_u64, le_f32, le_f64};
+use nom::multi::{fill, length_data, length_count};
+use nom::number::complete::{le_u8, le_u16, le_u32, le_u64, le_f32, le_f64};
 use nom::sequence::tuple;
 
 pub struct InvalidDiscriminant {
-    pub discriminant: usize
+    pub discriminant: u32
 }
 
 pub trait Parse where Self: Sized {
@@ -33,11 +33,28 @@ macro_rules! simple_parse {
     }
 }
 
+simple_parse!(u8, le_u8);
 simple_parse!(u16, le_u16);
 simple_parse!(u32, le_u32);
 simple_parse!(u64, le_u64);
 simple_parse!(f32, le_f32);
 simple_parse!(f64, le_f64);
+
+impl Parse for bool {
+    fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], Self> {
+        map_res(le_u8, |i| match i {
+            0 => Ok(false),
+            1 => Ok(true),
+            _ => Err(())
+        })(input)
+    }
+
+    fn serialize<O: std::io::Write>(&self, output: &mut O) -> std::io::Result<()> {
+        <u8 as Parse>::serialize(match self {
+            true => &1, false => &0
+        }, output)
+    }
+}
 
 impl<T: Parse> Parse for vek::Vec3<T> {
     fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], Self> {
@@ -49,6 +66,31 @@ impl<T: Parse> Parse for vek::Vec3<T> {
         self.x.serialize(output)?;
         self.y.serialize(output)?;
         self.z.serialize(output)?;
+        Ok(())
+    }
+}
+
+impl<T: Parse> Parse for vek::Vec2<T> {
+    fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], Self> {
+        let (rest, (x, y)) = tuple((<T as Parse>::parse, <T as Parse>::parse))(input)?;
+        Ok((rest, vek::Vec2 { x, y }))
+    }
+
+    fn serialize<O: std::io::Write>(&self, output: &mut O) -> std::io::Result<()> {
+        self.x.serialize(output)?;
+        self.y.serialize(output)?;
+        Ok(())
+    }
+}
+
+impl<T: Parse> Parse for vek::Rgb<T> {
+    fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], Self> {
+        map(<vek::Vec3<T> as Parse>::parse, vek::Vec3::<T>::into)(input)
+    }
+    fn serialize<O: std::io::Write>(&self, output: &mut O) -> std::io::Result<()> {
+        self.r.serialize(output)?;
+        self.g.serialize(output)?;
+        self.b.serialize(output)?;
         Ok(())
     }
 }
@@ -91,5 +133,20 @@ impl Parse for crate::hashindex::Hash {
     }
     fn serialize<O: std::io::Write>(&self, output: &mut O) -> std::io::Result<()> {
         self.0.serialize(output)
+    }
+}
+
+impl<T: Parse> Parse for Vec<T> {
+    fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], Self> {
+        length_count(le_u32, <T as Parse>::parse)(input)
+    }
+
+    fn serialize<O: std::io::Write>(&self, output: &mut O) -> std::io::Result<()> {
+        let count: u32 = self.len().try_into().map_err(|_| std::io::ErrorKind::InvalidInput)?;
+        count.serialize(output)?;
+        for i in self.iter() {
+            i.serialize(output)?;
+        }
+        Ok(())
     }
 }

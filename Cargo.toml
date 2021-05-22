@@ -26,7 +26,6 @@ roxmltree = "0.14.0"
 anyhow = "1.0.39"
 structopt = "0.3.21"
 nom = "6.1.2"
-nom-derive = "0.8.0"
 vek = "0.15.1"
 pd2tools-macros = { path = './macros' }
 

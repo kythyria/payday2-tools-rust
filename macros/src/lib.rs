@@ -1,10 +1,13 @@
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{quote, quote_spanned};
-use syn::{Data, DataStruct, DeriveInput, Fields, parse_macro_input};
+use syn::{Attribute, Data, DataEnum, DataStruct, DeriveInput, Fields, Meta, parse_macro_input};
 
 #[proc_macro_derive(EnumTryFrom)]
 pub fn derive_enum_tryfrom(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(item as DeriveInput);
+
+    let name = &input.ident;
+
     let enumeration = match input.data {
         Data::Enum(e) => e,
         _ => {
@@ -17,21 +20,36 @@ pub fn derive_enum_tryfrom(item: proc_macro::TokenStream) -> proc_macro::TokenSt
     let arms: TokenStream = enumeration.variants.iter().map(|var| {
         let discriminant = match &var.discriminant {
             Some((_, disc)) => disc,
-            _ => return quote_spanned!{ var.ident.span()=> compile_error!("All variants must have an explicit dscriminant") }
+            _ => return quote_spanned!{ var.ident.span()=> compile_error!("All variants must have an explicit discriminant") }
         };
         let name = &var.ident;
         quote!{ #discriminant => ::std::result::Result::Ok(Self::#name), }
     }).collect();
 
-    let name = input.ident;
+    let to_disc_arms = enumeration.variants.iter().map(|var| {
+        let discriminant = match &var.discriminant {
+            Some((_, disc)) => disc,
+            _ => return quote_spanned!{ var.ident.span()=> compile_error!("All variants must have an explicit discriminant") }
+        };
+        let variant_name = &var.ident;
+        quote!{ #name::#variant_name => #discriminant }
+    });
 
     let s = quote! {
-        impl ::std::convert::TryFrom<usize> for #name {
+        impl ::std::convert::TryFrom<u32> for #name {
             type Error = parse_helpers::InvalidDiscriminant;
-            fn try_from(src: usize) -> ::std::result::Result<Self, Self::Error> {
+            fn try_from(src: u32) -> ::std::result::Result<Self, Self::Error> {
                 match src {
                     #arms
                     e => ::std::result::Result::Err(parse_helpers::InvalidDiscriminant { discriminant: e })
+                }
+            }
+        }
+
+        impl ::std::convert::From<#name> for u32 {
+            fn from(src: #name) -> u32 {
+                match src {
+                    #(#to_disc_arms),*
                 }
             }
         }
@@ -46,7 +64,8 @@ pub fn derive_parse(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
     match item.data {
         Data::Struct(ref s) => struct_parser(&item, &s),
-        _ => quote_spanned!{ item.ident.span()=> compile_error!("Can only parse structs") },
+        Data::Enum(ref e) => enum_parser(&item, &e),
+        _ => quote_spanned!{ item.ident.span()=> compile_error!("Can only parse structs or enums") },
     }.into()
 }
 
@@ -96,4 +115,28 @@ fn struct_parser(item: &DeriveInput, r#struct: &DataStruct) -> TokenStream {
             }
         }
     };
+}
+
+fn enum_parser(item: &DeriveInput, r#_enum: &DataEnum) -> TokenStream {
+    // For now we assume #[repr(u32)] rather than try and parse that.
+    // And assume you've used EnumTryFrom up there.
+
+    let item_name = &item.ident;
+    let repr_type = quote!{ u32 };
+
+    quote! {
+        impl parse_helpers::Parse for #item_name {
+            fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], Self> {
+                ::nom::combinator::map_res(
+                    <#repr_type as parse_helpers::Parse>::parse,
+                    <Self as ::std::convert::TryFrom<#repr_type>>::try_from
+                )(input)
+            }
+
+            fn serialize<O: std::io::Write>(&self, output: &mut O) -> std::io::Result<()> {
+                let val = (*self) as u32;
+                <#repr_type as parse_helpers::Parse>::serialize(&val, output)
+            }
+        }
+    }
 }
