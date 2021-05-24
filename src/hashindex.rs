@@ -17,6 +17,11 @@ impl fmt::Debug for Hash {
         write!(f, "Hash({:>016x})", &self.0)
     }
 }
+impl Default for Hash {
+    fn default() -> Self {
+        Hash(diesel_hash::EMPTY)
+    }
+}
 
 trait HashList {
     fn get_hash<'s>(&'s self, hash: u64) -> HashedStr<'s>;

@@ -9,7 +9,9 @@ use nom::combinator::{map, map_res};
 use nom::multi::{fill, length_data, length_count};
 use nom::number::complete::{le_u8, le_u16, le_u32, le_u64, le_f32, le_f64};
 use nom::sequence::tuple;
+use pd2tools_macros::gen_tuple_parsers;
 
+#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash)]
 pub struct InvalidDiscriminant {
     pub discriminant: u32
 }
@@ -56,44 +58,28 @@ impl Parse for bool {
     }
 }
 
-impl<T: Parse> Parse for vek::Vec3<T> {
-    fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], Self> {
-        let (rest, (x, y, z)) = tuple((<T as Parse>::parse, <T as Parse>::parse, <T as Parse>::parse))(input)?;
-        Ok((rest, vek::Vec3 { x, y ,z }))
-    }
-
-    fn serialize<O: std::io::Write>(&self, output: &mut O) -> std::io::Result<()> {
-        self.x.serialize(output)?;
-        self.y.serialize(output)?;
-        self.z.serialize(output)?;
-        Ok(())
-    }
-}
-
-impl<T: Parse> Parse for vek::Vec2<T> {
-    fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], Self> {
-        let (rest, (x, y)) = tuple((<T as Parse>::parse, <T as Parse>::parse))(input)?;
-        Ok((rest, vek::Vec2 { x, y }))
-    }
-
-    fn serialize<O: std::io::Write>(&self, output: &mut O) -> std::io::Result<()> {
-        self.x.serialize(output)?;
-        self.y.serialize(output)?;
-        Ok(())
+macro_rules! vek_parse {
+    (@parser $discard:ident) => { <T as Parse>::parse };
+    ($name:ident, $($field:ident),* ) => {
+        impl<T: Parse> Parse for vek::$name<T> {
+            fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], Self> {
+                let (rest, ( $($field),*) ) = tuple(( $(vek_parse!(@parser $field)),* ))(input)?;
+                Ok((rest, vek::$name { $($field),* }))
+            }
+        
+            fn serialize<O: std::io::Write>(&self, output: &mut O) -> std::io::Result<()> {
+                $( self.$field.serialize(output)?; )*
+                Ok(())
+            }
+        }
     }
 }
 
-impl<T: Parse> Parse for vek::Rgb<T> {
-    fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], Self> {
-        map(<vek::Vec3<T> as Parse>::parse, vek::Vec3::<T>::into)(input)
-    }
-    fn serialize<O: std::io::Write>(&self, output: &mut O) -> std::io::Result<()> {
-        self.r.serialize(output)?;
-        self.g.serialize(output)?;
-        self.b.serialize(output)?;
-        Ok(())
-    }
-}
+vek_parse!(Vec4, x, y, z, w);
+vek_parse!(Vec3, x, y, z);
+vek_parse!(Vec2, x, y);
+vek_parse!(Rgb, r, g, b);
+vek_parse!(Rgba, r, g, b, a);
 
 impl<T: Parse + Default> Parse for vek::Mat4<T> {
     fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], Self> {
@@ -120,7 +106,7 @@ impl Parse for String {
     }
 
     fn serialize<O: std::io::Write>(&self, output: &mut O) -> std::io::Result<()> {
-        let len: u32 = self.len().try_into().or_else(|v| Err(std::io::ErrorKind::InvalidInput))?;
+        let len: u32 = self.len().try_into().or_else(|_| Err(std::io::ErrorKind::InvalidInput))?;
 
         len.serialize(output)?;
         output.write_all(self.as_bytes())
@@ -150,3 +136,5 @@ impl<T: Parse> Parse for Vec<T> {
         Ok(())
     }
 }
+
+gen_tuple_parsers!(16);

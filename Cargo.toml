@@ -27,6 +27,7 @@ anyhow = "1.0.39"
 structopt = "0.3.21"
 nom = "6.1.2"
 vek = "0.15.1"
+num-traits = "0.2.14"
 pd2tools-macros = { path = './macros' }
 
 [workspace]

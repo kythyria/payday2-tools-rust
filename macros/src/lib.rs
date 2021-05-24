@@ -1,6 +1,7 @@
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{quote, quote_spanned};
-use syn::{Attribute, Data, DataEnum, DataStruct, DeriveInput, Fields, Meta, parse_macro_input};
+use syn::{Data, DataEnum, DataStruct, DeriveInput, Fields, parse_macro_input};
+use syn::spanned::Spanned;
 
 #[proc_macro_derive(EnumTryFrom)]
 pub fn derive_enum_tryfrom(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -82,7 +83,7 @@ fn struct_parser(item: &DeriveInput, r#struct: &DataStruct) -> TokenStream {
                 let readvar = Ident::new(&readvar_name, Span::call_site());
                 let field_type = &decl.ty;
 
-                parse_lines.push(quote! {
+                parse_lines.push(quote_spanned! { field_type.span()=>
                     let (input, #readvar) = <#field_type as parse_helpers::Parse>::parse(input)?
                 });
                 parse_construction.push(quote!{
@@ -139,4 +140,42 @@ fn enum_parser(item: &DeriveInput, r#_enum: &DataEnum) -> TokenStream {
             }
         }
     }
+}
+
+#[proc_macro]
+pub fn gen_tuple_parsers(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input = parse_macro_input!(item as syn::LitInt);
+
+    let count = match input.base10_parse::<usize>() {
+        Err(_) => return quote_spanned!{ input.span()=> compile_error!("Invalid number of tuples") }.into(),
+        Ok(n) => n
+    };
+
+    let mut impls = Vec::<TokenStream>::new();
+
+    for i in 1..count+1 {
+        let mut literals = Vec::<TokenStream>::new();
+        let mut params = Vec::<TokenStream>::new();
+        for i in 0..i {
+            let id = Ident::new(&format!("T{}", i), Span::call_site());
+            let lit = proc_macro2::Literal::usize_unsuffixed(i);
+            params.push(quote!{ #id });
+            literals.push(quote!{ #lit })
+        }
+        let q = quote! {
+            impl<#(#params: Parse),*> Parse for (#(#params,)*) {
+                fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], Self> {
+                    tuple(( #(<#params as Parse>::parse, )* ))(input)
+                }
+                fn serialize<O: std::io::Write>(&self, output: &mut O) -> std::io::Result<()> {
+                    #( self.#literals.serialize(output)?; )*
+                    Ok(())
+                }
+            }
+        };
+        impls.push(q);
+    }
+
+    let i = quote!{ #(#impls)* };
+    i.into()
 }

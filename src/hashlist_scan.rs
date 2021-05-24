@@ -67,6 +67,8 @@ fn do_scan_pass(to_read: Vec<(&Path, Vec<ReadItem>)>) -> io::Result<FnvHashSet<R
     for (path, items) in to_read {
         let bundle = File::open(path)?;
         for item in items {
+            //seek_read does not fill up to capacity, only to len
+            //so we have to manually resize and fill with 0.
             let mut bytes = Vec::<u8>::new();
             bytes.resize(item.length, 0);
             bundle.seek_read(&mut bytes, item.offset as u64)?;

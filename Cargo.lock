@@ -404,6 +404,7 @@ dependencies = [
  "dokan",
  "fnv",
  "nom",
+ "num-traits",
  "pd2tools-macros",
  "rayon",
  "roxmltree",
