@@ -45,12 +45,15 @@ jobs:
 
 
     - name: Build
-      run: cargo build --verbose --release
+      run: |
+        cargo build --verbose --release
+        cargo build --verbose --release --package pd2tools-fdm-python
     - uses: actions/upload-artifact@v2
       with:
         path: |
           target/release/pd2tools-bundlefs.exe
           target/release/pd2tools.exe
+          target/release/pd2tools_fdm.dll
     - uses: "marvinpinto/action-automatic-releases@latest"
       with:
         repo_token: "${{ secrets.GITHUB_TOKEN }}"
@@ -60,5 +63,6 @@ jobs:
         files: |
           target/release/pd2tools-bundlefs.exe
           target/release/pd2tools.exe
+          target/release/pd2tools_fdm.dll
 #    - name: Run tests
 #      run: cargo test --verbose
