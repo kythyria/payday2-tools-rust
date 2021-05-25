@@ -8,36 +8,44 @@ use crate::meshoid;
 pub fn meshoid_from_geometry(geo: &fdm::GeometrySection, topo: &fdm::TopologySection, atoms: &[fdm::RenderAtom]) -> meshoid::Mesh {
     let mut mesh = meshoid::Mesh::default();
 
+    mesh.vertices.reserve(geo.position.len());
+    for i in 0..geo.position.len() {
+        mesh.vertices.push(meshoid::Vertex {
+            weights: Vec::with_capacity((geo.weightcount_0 + geo.weightcount_1) as usize),
+            co: geo.position[i].into_tuple()
+        })
+    }
+
     for ra in atoms {
         mesh.material_names.push(format!("mat_{}", ra.material));
 
         for i in (ra.base_index)..(ra.base_index + ra.triangle_count) {
-            let v0_i = topo.faces[i as usize].0 as usize;
-            let v1_i = topo.faces[i as usize].1 as usize;
-            let v2_i = topo.faces[i as usize].2 as usize;
+            let v0_ri = topo.faces[i as usize].0 as usize;
+            let v1_ri = topo.faces[i as usize].1 as usize;
+            let v2_ri = topo.faces[i as usize].2 as usize;
 
-            mesh.vertices.push(vec3f_to_vertex(geo.position[v0_i + (ra.base_vertex as usize)]));
-            mesh.vertices.push(vec3f_to_vertex(geo.position[v1_i + (ra.base_vertex as usize)]));
-            mesh.vertices.push(vec3f_to_vertex(geo.position[v2_i + (ra.base_vertex as usize)]));
+            let v0_i = v0_ri + ra.base_vertex as usize;
+            let v1_i = v1_ri + ra.base_vertex as usize;
+            let v2_i = v2_ri + ra.base_vertex as usize;
 
-            mesh.edges.push(indexes_to_edge( mesh.vertices.len() - 3, mesh.vertices.len() - 2 ));
-            mesh.edges.push(indexes_to_edge( mesh.vertices.len() - 2, mesh.vertices.len() - 1 ));
-            mesh.edges.push(indexes_to_edge( mesh.vertices.len() - 1, mesh.vertices.len() - 3 ));
+            mesh.edges.push(indexes_to_edge( v0_i, v1_i ));
+            mesh.edges.push(indexes_to_edge( v1_i, v2_i ));
+            mesh.edges.push(indexes_to_edge( v2_i, v0_i ));
             
             mesh.loops.push(meshoid::Loop {
                 normal: (0.0, 0.0, 0.0),
                 edge: mesh.edges.len() - 3,
-                vertex: mesh.vertices.len() - 3
+                vertex: v0_ri
             });
             mesh.loops.push(meshoid::Loop {
                 normal: (0.0, 0.0, 0.0),
                 edge: mesh.edges.len() - 2,
-                vertex: mesh.vertices.len() - 2
+                vertex: v1_ri
             });
             mesh.loops.push(meshoid::Loop {
                 normal: (0.0, 0.0, 0.0),
                 edge: mesh.edges.len() - 1,
-                vertex: mesh.vertices.len() - 1
+                vertex: v2_ri
             });
 
             mesh.faces.push(meshoid::Face {
