@@ -42,7 +42,11 @@ pub fn meshoid_from_geometry(geo: &fdm::GeometrySection, topo: &fdm::TopologySec
             });
 
             mesh.faces.push(meshoid::Face {
-                loops: (mesh.loops.len() - 3, 3),
+                loops: vec![
+                    mesh.loops.len() - 3,
+                    mesh.loops.len() - 2,
+                    mesh.loops.len() - 1
+                ],
                 material: ra.material.try_into().unwrap()
             })
         }

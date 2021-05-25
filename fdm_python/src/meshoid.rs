@@ -49,7 +49,7 @@ pub struct Loop {
 #[derive(Clone)]
 pub struct Face {
     #[pyo3(get, set)] pub material: u16,
-    #[pyo3(get, set)] pub loops: (usize, usize)
+    #[pyo3(get, set)] pub loops: Vec<usize>
 }
 
 #[pyclass]
