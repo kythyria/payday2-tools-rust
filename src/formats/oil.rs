@@ -25,6 +25,7 @@ use nom::sequence::tuple;
 
 use vek::{Rgb, Vec2, Vec3};
 
+use crate::util::AsHex;
 use crate::util::read_helpers::{TryFromIndexedLE, TryFromBytesError};
 use crate::util::parse_helpers;
 use crate::util::parse_helpers::Parse;
@@ -297,15 +298,5 @@ pub fn print_sections(filename: &Path) {
             }
         }
         
-    }
-}
-
-struct AsHex<'a>(&'a[u8]);
-impl<'a> std::fmt::Display for AsHex<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for i in self.0 {
-            write!(f, "{:02x}", i)?;
-        };
-        Ok(())
     }
 }

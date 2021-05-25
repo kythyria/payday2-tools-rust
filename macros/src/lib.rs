@@ -1,6 +1,6 @@
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{quote, quote_spanned};
-use syn::{Data, DataEnum, DataStruct, DeriveInput, Fields, parse_macro_input};
+use syn::{Attribute, Data, DataEnum, DataStruct, DeriveInput, Fields, Path, parse_macro_input, Type};
 use syn::spanned::Spanned;
 
 #[proc_macro_derive(EnumTryFrom)]
@@ -59,7 +59,11 @@ pub fn derive_enum_tryfrom(item: proc_macro::TokenStream) -> proc_macro::TokenSt
     s.into()
 }
 
-#[proc_macro_derive(Parse)]
+/// Generate the "obvious" parser/serialiser by invoking that of each field in turn.
+///
+/// The `parse_as` attribute takes the identifier of a wrapper type, which can be
+/// `Into` the field's type and vice versa, and invokes *that* as the parser instead.
+#[proc_macro_derive(Parse, attributes(parse_as))]
 pub fn derive_parse(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let item = parse_macro_input!(item as DeriveInput);
 
@@ -78,19 +82,30 @@ fn struct_parser(item: &DeriveInput, r#struct: &DataStruct) -> TokenStream {
     match r#struct.fields {
         Fields::Named(ref fields) => { 
             for decl in fields.named.iter() {
+                let parse_as = match get_parseas(&decl.attrs) {
+                    Ok(s) => s,
+                    Err(_) => return quote_spanned! { decl.span()=> compile_error!("Malformed parse_as attribute") }
+                };
+
                 let ident = decl.ident.as_ref().unwrap();
                 let readvar_name = format!("readvar_{}", ident);
                 let readvar = Ident::new(&readvar_name, Span::call_site());
-                let field_type = &decl.ty;
 
+                let field_type = decl.ty.clone();
+                let wire_type = match parse_as {
+                    Some(s) => s,
+                    None => decl.ty.clone()
+                };
+                
                 parse_lines.push(quote_spanned! { field_type.span()=>
-                    let (input, #readvar) = <#field_type as parse_helpers::Parse>::parse(input)?
+                    let (input, #readvar) = <#wire_type as parse_helpers::WireFormat<#field_type>>::parse_into(input)?
                 });
+
                 parse_construction.push(quote!{
                     #ident: #readvar
                 });
                 ser_lines.push(quote! {
-                    <#field_type as parse_helpers::Parse>::serialize(&self.#ident, output)?
+                    <#wire_type as parse_helpers::WireFormat<#field_type>>::serialize_from(&self.#ident, output)?
                 });
             }
         },
@@ -178,4 +193,17 @@ pub fn gen_tuple_parsers(item: proc_macro::TokenStream) -> proc_macro::TokenStre
 
     let i = quote!{ #(#impls)* };
     i.into()
+}
+
+fn get_attribute<'a>(attrs: &'a Vec<Attribute>, name: &str) -> Option<&'a Attribute> {
+    attrs.iter().filter(|i| i.path.segments[0].ident == name).next()
+}
+
+fn get_parseas<'a>(attrs: &'a Vec<Attribute>) -> syn::Result<Option<Type>> {
+    if let Some(attr) = get_attribute(attrs, "parse_as") {
+        attr.parse_args::<Type>().map(Some)
+    }
+    else {
+        Ok(None)
+    }
 }

@@ -94,6 +94,11 @@ enum Command {
     /// Parse an OIL-format model file and print all recognised information.
     Oil {
         input: String
+    },
+
+    /// Parse a FDM-format model file and print all recognised information.
+    Diesel {
+        input: String
     }
 }
 
@@ -123,10 +128,22 @@ fn main() {
         },
         Command::Convert{ input, output, input_format, output_format, events } => {
             do_convert(&input, input_format, &output, output_format, events)
-        }
+        },
         Command::Oil{ input } => {
             let path: std::path::PathBuf = input.into();
             formats::oil::print_sections(&path);
+        },
+        Command::Diesel{ input } => {
+            let bytes = std::fs::read(input).unwrap();
+            let (_, sections) = formats::fdm::split_to_sections(&bytes).unwrap();
+            println!("Section count: {}", sections.len());
+            for ups in sections {
+                print!("Section {}: ", ups.id);
+                match formats::fdm::parse_section(&ups) {
+                    Ok((_, d)) => println!("{:?}", d),
+                    Err(e) => println!(" {:x}  Err({:?})", ups.r#type, e)
+                }
+            }
         }
     };
 }

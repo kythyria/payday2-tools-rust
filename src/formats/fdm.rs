@@ -1,17 +1,19 @@
 //! Final Diesel Model format used in release versions of the game.
 
-use std::convert::TryInto;
+use std::{convert::TryInto, marker::PhantomData};
+use std::collections::HashMap;
 
 use nom::IResult;
-use nom::combinator::map;
-use nom::multi::{length_data, count};
+use nom::combinator::{all_consuming, map};
+use nom::multi::{length_data, length_count, count};
 use nom::number::complete::le_u32;
 use nom::sequence::tuple;
-use vek::{Vec2, Vec3, Vec4};
+use vek::{Mat4, Vec2, Vec3, Vec4};
 
 use crate::hashindex::Hash as Idstring;
+use crate::util::AsHex;
 use crate::util::parse_helpers;
-use crate::util::parse_helpers::Parse;
+use crate::util::parse_helpers::{ Parse, WireFormat };
 use pd2tools_macros::{EnumTryFrom, Parse};
 
 type Vec2f = vek::Vec2<f32>;
@@ -64,52 +66,115 @@ pub fn split_to_sections<'a>(input: &'a [u8]) -> IResult<&'a[u8], Vec<UnparsedSe
     count(UnparsedSection::parse, header.section_count as usize)(input)
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, EnumTryFrom, Parse)]
-pub enum SectionType {
-    Object3D = 0x0ffcd100,
-    LightSet = 0x33552583,
-    Model = 0x62212d88,
-    AuthorTag = 0x7623c465,
-    Geometry = 0x7ab072d3,
-    SimpleTexture = 0x072b4d37,
-    CubicTexture = 0x2c5d6201,
-    VolumetricTexture = 0x1d0b1808,
-    Material = 0x3c54609c,
-    MaterialGroup = 0x29276b1d,
-    NormalManagingGP = 0x2c1f096f,
-    TextureSpaceGP = 0x5ed2532f,
-    PassThroughGP = 0xe3a3b1ca,
-    SkinBones = 0x65cc1825,
-    Topology = 0x4c507a13,
-    TopologyIP = 0x03b634bd,
-    Camera = 0x46bf31a7,
-    Light = 0xffa13b80,
-    ConstFloatController = 0x2060697e,
-    StepFloatController = 0x6da951b2,
-    LinearFloatController = 0x76bf5b66,
-    BezierFloatController = 0x29743550,
-    ConstVector3Controller = 0x5b0168d0,
-    StepVector3Controller = 0x544e238f,
-    LinearVector3Controller = 0x26a5128c,
-    BezierVector3Controller = 0x28db639a,
-    XYZVector3Controller = 0x33da0fc4,
-    ConstRotationController = 0x2e540f3c,
-    EulerRotationController = 0x033606e8,
-    QuatStepRotationController = 0x007fb371,
-    QuatLinearRotationController = 0x648a206c,
-    QuatBezRotationController = 0x197345a5,
-    LookAtRotationController = 0x22126dc0,
-    LookAtConstrRotationController = 0x679d695b,
-    IKChainTarget = 0x3d756e0c,
-    IKChainRotationController = 0xf6c1eef7,
-    CompositeVector3Controller = 0xdd41d329,
-    CompositeRotationController = 0x95bb08f7,
-    AnimationData = 0x5dc011b8,
-    Animatable = 0x74f7363f,
-    KeyEvents = 0x186a8bbf,
-    D3DShader = 0x7f3552d1,
-    D3DShaderPass = 0x214b1aaf,
-    D3DShaderLibrary = 0x12812c1a,
+macro_rules! make_document {
+    (@vartype Unknown) => { Box<[u8]> };
+    (@vartype $typename:ty) => { Box<$typename> };
+
+    (@parse_arm $sec:ident, $tag:literal, $variantname:expr, Unknown) => { 
+        Ok((b"", $variantname(Box::from($sec.data))))
+    };
+    (@parse_arm $sec:ident, $tag:literal, $variantname:expr, $typename:ident) => {
+        {
+            let ac = all_consuming($typename::parse);
+            let boxed = map(ac, Box::from);
+            map(boxed, $variantname)($sec.data)
+        }
+    };
+
+    (@debug_arm $data:expr, $f:expr, Unknown, $vn:ident) => {
+        write!($f, "{} {}", stringify!($vn), AsHex(&$data))
+    };
+    (@debug_arm $data:expr, $f:expr, $typ:ident, $vn:ident) => {
+        <$typ as std::fmt::Debug>::fmt($data, $f)
+    };
+
+    ($( ($tag:literal, $variantname:ident, $typename:ident) )+) => {
+        #[derive(Copy, Clone, Eq, PartialEq, EnumTryFrom, Parse)]
+        pub enum SectionType {
+            $(
+                $variantname = $tag,
+            )+
+        }
+
+        pub enum Section {
+            $(
+                $variantname(make_document!(@vartype $typename)),
+            )+
+        }
+
+        impl std::fmt::Debug for Section {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                match self {
+                    $( Section::$variantname(d) => make_document!(@debug_arm d, f, $typename, $variantname), )+
+                }
+            }
+        }
+
+        pub fn parse_section<'a>(sec: &UnparsedSection<'a>) -> IResult<&'a [u8], Section> {
+            match sec.r#type {
+                $( $tag => make_document!(@parse_arm sec, $tag, Section::$variantname, $typename ), )+
+                t => panic!("Wildly unknown section type {}", t)
+            }
+        }
+    }
+}
+
+make_document! {
+    (0x0ffcd100, Object3D,                       Object3dSection     )
+    (0x33552583, LightSet,                       Unknown             )
+    (0x62212d88, Model,                          ModelSection        )
+    (0x7623c465, AuthorTag,                      AuthorSection       )
+    (0x7ab072d3, Geometry,                       GeometrySection     )
+    (0x072b4d37, SimpleTexture,                  Unknown             )
+    (0x2c5d6201, CubicTexture,                   Unknown             )
+    (0x1d0b1808, VolumetricTexture,              Unknown             )
+    (0x3c54609c, Material,                       Unknown             )
+    (0x29276b1d, MaterialGroup,                  Unknown             )
+    (0x2c1f096f, NormalManagingGP,               Unknown             )
+    (0x5ed2532f, TextureSpaceGP,                 Unknown             )
+    (0xe3a3b1ca, PassthroughGP,                  PassthroughGPSection)
+    (0x65cc1825, SkinBones,                      Unknown             )
+    (0x4c507a13, Topology,                       TopologySection     )
+    (0x03b634bd, TopologyIP,                     TopologyIPSection   )
+    (0x46bf31a7, Camera,                         Unknown             )
+    (0xffa13b80, Light,                          Unknown             )
+    (0x2060697e, ConstFloatController,           Unknown             )
+    (0x6da951b2, StepFloatController,            Unknown             )
+    (0x76bf5b66, LinearFloatController,          Unknown             )
+    (0x29743550, BezierFloatController,          Unknown             )
+    (0x5b0168d0, ConstVector3Controller,         Unknown             )
+    (0x544e238f, StepVector3Controller,          Unknown             )
+    (0x26a5128c, LinearVector3Controller,        Unknown             )
+    (0x28db639a, BezierVector3Controller,        Unknown             )
+    (0x33da0fc4, XYZVector3Controller,           Unknown             )
+    (0x2e540f3c, ConstRotationController,        Unknown             )
+    (0x033606e8, EulerRotationController,        Unknown             )
+    (0x007fb371, QuatStepRotationController,     Unknown             )
+    (0x648a206c, QuatLinearRotationController,   Unknown             )
+    (0x197345a5, QuatBezRotationController,      Unknown             )
+    (0x22126dc0, LookAtRotationController,       Unknown             )
+    (0x679d695b, LookAtConstrRotationController, Unknown             )
+    (0x3d756e0c, IKChainTarget,                  Unknown             )
+    (0xf6c1eef7, IKChainRotationController,      Unknown             )
+    (0xdd41d329, CompositeVector3Controller,     Unknown             )
+    (0x95bb08f7, CompositeRotationController,    Unknown             )
+    (0x5dc011b8, AnimationData,                  Unknown             )
+    (0x74f7363f, Animatable,                     Unknown             )
+    (0x186a8bbf, KeyEvents,                      Unknown             )
+    (0x7f3552d1, D3DShader,                      Unknown             )
+    (0x214b1aaf, D3DShaderPass,                  Unknown             )
+    (0x12812c1a, D3DShaderLibrary,               Unknown             )
+}
+
+pub fn parse_file<'a>(bytes: &'a [u8]) -> IResult<&'a [u8], HashMap<u32, Section>> {
+    let (_, sections) = split_to_sections(bytes)?;
+    let mut result = HashMap::<u32, Section>::new();
+    for ups in sections {
+        eprintln!("Section {}", ups.id);
+        let (_, parsed) = parse_section(&ups)?;
+        result.insert(ups.id, parsed);
+    }
+    return Ok((b"", result));
 }
 
 /// Metadata about the model file. Release Diesel never, AFAIK, actually cares about this.
@@ -134,8 +199,64 @@ pub struct AuthorSection {
 pub struct Object3dSection {
     name: Idstring,
     animation_controllers: Vec<u32>,
+    
+    #[parse_as(Mat4WithPos<f32>)]
     transform: Mat4f,
+
     parent: u32
+}
+
+struct Mat4WithPos<T>{ _d: PhantomData<T> }
+impl<T: Parse + Default> WireFormat<Mat4<T>> for Mat4WithPos<T> {
+    fn parse_into<'a>(input: &'a [u8]) -> IResult<&'a [u8], Mat4<T>> {
+        let (input, mut mat) = <vek::Mat4<T> as Parse>::parse(input)?;
+        let (input, pos) = <vek::Vec3<T> as Parse>::parse(input)?;
+        mat[(0,3)] = pos.x;
+        mat[(1,3)] = pos.y;
+        mat[(2,3)] = pos.z;
+        Ok((input, mat))
+    }
+
+    fn serialize_from<O: std::io::Write>(data: &Mat4<T>, output: &mut O) -> std::io::Result<()> {
+        data.serialize(output)?;
+        data[(0,3)].serialize(output)?;
+        data[(1,3)].serialize(output)?;
+        data[(2,3)].serialize(output)
+    }
+}
+
+#[derive(Debug, Parse)]
+pub struct ModelSection {
+    pub object: Object3dSection,
+    pub data: ModelData
+}
+
+#[derive(Debug)]
+pub enum ModelData {
+    BoundsOnly(Bounds),
+    Mesh(MeshModel)
+}
+impl Parse for ModelData {
+    fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], Self> {
+        let (input, version) = u32::parse(input)?;
+        match version {
+            6 => map(Bounds::parse, ModelData::BoundsOnly)(input),
+            _ => map(MeshModel::parse, ModelData::Mesh)(input)
+        }
+    }
+
+    fn serialize<O: std::io::Write>(&self, output: &mut O) -> std::io::Result<()> {
+        match self {
+            ModelData::BoundsOnly(b) => {
+                (6 as u32).serialize(output)?;
+                b.serialize(output)
+            },
+            ModelData::Mesh(m) => {
+                (3 as u32).serialize(output)?;
+                m.serialize(output)
+            }
+        }
+    }
 }
 
 /// Bounding box part of a Model
@@ -149,29 +270,29 @@ pub struct Object3dSection {
 #[derive(Debug, Parse)]
 pub struct Bounds {
     /// One corner of the bounding box
-    min: Vec3f,
+    pub min: Vec3f,
 
     /// Another corner of the bounding box
-    max: Vec3f,
+    pub max: Vec3f,
 
     /// Radius of the bounding sphere whose centre is the model-space origin
-    radius: f32,
-    unknown_13: u32
+    pub radius: f32,
+    pub unknown_13: u32
 }
 
 #[derive(Debug, Parse)]
 pub struct MeshModel {
-    geometry_provider: u32,
-    topology_ip: u32,
-    render_atoms: Vec<RenderAtom>,
-    material_group: u32,
-    lightset: u32,
-    bounds: Bounds,
+    pub geometry_provider: u32,
+    pub topology_ip: u32,
+    pub render_atoms: Vec<RenderAtom>,
+    pub material_group: u32,
+    pub lightset: u32,
+    pub bounds: Bounds,
 
     /// This seems to be flags? 1=shadowcaster, 2=has_opacity
-    properties: u32,
+    pub properties: u32,
 
-    skinbones: u32
+    pub skinbones: u32
 }
 
 /// A single draw's worth of geometry
@@ -180,19 +301,19 @@ pub struct MeshModel {
 #[derive(Debug, Parse)]
 pub struct RenderAtom {
     /// Starting position in the Geometry (vertex buffer)
-    base_vertex: u32,
+    pub base_vertex: u32,
 
     /// Number of triangles to draw
-    triangle_count: u32,
+    pub triangle_count: u32,
 
     /// Starting position in the Topology (index buffer)
-    base_index: u32,
+    pub base_index: u32,
 
     /// Number of vertices in this RenderAtom
-    geometry_slice_length: u32,
+    pub geometry_slice_length: u32,
 
     /// Index of the material slot this uses.
-    material: u32
+    pub material: u32
 }
 
 /// Indirection to vertex and index data
@@ -201,8 +322,8 @@ pub struct RenderAtom {
 /// file shipping with release Payday 2.
 #[derive(Debug, Parse)]
 pub struct PassthroughGPSection {
-    geometry: u32,
-    topology: u32
+    pub geometry: u32,
+    pub topology: u32
 }
 
 /// Indirection to index data
@@ -210,16 +331,36 @@ pub struct PassthroughGPSection {
 /// It's unclear what the role of this is at all, there are no other *IP classes that I can see.
 #[derive(Debug, Parse)]
 pub struct TopologyIPSection {
-    topology: u32
+    pub topology: u32
 }
 
 /// Index buffer
 #[derive(Debug, Parse)]
 pub struct TopologySection {
-    unknown_1: u32,
-    faces: Vec<(u16, u16, u16)>,
-    unknown_2: Vec<u8>,
-    name: Idstring
+    pub unknown_1: u32,
+    
+    #[parse_as(VecOf3Tuple<u16>)]
+    pub faces: Vec<(u16, u16, u16)>,
+
+    pub unknown_2: Vec<u8>,
+    pub name: Idstring
+}
+
+struct VecOf3Tuple<T>{ _d: PhantomData<T> }
+impl<T: Parse> WireFormat<Vec<(T, T, T)>> for VecOf3Tuple<T> {
+    fn parse_into<'a>(input: &'a [u8]) -> IResult<&'a [u8], Vec<(T, T, T)>> {
+        length_count(map(le_u32, |i| i/3), <(T,T,T) as Parse>::parse)(input)
+    }
+
+    fn serialize_from<O: std::io::Write>(data: &Vec<(T, T, T)>, output: &mut O) -> std::io::Result<()> {
+        let count_u = data.len()*3;
+        let count: u32 = count_u.try_into().map_err(|_| std::io::ErrorKind::InvalidInput)?;
+        count.serialize(output)?;
+        for i in data.iter() {
+            i.serialize(output)?;
+        }
+        Ok(())
+    }
 }
 
 /// Vertex attributes
@@ -231,33 +372,33 @@ pub struct TopologySection {
 /// exactly what it is and in any case there's two. I'm using the more common one, which is position, uv, 
 #[derive(Default, Debug)]
 pub struct GeometrySection {
-    name: Idstring,
+    pub name: Idstring,
 
-    position: Vec<Vec3f>,
-    position_1: Vec<Vec3f>,
-    normal_1: Vec<Vec3f>,
-    color_0: Vec<Rgba>,
-    color_1: Vec<Rgba>,
-    tex_coord_0: Vec<Vec2f>,
-    tex_coord_1: Vec<Vec2f>,
-    tex_coord_2: Vec<Vec2f>,
-    tex_coord_3: Vec<Vec2f>,
-    tex_coord_4: Vec<Vec2f>,
-    tex_coord_5: Vec<Vec2f>,
-    tex_coord_6: Vec<Vec2f>,
-    tex_coord_7: Vec<Vec2f>,
-    weightcount_0: u32,
-    blend_indices_0: Vec<Vec4<u8>>,
-    blend_weight_0: Vec<Vec4f>,
-    weightcount_1: u32,
-    blend_indices_1: Vec<Vec4<u8>>,
-    blend_weight_1: Vec<Vec4f>,
-    normal: Vec<Vec3f>,
-    binormal: Vec<Vec3f>,
-    tangent: Vec<Vec3f>,
+    pub position: Vec<Vec3f>,
+    pub position_1: Vec<Vec3f>,
+    pub normal_1: Vec<Vec3f>,
+    pub color_0: Vec<Rgba>,
+    pub color_1: Vec<Rgba>,
+    pub tex_coord_0: Vec<Vec2f>,
+    pub tex_coord_1: Vec<Vec2f>,
+    pub tex_coord_2: Vec<Vec2f>,
+    pub tex_coord_3: Vec<Vec2f>,
+    pub tex_coord_4: Vec<Vec2f>,
+    pub tex_coord_5: Vec<Vec2f>,
+    pub tex_coord_6: Vec<Vec2f>,
+    pub tex_coord_7: Vec<Vec2f>,
+    pub weightcount_0: u32,
+    pub blend_indices_0: Vec<Vec4<u8>>,
+    pub blend_weight_0: Vec<Vec4f>,
+    pub weightcount_1: u32,
+    pub blend_indices_1: Vec<Vec4<u8>>,
+    pub blend_weight_1: Vec<Vec4f>,
+    pub normal: Vec<Vec3f>,
+    pub binormal: Vec<Vec3f>,
+    pub tangent: Vec<Vec3f>,
 
     // Just guessing here
-    point_size: Vec<f32>
+    pub point_size: Vec<f32>
 }
 impl parse_helpers::Parse for GeometrySection {
     fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], Self> {
@@ -287,12 +428,12 @@ impl parse_helpers::Parse for GeometrySection {
             }
 
             match desc.attribute_type {
-                BlendIndices0 | BlendWeight0 => { result.weightcount_0 = desc.attribute_size },
-                BlendIndices1 | BlendWeight1 => { result.weightcount_1 = desc.attribute_size },
+                BlendIndices0 | BlendWeight0 => { result.weightcount_0 = desc.attribute_format },
+                BlendIndices1 | BlendWeight1 => { result.weightcount_1 = desc.attribute_format },
                 _ => {}
             }
 
-            let (idxparse, weightparse): (fn(&'a [u8])->IResult<&'a [u8], Vec4::<u8>>, fn(&'a [u8])->IResult<&'a [u8], Vec4::<f32>>) = match desc.attribute_size {
+            let (idxparse, weightparse): (fn(&'a [u8])->IResult<&'a [u8], Vec4::<u8>>, fn(&'a [u8])->IResult<&'a [u8], Vec4::<f32>>) = match desc.attribute_format {
                 //2 => ( parse_2to4::<u8>, parse_2to4::<f32> ),
                 2 => ( parse_expand::<u8, Vec2<u8>>, parse_expand::<f32, Vec2<f32>> ),
                 3 => ( parse_expand::<u8, Vec3<u8>>, parse_expand::<f32, Vec3<f32>> ),
@@ -333,18 +474,101 @@ impl parse_helpers::Parse for GeometrySection {
     }
 
     fn serialize<O: std::io::Write>(&self, output: &mut O) -> std::io::Result<()> {
-        todo!();
         let vcount: u32 = self.position.len().try_into().unwrap();
         vcount.serialize(output)?;
+
+        let mut headers = Vec::<GeometryHeader>::with_capacity(21);
+
+        macro_rules! attribute_writers {
+            (@item_header $attrib:ident, $format:expr, $typ:ident) => {
+                if self.$attrib.len() > 0 { headers.push(GeometryHeader { attribute_format: $format, attribute_type: GeometryAttributeType::$typ }) }
+            };
+            (@item_writer $attrib:ident, $writer:expr) => { if self.$attrib.len() > 0 { $writer(output, &self.$attrib)?; } };
+            (@item_writer $attrib:ident) => { if self.$attrib.len() > 0 { self.$attrib.serialize(output)?; } };
+            ($( $attrib:ident ($format:expr, $typ:ident $(, $writer:expr)? ); )+) => {
+                $( attribute_writers!(@item_header $attrib, $format, $typ); )+
+                $( attribute_writers!(@item_writer $attrib $(, $writer)? ); )+
+            };
+        }
+
+        fn serialize_iter<I: Parse, D: Iterator<Item=I>, O: std::io::Write>(output: &mut O, data: &mut D) -> std::io::Result<()> {
+            for i in data {
+                i.serialize(output)?;
+            }
+            Ok(())
+        }
+        fn write_4as2<O: std::io::Write>(output: &mut O, data: &Vec<Vec4f>) -> std::io::Result<()> {
+            serialize_iter(output, &mut data.iter().map(|i| Vec2f{x:i.x, y:i.y}))
+        }
+        fn write_4as3<O: std::io::Write>(output: &mut O, data: &Vec<Vec4f>) -> std::io::Result<()> {
+            serialize_iter(output, &mut data.iter().map(|i| Vec3f{x:i.x, y:i.y, z:i.z}))
+        }
+        fn write_4as4<O: std::io::Write>(output: &mut O, data: &Vec<Vec4f>) -> std::io::Result<()> {
+            serialize_iter(output, &mut data.iter().map(Vec4f::clone))
+        }
+        let weight_0_write : fn(&mut O, &Vec<Vec4f>) -> std::io::Result<()> = match self.weightcount_0 {
+            2 => write_4as2,
+            3 => write_4as3,
+            4 => write_4as4,
+            _ => todo!("Sensibly handle needing the wrong number of weights")
+        };
+        let weight_1_write : fn(&mut O, &Vec<Vec4f>) -> std::io::Result<()> = match self.weightcount_1 {
+            2 => write_4as2,
+            3 => write_4as3,
+            4 => write_4as4,
+            _ => todo!("Sensibly handle needing the wrong number of weights")
+        };
+
+        attribute_writers!{
+            position(3, Position);
+            tex_coord_0(2, TexCoord0);
+            tex_coord_1(2, TexCoord1);
+            tex_coord_2(2, TexCoord2);
+            tex_coord_3(2, TexCoord3);
+            tex_coord_4(2, TexCoord4);
+            tex_coord_5(2, TexCoord5);
+            tex_coord_6(2, TexCoord6);
+            tex_coord_7(2, TexCoord7);
+            color_0(5, Color0);
+            blend_indices_0(7, BlendIndices0);
+            blend_weight_0(self.weightcount_0, BlendWeight0, weight_0_write);
+            blend_indices_1(7, BlendIndices1);
+            blend_weight_1(self.weightcount_1, BlendWeight1, weight_1_write);
+            normal(3, Normal);
+            binormal(3, Binormal);
+            tangent(3, Tangent);
+            position_1(3, Position1);
+            color_1(5, Color1);
+            normal_1(3, Normal1);
+            point_size(1, PointSize);
+        }
+
+        self.name.serialize(output)
     }
 }
 
 #[derive(Debug, Parse)]
 pub struct GeometryHeader {
-    pub attribute_size: u32,
+    pub attribute_format: u32,
     pub attribute_type: GeometryAttributeType
 }
+impl GeometryHeader {
+    fn component_count(&self) -> u32 {
+        use GeometryAttributeType::*;
+        match self.attribute_type {
+            Position | Normal | Position1 | Normal1 | Color0 | Color1 | Binormal | Tangent => 3,
+            TexCoord0 | TexCoord1 | TexCoord2 | TexCoord3 | TexCoord4 | TexCoord5 | TexCoord6 | TexCoord7 => 2,
+            PointSize => 1,
+            BlendIndices0 | BlendIndices1 => 4,
+            BlendWeight0 | BlendWeight1 => self.attribute_format
+        }
+    }
 
+    fn byte_count(&self) -> u32 {
+        let counts = [0, 4, 8, 12, 16, 4, 4, 8, 12];
+        counts[self.attribute_format as usize]
+    }
+}
 #[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, EnumTryFrom, Parse)]
 pub enum GeometryAttributeType {
     Position = 1,
@@ -380,4 +604,4 @@ impl Default for BlendComponentCount {
     fn default() -> Self {
         BlendComponentCount::Two
     }
-}
+} 

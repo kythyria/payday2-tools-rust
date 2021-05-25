@@ -68,3 +68,13 @@ macro_rules! variant_from {
         }
     }
 }
+
+pub struct AsHex<'a>(pub &'a[u8]);
+impl<'a> std::fmt::Display for AsHex<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for i in self.0 {
+            write!(f, "{:02x}", i)?;
+        };
+        Ok(())
+    }
+}
