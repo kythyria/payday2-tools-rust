@@ -1,3 +1,4 @@
 /target
 /tmp
 hashlist
+__pycache__/
