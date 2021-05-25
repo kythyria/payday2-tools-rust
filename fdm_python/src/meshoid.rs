@@ -1,7 +1,7 @@
 ///! Quite blender-like mesh representation.
 
 use pyo3::prelude::*;
-
+use pyo3::types::{PyList, PyTuple};
 #[pyclass]
 #[derive(Clone, Default)]
 pub struct Mesh {
@@ -13,8 +13,29 @@ pub struct Mesh {
     #[pyo3(get, set)] pub material_names: Vec<String>,
     #[pyo3(get, set)] pub uv_layers: Vec<UvLayer>,
     #[pyo3(get, set)] pub colours: Vec<ColourLayer>
-
 }
+#[pymethods]
+impl Mesh {
+
+    #[getter]
+    fn position_tuples(&self, py: Python) -> PyObject {
+        let position_iter = self.vertices.iter()
+            .map(|i| -> Py<PyTuple> { i.co.into_py(py)});
+        let position_list = PyList::new(py, position_iter);
+        position_list.into()
+    }
+
+    /// Get a list of triangles, in the form of tuples of vertex indices.
+    #[getter]
+    fn triangle_vertices(&self, py: Python) -> PyObject {
+        let vert_iter = self.faces.iter()
+            .map(|f| f.loops.iter().map(|lp| self.loops[*lp].vertex))
+            .map(|vi| PyTuple::new(py, vi));
+        let tv_list = PyList::new(py, vert_iter);
+        tv_list.into()
+    }
+}
+
 #[pyclass]
 #[derive(Clone)]
 pub struct Vertex {

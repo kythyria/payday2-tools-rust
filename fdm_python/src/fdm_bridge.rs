@@ -1,7 +1,6 @@
 use std::convert::TryInto;
 
 type Vec3f = vek::Vec3<f32>;
-use pyo3::number::index;
 
 use pd2tools_rust::formats::fdm;
 use crate::meshoid;
