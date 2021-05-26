@@ -380,6 +380,8 @@ dependencies = [
 name = "pd2tools-fdm-python"
 version = "0.1.0"
 dependencies = [
+ "nom",
+ "pd2tools-macros",
  "pd2tools-rust",
  "pyo3",
  "vek",

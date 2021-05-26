@@ -10,7 +10,7 @@ use nom::{IResult, sequence::Tuple};
 use nom::bytes::complete::{is_not, tag, take_until};
 use nom::combinator::{map, map_res};
 use nom::multi::{fill, length_data, length_count};
-use nom::number::complete::{le_u8, le_u16, le_u32, le_u64, le_f32, le_f64};
+use nom::number::complete::{le_u8, le_u16, le_u32, le_u64, le_i8, le_i16, le_i32, le_i64, le_f32, le_f64};
 use nom::sequence::{tuple, terminated};
 use pd2tools_macros::gen_tuple_parsers;
 
@@ -42,6 +42,10 @@ simple_parse!(u8, le_u8);
 simple_parse!(u16, le_u16);
 simple_parse!(u32, le_u32);
 simple_parse!(u64, le_u64);
+simple_parse!(i8, le_i8);
+simple_parse!(i16, le_i16);
+simple_parse!(i32, le_i32);
+simple_parse!(i64, le_i64);
 simple_parse!(f32, le_f32);
 simple_parse!(f64, le_f64);
 
@@ -149,7 +153,7 @@ impl<T: Parse> WireFormat<T> for T {
     }
 
     fn serialize_from<O: Write>(data: &T, output: &mut O) -> IoResult<()> {
-        todo!()
+        <T as Parse>::serialize(data, output)
     }
 }
 

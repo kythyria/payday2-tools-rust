@@ -369,7 +369,7 @@ impl<T: Parse> WireFormat<Vec<(T, T, T)>> for VecOf3Tuple<T> {
 /// It's what the previous incarnations of the model tool do.
 ///
 /// The vertex attributes are almost in an order in the models in PD2 release. There's insufficient data to determine
-/// exactly what it is and in any case there's two. I'm using the more common one, which is position, uv, 
+/// exactly what it is and in any case there's two. I'm using the more common one. 
 #[derive(Default, Debug)]
 pub struct GeometrySection {
     pub name: Idstring,
