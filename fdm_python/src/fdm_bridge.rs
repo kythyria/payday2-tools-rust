@@ -89,9 +89,9 @@ pub fn meshoid_from_geometry(geo: &fdm::GeometrySection, topo: &fdm::TopologySec
             }
 
             for (src, ref mut dest) in uvs.iter_mut() {
-                dest.data.push(src[v0_i].into_tuple());
-                dest.data.push(src[v1_i].into_tuple());
-                dest.data.push(src[v2_i].into_tuple());
+                dest.data.push(flip_uv(src[v0_i]));
+                dest.data.push(flip_uv(src[v1_i]));
+                dest.data.push(flip_uv(src[v2_i]));
             }
 
             faces.push(meshoid::Face {
@@ -111,6 +111,10 @@ pub fn meshoid_from_geometry(geo: &fdm::GeometrySection, topo: &fdm::TopologySec
         colours: colors.into_iter().map(|i| i.1).collect(),
         uv_layers: uvs.into_iter().map(|i| i.1).collect(),
     }
+}
+
+fn flip_uv(uv: Vec2f) -> (f32, f32) {
+    (uv.x, uv.y * -1.0)
 }
 
 struct VertexCache {
