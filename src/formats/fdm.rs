@@ -605,3 +605,16 @@ impl Default for BlendComponentCount {
         BlendComponentCount::Two
     }
 } 
+
+#[derive(Debug, Parse)]
+pub struct MaterialGroup {
+    material_ids: Vec<u32>
+}
+
+#[derive(Debug, Parse)]
+pub struct Material {
+    name: u64,
+
+    #[skip_before(48)]
+    items: Vec<(u32, u32)>
+}

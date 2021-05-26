@@ -1,6 +1,6 @@
 use proc_macro2::{Ident, Span, TokenStream};
 use quote::{quote, quote_spanned};
-use syn::{Attribute, Data, DataEnum, DataStruct, DeriveInput, Fields, Path, parse_macro_input, Type};
+use syn::{Attribute, Data, DataEnum, DataStruct, DeriveInput, Fields, LitInt, Type, parse_macro_input};
 use syn::spanned::Spanned;
 
 #[proc_macro_derive(EnumTryFrom)]
@@ -63,7 +63,7 @@ pub fn derive_enum_tryfrom(item: proc_macro::TokenStream) -> proc_macro::TokenSt
 ///
 /// The `parse_as` attribute takes the identifier of a wrapper type, which can be
 /// `Into` the field's type and vice versa, and invokes *that* as the parser instead.
-#[proc_macro_derive(Parse, attributes(parse_as))]
+#[proc_macro_derive(Parse, attributes(parse_as, skip_before))]
 pub fn derive_parse(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let item = parse_macro_input!(item as DeriveInput);
 
@@ -96,6 +96,21 @@ fn struct_parser(item: &DeriveInput, r#struct: &DataStruct) -> TokenStream {
                     Some(s) => s,
                     None => decl.ty.clone()
                 };
+
+                let skip = match get_skipbefore(&decl.attrs) {
+                    Ok(s) => s,
+                    Err(_) => return quote_spanned! { decl.span()=> compile_error!("Malformed skip_before attribute") }
+                };
+
+                if skip.is_some() {
+                    parse_lines.push(quote! {
+                        let (input, _) = ::nom::bytes::complete::take(#skip as usize)(input)?
+                    });
+
+                    ser_lines.push(quote! {
+                        output.write_all(&[0; #skip])?
+                    });
+                }
                 
                 parse_lines.push(quote_spanned! { field_type.span()=>
                     let (input, #readvar) = <#wire_type as parse_helpers::WireFormat<#field_type>>::parse_into(input)?
@@ -202,6 +217,15 @@ fn get_attribute<'a>(attrs: &'a Vec<Attribute>, name: &str) -> Option<&'a Attrib
 fn get_parseas<'a>(attrs: &'a Vec<Attribute>) -> syn::Result<Option<Type>> {
     if let Some(attr) = get_attribute(attrs, "parse_as") {
         attr.parse_args::<Type>().map(Some)
+    }
+    else {
+        Ok(None)
+    }
+}
+
+fn get_skipbefore<'a>(attrs: &'a Vec<Attribute>) -> syn::Result<Option<LitInt>> {
+    if let Some(attr) = get_attribute(attrs, "skip_before") {
+        attr.parse_args::<LitInt>().map(Some)
     }
     else {
         Ok(None)

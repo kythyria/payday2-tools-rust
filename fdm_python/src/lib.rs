@@ -1,5 +1,5 @@
 mod meshoid;
-mod fdm_bridge;
+mod fdm_to_meshoid;
 
 use pyo3::prelude::*;
 
@@ -52,7 +52,7 @@ fn pd2tools_fdm(_py: Python, m: &PyModule) -> PyResult<()> {
                 _ => return PyResult::Err(pyo3::exceptions::PyException::new_err("GP doesn't point at Topology"))
             };
 
-            let r = fdm_bridge::meshoid_from_geometry(geo, topo, &md.render_atoms);
+            let r = fdm_to_meshoid::meshoid_from_geometry(geo, topo, &md.render_atoms);
             result.push(r);
         }
         Ok(result)

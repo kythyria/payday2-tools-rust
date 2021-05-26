@@ -19,3 +19,4 @@ pd2tools-rust = { path = ".." }
 pd2tools-macros = { path = "../macros" }
 vek = "0.15.1"
 nom = "6.1.2"
+thiserror = "1.0.25"

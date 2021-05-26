@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::convert::TryInto;
 
+use pyo3::PyResult;
+use pyo3::exceptions::PyException;
 type Vec2f = vek::Vec2<f32>;
 type Rgba = vek::Rgba<f32>;
 
@@ -172,4 +174,22 @@ fn merge_vertices(geo: &fdm::GeometrySection) -> VertexCache {
     VertexCache {
         vertices, index_map
     }
+}
+
+macro_rules! py_fail {
+    ($($n:tt)*) => {
+        PyResult::Err(
+            PyException::new_err(
+                format!( $($n)* )
+            )
+        )
+    }
+}
+
+pub fn meshoid_from_mesh(doc: &HashMap<u32, fdm::Section>, mesh: &fdm::MeshModel) -> PyResult<meshoid::Mesh> {
+    let gp = match &doc[&mesh.geometry_provider] {
+        fdm::Section::PassthroughGP(pgp) => pgp,
+        _ => return py_fail!("Mesh points at {} which isn't a GP", mesh.geometry_provider)
+    };
+    py_fail!("Nope")
 }
