@@ -89,7 +89,7 @@ macro_rules! make_document {
     };
 
     ($( ($tag:literal, $variantname:ident, $typename:ident) )+) => {
-        #[derive(Copy, Clone, Eq, PartialEq, EnumTryFrom, Parse)]
+        #[derive(Copy, Clone, Eq, PartialEq, EnumTryFrom, Parse, Debug)]
         pub enum SectionType {
             $(
                 $variantname = $tag,
@@ -128,8 +128,8 @@ make_document! {
     (0x072b4d37, SimpleTexture,                  Unknown             )
     (0x2c5d6201, CubicTexture,                   Unknown             )
     (0x1d0b1808, VolumetricTexture,              Unknown             )
-    (0x3c54609c, Material,                       Unknown             )
-    (0x29276b1d, MaterialGroup,                  Unknown             )
+    (0x3c54609c, Material,                       MaterialSection     )
+    (0x29276b1d, MaterialGroup,                  MaterialGroupSection)
     (0x2c1f096f, NormalManagingGP,               Unknown             )
     (0x5ed2532f, TextureSpaceGP,                 Unknown             )
     (0xe3a3b1ca, PassthroughGP,                  PassthroughGPSection)
@@ -607,14 +607,14 @@ impl Default for BlendComponentCount {
 } 
 
 #[derive(Debug, Parse)]
-pub struct MaterialGroup {
-    material_ids: Vec<u32>
+pub struct MaterialGroupSection {
+    pub material_ids: Vec<u32>
 }
 
 #[derive(Debug, Parse)]
-pub struct Material {
-    name: u64,
+pub struct MaterialSection {
+    pub name: u64,
 
     #[skip_before(48)]
-    items: Vec<(u32, u32)>
+    pub items: Vec<(u32, u32)>
 }

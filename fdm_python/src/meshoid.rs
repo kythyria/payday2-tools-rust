@@ -14,7 +14,7 @@ pub struct Mesh {
     #[pyo3(get, set)] pub loops: Vec<Loop>,
     #[pyo3(get, set)] pub faces: Vec<Face>,
 
-    #[pyo3(get, set)] pub material_names: Vec<Option<String>>,
+    #[pyo3(get, set)] pub material_names: Vec<String>,
     #[pyo3(get, set)] pub uv_layers: Vec<UvLayer>,
     #[pyo3(get, set)] pub colours: Vec<ColourLayer>,
 

@@ -39,21 +39,15 @@ fn pd2tools_fdm(_py: Python, m: &PyModule) -> PyResult<()> {
                 _ => continue
             };
 
-            let gp = match &sections[&md.geometry_provider] {
-                fdm::Section::PassthroughGP(pgp) => pgp,
-                _ => return PyResult::Err(pyo3::exceptions::PyException::new_err("Mesh doesn't point at GP"))
+            let r = fdm_to_meshoid::meshoid_from_mesh(&sections, &md);
+            match r {
+                Ok(mo) => result.push(mo),
+                Err(e) => {
+                    let mut es = String::new();
+                    pd2tools_rust::util::write_error_chain(&mut es, e).unwrap();
+                    return PyResult::Err(pyo3::exceptions::PyException::new_err(es));
+                }
             };
-            let geo = match &sections[&gp.geometry] {
-                fdm::Section::Geometry(pgp) => pgp,
-                _ => return PyResult::Err(pyo3::exceptions::PyException::new_err("GP doesn't point at Geometry"))
-            };
-            let topo = match &sections[&gp.topology] {
-                fdm::Section::Topology(pgp) => pgp,
-                _ => return PyResult::Err(pyo3::exceptions::PyException::new_err("GP doesn't point at Topology"))
-            };
-
-            let r = fdm_to_meshoid::meshoid_from_geometry(geo, topo, &md.render_atoms);
-            result.push(r);
         }
         Ok(result)
     }

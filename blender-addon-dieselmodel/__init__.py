@@ -43,6 +43,10 @@ def import_meshoids_from_file(path):
     ts_conv = datetime.now()
     for meshoid in meshoids:
         me = bpy.data.meshes.new("mesh")
+        
+        for mn in meshoid.material_names:
+            mat = bpy.data.materials.new(mn)
+            me.materials.append(mat)
 
         positions = meshoid.position_tuples()
         tri_verts = meshoid.triangle_vertices()

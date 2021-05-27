@@ -78,3 +78,14 @@ impl<'a> std::fmt::Display for AsHex<'a> {
         Ok(())
     }
 }
+
+pub fn write_error_chain<O, E>(output: &mut O, e: E) -> std::fmt::Result
+where O: std::fmt::Write, E: std::error::Error
+{
+    writeln!(output, "{}", e)?;
+    if let Some(inner) = e.source() {
+        write!(output, "because ")?;
+        write_error_chain(output, inner)?;
+    }
+    Ok(())
+}

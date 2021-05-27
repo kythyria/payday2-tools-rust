@@ -3,11 +3,18 @@ use std::convert::TryInto;
 
 use pyo3::PyResult;
 use pyo3::exceptions::PyException;
+use thiserror::Error;
 type Vec2f = vek::Vec2<f32>;
 type Rgba = vek::Rgba<f32>;
 
 use pd2tools_rust::formats::fdm;
 use crate::meshoid;
+
+#[derive(Debug, Error)]
+pub enum ConversionError {
+    #[error("{0} points at {2} which isn't a {1:?}")]
+    BadSectionType(&'static str, fdm::SectionType, u32)
+}
 
 /// Convert geometry to a meshoid somewhat more intelligently.
 ///
@@ -20,7 +27,7 @@ pub fn meshoid_from_geometry(geo: &fdm::GeometrySection, topo: &fdm::TopologySec
     let mut colors = Vec::<(&Vec<Rgba>, meshoid::ColourLayer)>::new();
     let mut loops = Vec::<meshoid::Loop>::new();
     let mut faces = Vec::<meshoid::Face>::new();
-    let mut material_names = Vec::<Option<String>>::new();
+    let mut material_names = Vec::<String>::new();
 
     let has_normals = geo.normal.len() > 0;
 
@@ -54,8 +61,6 @@ pub fn meshoid_from_geometry(geo: &fdm::GeometrySection, topo: &fdm::TopologySec
     };
 
     for ra in atoms {
-        material_names.push(Some(format!("mat_{}", ra.material)));
-
         for i in (ra.base_index)..(ra.base_index + ra.triangle_count) {
             let v0_ri = topo.faces[i as usize].0 as usize;
             let v1_ri = topo.faces[i as usize].1 as usize;
@@ -176,20 +181,30 @@ fn merge_vertices(geo: &fdm::GeometrySection) -> VertexCache {
     }
 }
 
-macro_rules! py_fail {
-    ($($n:tt)*) => {
-        PyResult::Err(
-            PyException::new_err(
-                format!( $($n)* )
-            )
-        )
+macro_rules! expect_section {
+    ($doc:expr, $target:expr, $want:ident) => {
+        match &$doc[&$target] {
+            fdm::Section::$want(s) => Ok(s),
+            _ => Err(ConversionError::BadSectionType(stringify!($target),fdm::SectionType::$want, $target))
+        }
     }
 }
 
-pub fn meshoid_from_mesh(doc: &HashMap<u32, fdm::Section>, mesh: &fdm::MeshModel) -> PyResult<meshoid::Mesh> {
-    let gp = match &doc[&mesh.geometry_provider] {
-        fdm::Section::PassthroughGP(pgp) => pgp,
-        _ => return py_fail!("Mesh points at {} which isn't a GP", mesh.geometry_provider)
-    };
-    py_fail!("Nope")
+pub fn meshoid_from_mesh(doc: &HashMap<u32, fdm::Section>, mesh: &fdm::MeshModel) -> Result<meshoid::Mesh, ConversionError> {
+    let gp = expect_section!(doc, mesh.geometry_provider, PassthroughGP)?;
+    let geo = expect_section!(doc, gp.geometry, Geometry)?;
+    let topo = expect_section!(doc, gp.topology, Topology)?;
+
+    let materials = expect_section!(doc, mesh.material_group, MaterialGroup)?;
+    let mut mat_names = Vec::<String>::new();
+    for material_id in materials.material_ids.iter() {
+        let material = expect_section!(doc, *material_id, Material)?;
+        mat_names.push(format!("hn_{}", material.name));
+    }
+
+    let mut meshoid = meshoid_from_geometry(geo, topo, &mesh.render_atoms);
+    meshoid.material_names = mat_names;
+
+    Ok(meshoid)
 }
+
