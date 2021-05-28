@@ -1,5 +1,6 @@
 mod meshoid;
 mod fdm_to_meshoid;
+mod py_ir;
 
 use pyo3::prelude::*;
 
