@@ -1,17 +1,22 @@
 use std::convert::TryInto;
 
+use pd2tools_macros::Parse;
 use crate::util::read_helpers::*;
+use crate::util::parse_helpers;
+use crate::util::parse_helpers::Parse;
 
+#[derive(Parse)]
 pub struct LanguageEntry {
     pub hash: u64,
     pub id: u32
 }
 
+#[derive(Parse)]
 pub struct FileEntry {
-    pub path: u64,
     pub extension: u64,
-    pub file_id: u32,
+    pub path: u64,
     pub lang_id: u32,
+    #[skip_before(4)] pub file_id: u32,
 }
 
 pub struct BundleDbFile {
@@ -93,34 +98,20 @@ pub fn read_bundle_db(blb: &[u8]) -> BundleDbFile {
             file_entries_offset = read_u64_le(blb, 72);
         }
     }
-    read_bdb_languages(blb, lang_offset, lang_count.into(), &mut res.languages);
-    read_bdb_files(blb, file_entries_offset, file_entries_count.into(), &mut res.files);
+
+    res.languages = parse_array_strided_unwrap(&blb[(lang_offset as usize)..], lang_count as usize, 16);
+    res.files = parse_array_strided_unwrap(&blb[(file_entries_offset as usize)..], file_entries_count as usize, 32);
 
     return res;
 }
 
-fn read_bdb_languages(blb: &[u8], offset: u64, count: u64, dest: &mut Vec<LanguageEntry>) {
-    dest.reserve(count.try_into().unwrap());
+fn parse_array_strided_unwrap<T: Parse>(data: &[u8], count: usize, stride: usize) -> Vec<T> {
+    let mut dest = Vec::<T>::with_capacity(count);
     for i in 0..count {
-        let entry_offset : usize = (offset + i*16).try_into().unwrap();
-        let le = LanguageEntry {
-            hash: read_u64_le(blb, entry_offset+0),
-            id: read_u32_le(blb, entry_offset+8)
-        };
-        dest.push(le);
+        let offset = i*stride;
+        let slice = &data[offset..(offset+stride)];
+        let (_, entry) = <T as Parse>::parse(slice).unwrap();
+        dest.push(entry);
     }
-}
-
-fn read_bdb_files(blb: &[u8], offset: u64, count: u64, dest: &mut Vec<FileEntry>) {
-    dest.reserve(count.try_into().unwrap());
-    for i in 0..count {
-        let entry_offset : usize = (offset + i*32).try_into().unwrap();
-        let fe = FileEntry {
-            extension: read_u64_le(blb, entry_offset+0),
-            path: read_u64_le(blb, entry_offset+8),
-            lang_id: read_u32_le(blb, entry_offset+16),
-            file_id: read_u32_le(blb, entry_offset+24)
-        };
-        dest.push(fe);
-    }
+    return dest;
 }

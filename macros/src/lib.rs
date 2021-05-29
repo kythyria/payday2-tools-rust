@@ -133,7 +133,7 @@ fn struct_parser(item: &DeriveInput, r#struct: &DataStruct) -> TokenStream {
 
     return quote! {
         impl parse_helpers::Parse for #struct_name {
-            fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], Self> {
+            fn parse<'a>(input: &'a [u8]) -> nom::IResult<&'a [u8], Self> {
                 #(#parse_lines);*;
                 Ok((input, #struct_name {
                     #(#parse_construction),*
@@ -157,7 +157,7 @@ fn enum_parser(item: &DeriveInput, r#_enum: &DataEnum) -> TokenStream {
 
     quote! {
         impl parse_helpers::Parse for #item_name {
-            fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], Self> {
+            fn parse<'a>(input: &'a [u8]) -> nom::IResult<&'a [u8], Self> {
                 ::nom::combinator::map_res(
                     <#repr_type as parse_helpers::Parse>::parse,
                     <Self as ::std::convert::TryFrom<#repr_type>>::try_from
@@ -194,7 +194,7 @@ pub fn gen_tuple_parsers(item: proc_macro::TokenStream) -> proc_macro::TokenStre
         }
         let q = quote! {
             impl<#(#params: Parse),*> Parse for (#(#params,)*) {
-                fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], Self> {
+                fn parse<'a>(input: &'a [u8]) -> nom::IResult<&'a [u8], Self> {
                     tuple(( #(<#params as Parse>::parse, )* ))(input)
                 }
                 fn serialize<O: std::io::Write>(&self, output: &mut O) -> std::io::Result<()> {
