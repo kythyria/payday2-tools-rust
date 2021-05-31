@@ -299,13 +299,13 @@ pub struct MeshModel {
 /// If you get this wrong Diesel doesn't usually crash but will display nonsense.
 #[derive(Debug, Parse)]
 pub struct RenderAtom {
-    /// Starting position in the Geometry (vertex buffer)
+    /// Starting position in the Geometry (vertex buffer). AFAICT this merely defines a slice, it doesn't get added to the indices.
     pub base_vertex: u32,
 
     /// Number of triangles to draw
     pub triangle_count: u32,
 
-    /// Starting position in the Topology (index buffer)
+    /// Starting position in the Topology (index buffer), in indices, not triangles.
     pub base_index: u32,
 
     /// Number of vertices in this RenderAtom

@@ -200,14 +200,13 @@ impl<'s, 'hi, 'py> IrReader<'s, 'hi, 'py> {
         }
 
         for ra in &src.render_atoms {
-            for i in (ra.base_index)..(ra.base_index + ra.triangle_count) {
-                let v0_ri = topo.faces[i as usize].0 as usize;
-                let v1_ri = topo.faces[i as usize].1 as usize;
-                let v2_ri = topo.faces[i as usize].2 as usize;
-    
-                let v0_i = v0_ri + ra.base_vertex as usize;
-                let v1_i = v1_ri + ra.base_vertex as usize;
-                let v2_i = v2_ri + ra.base_vertex as usize;
+            let base_face = ra.base_index / 3;
+            assert_eq!(base_face * 3, ra.base_index);
+
+            for i in (base_face)..(base_face + ra.triangle_count) {
+                let v0_i = topo.faces[i as usize].0 as usize;
+                let v1_i = topo.faces[i as usize].1 as usize;
+                let v2_i = topo.faces[i as usize].2 as usize;
                 
                 let m_v0 = vertex_map[v0_i];
                 let m_v1 = vertex_map[v1_i];
