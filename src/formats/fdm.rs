@@ -434,11 +434,11 @@ impl parse_helpers::Parse for GeometrySection {
             }
 
             let (idxparse, weightparse): (fn(&'a [u8])->IResult<&'a [u8], Vec4::<u8>>, fn(&'a [u8])->IResult<&'a [u8], Vec4::<f32>>) = match desc.attribute_format {
-                //2 => ( parse_2to4::<u8>, parse_2to4::<f32> ),
                 2 => ( parse_expand::<u8, Vec2<u8>>, parse_expand::<f32, Vec2<f32>> ),
                 3 => ( parse_expand::<u8, Vec3<u8>>, parse_expand::<f32, Vec3<f32>> ),
                 4 => ( parse_expand::<u8, Vec4<u8>>, parse_expand::<f32, Vec4<f32>> ),
-                _ => unimplemented!("Unimplemented error handler")
+                // Really this should be an error but we need a default for the non-weight-related ones anyway.
+                _ => ( parse_expand::<u8, Vec4<u8>>, parse_expand::<f32, Vec4<f32>> )
             };
 
             match_attribute_parsers!{

@@ -106,9 +106,7 @@ def import_ir_from_file(hlp, path):
             bpy.context.view_layer.update()
         
         loc, rot, sca = Matrix(obj.transform).decompose()
-        print(loc, rot, sca)
-        print(b_objects[obj].location, type(b_objects[obj].location))
-        b_objects[obj].location = loc.x, loc.y, loc.z
+        b_objects[obj].location = (loc.x, loc.y, loc.z)
         b_objects[obj].rotation_quaternion = rot
         b_objects[obj].scale = sca
 

@@ -107,8 +107,10 @@ impl<T: Parse + Default> Parse for vek::Mat4<T> {
 impl Parse for String {
     fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], Self> {
         let ts = terminated(take_until("\0"), tag(b"\0"));
-        let tstr = map_res(ts, std::str::from_utf8);
-        map(tstr, String::from)(input)
+        let mut tstr = map(ts, |v| {
+            String::from_utf8_lossy(v).into_owned()
+        });
+        tstr(input)
     }
     fn serialize<O: Write>(&self, output: &mut O) -> IoResult<()> {
         output.write_all(self.as_bytes())?;
