@@ -151,7 +151,8 @@ impl<'s, 'hi, 'py> IrReader<'s, 'hi, 'py> {
         let mut material_names = Vec::<String>::new();
         for material_id in materials.material_ids.iter() {
             let material = expect_section!(self.sections, *material_id, Material)?;
-            material_names.push(format!("hn_{}", material.name));
+            let hs = self.hashlist.get_hash(material.name);
+            material_names.push(hs.to_string());
         }
 
         let vcache = merge_vertices(geo);
