@@ -5,7 +5,7 @@ use pyo3::PyResult;
 use pyo3::exceptions::PyException;
 use thiserror::Error;
 type Vec2f = vek::Vec2<f32>;
-type Rgba = vek::Rgba<f32>;
+type Rgba = vek::Rgba<u8>;
 
 use pd2tools_rust::formats::fdm;
 use crate::meshoid;
@@ -89,10 +89,19 @@ pub fn meshoid_from_geometry(geo: &fdm::GeometrySection, topo: &fdm::TopologySec
                 normal: if has_normals { geo.normal[v2_i].into_tuple() } else { (0.0, 0.0, 0.0) }
             });
 
+            fn rgba_bytes_to_float(c: Rgba) -> (f32, f32, f32, f32) {
+                (
+                    (c.r as f32)/255.0,
+                    (c.g as f32)/255.0,
+                    (c.b as f32)/255.0,
+                    (c.a as f32)/255.0
+                )
+            }
+
             for (src, ref mut dest) in colors.iter_mut() {
-                dest.data.push(src[v0_i].into_tuple());
-                dest.data.push(src[v1_i].into_tuple());
-                dest.data.push(src[v2_i].into_tuple());
+                dest.data.push(rgba_bytes_to_float(src[v0_i]));
+                dest.data.push(rgba_bytes_to_float(src[v1_i]));
+                dest.data.push(rgba_bytes_to_float(src[v2_i]));
             }
 
             for (src, ref mut dest) in uvs.iter_mut() {

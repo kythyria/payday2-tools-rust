@@ -20,7 +20,7 @@ type Vec2f = vek::Vec2<f32>;
 type Vec3f = vek::Vec3<f32>;
 type Vec4f = vek::Vec4<f32>;
 type Mat4f = vek::Mat4<f32>;
-type Rgba = vek::Rgba<f32>;
+type Rgba = vek::Rgba<u8>;
 
 pub struct UnparsedSection<'a> {
     pub r#type: u32,
@@ -170,7 +170,6 @@ pub fn parse_file<'a>(bytes: &'a [u8]) -> IResult<&'a [u8], HashMap<u32, Section
     let (_, sections) = split_to_sections(bytes)?;
     let mut result = HashMap::<u32, Section>::new();
     for ups in sections {
-        eprintln!("Section {}", ups.id);
         let (_, parsed) = parse_section(&ups)?;
         result.insert(ups.id, parsed);
     }

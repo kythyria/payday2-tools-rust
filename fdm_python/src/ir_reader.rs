@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use pyo3::{IntoPy, Python, Py, PyErr, PyObject};
 use thiserror::Error;
 type Vec2f = vek::Vec2<f32>;
-type Rgba = vek::Rgba<f32>;
+type Rgba = vek::Rgba<u8>;
 
 use pd2tools_macros::Parse;
 use pd2tools_rust::hashindex::HashIndex;
@@ -227,9 +227,9 @@ impl<'s, 'hi, 'py> IrReader<'s, 'hi, 'py> {
                 }
 
                 for i in 0..color_sources.len() {
-                    mesh.loop_colour_layers[i].1.push(color_sources[i][v0_i].into_tuple());
-                    mesh.loop_colour_layers[i].1.push(color_sources[i][v1_i].into_tuple());
-                    mesh.loop_colour_layers[i].1.push(color_sources[i][v2_i].into_tuple());
+                    mesh.loop_colour_layers[i].1.push(rgba_bytes_to_float(color_sources[i][v0_i]));
+                    mesh.loop_colour_layers[i].1.push(rgba_bytes_to_float(color_sources[i][v1_i]));
+                    mesh.loop_colour_layers[i].1.push(rgba_bytes_to_float(color_sources[i][v2_i]));
                 }
                 
                 for i in 0..uv_sources.len() {
@@ -333,5 +333,14 @@ fn mat_to_row_tuples(src: vek::Mat4<f32>) ->(
         (rows[1][0], rows[1][1],rows[1][2],rows[1][3]),
         (rows[2][0], rows[2][1],rows[2][2],rows[2][3]),
         (rows[3][0], rows[3][1],rows[3][2],rows[3][3])
+    )
+}
+
+fn rgba_bytes_to_float(c: Rgba) -> (f32, f32, f32, f32) {
+    (
+        (c.r as f32)/255.0,
+        (c.g as f32)/255.0,
+        (c.b as f32)/255.0,
+        (c.a as f32)/255.0
     )
 }
