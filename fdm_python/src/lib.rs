@@ -1,6 +1,7 @@
 mod meshoid;
 mod fdm_to_meshoid;
 mod py_ir;
+mod ir_reader;
 
 use pyo3::prelude::*;
 
@@ -51,6 +52,35 @@ fn pd2tools_fdm(_py: Python, m: &PyModule) -> PyResult<()> {
             };
         }
         Ok(result)
+    }
+
+    #[pyfn(m, "import_ir_from_file")]
+    fn import_ir_from_file(py: Python, hashlist_path: &str, model_path: &str) -> PyResult<Vec<Py<py_ir::Object>>> {
+        let hlp = Some(String::from(hashlist_path));
+        let hashlist = pd2tools_rust::get_hashlist(&hlp);
+        let hashlist = match hashlist {
+            Some(h) => h,
+            None => return PyResult::Err(pyo3::exceptions::PyException::new_err("Failed to load hashlist"))
+        };
+
+        let bytes = match std::fs::read(model_path) {
+            Err(e) => {
+                return PyResult::Err(PyErr::from(e))
+            },
+            Ok(b) => b
+        };
+
+        let sections = match fdm::parse_file(&bytes) {
+            Err(_) => return PyResult::Err(pyo3::exceptions::PyException::new_err("Failed parsing FDM container")),
+            Ok((_, s)) => s
+        };
+
+        let r = ir_reader::sections_to_ir(py, &sections, &hashlist);
+        r.map_err(|e| {
+            let mut es = String::new();
+            pd2tools_rust::util::write_error_chain(&mut es, e).unwrap();
+            pyo3::exceptions::PyException::new_err(es)
+        })
     }
 
     Ok(())

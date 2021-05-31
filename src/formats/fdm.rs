@@ -197,13 +197,13 @@ pub struct AuthorSection {
 /// space, a joint, or suchlike. It may also occur as the start of a lamp, bounds, model, or camera
 #[derive(Debug, Parse)]
 pub struct Object3dSection {
-    name: Idstring,
-    animation_controllers: Vec<u32>,
+    pub name: Idstring,
+    pub animation_controllers: Vec<u32>,
     
     #[parse_as(Mat4WithPos<f32>)]
-    transform: Mat4f,
+    pub transform: Mat4f,
 
-    parent: u32
+    pub parent: u32
 }
 
 struct Mat4WithPos<T>{ _d: PhantomData<T> }

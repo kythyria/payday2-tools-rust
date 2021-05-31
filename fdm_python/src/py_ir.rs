@@ -11,23 +11,52 @@
 //! rather substantial performance issue for meshes.
 
 use pyo3::prelude::*;
+use pyo3::{PyGCProtocol, PyTraverseError, PyVisit};
 
 #[pyclass]
 pub struct Armature { }
 #[pyclass]
 pub struct Animation { }
 
-#[pyclass]
+#[pyclass(gc)]
 pub struct Object {
     #[pyo3(get, set)] pub name: String,
     #[pyo3(get, set)] pub parent: Option<Py<Object>>,
 
-    #[pyo3(get, set)] pub location: (f32, f32, f32),
-    #[pyo3(get, set)] pub rotation: (f32, f32, f32, f32),
-    #[pyo3(get, set)] pub scale: (f32, f32, f32),
+    #[pyo3(get, set)] pub transform: (
+        (f32, f32, f32, f32),
+        (f32, f32, f32, f32),
+        (f32, f32, f32, f32),
+        (f32, f32, f32, f32)
+    ),
 
     #[pyo3(get, set)] pub animations: Option<Py<Animation>>,
-    #[pyo3(get, set)] pub data: Option<PyObject>
+    #[pyo3(get, set)] pub data: Option<PyObject>,
+
+    // It makes 0 sense for this to be *here* but this is what blender does.
+    #[pyo3(get, set)] pub weight_names: Vec<String>
+}
+#[pyproto]
+impl PyGCProtocol for Object {
+    fn __traverse__(&self, visit: PyVisit) -> Result<(), PyTraverseError> {
+        if let Some(parent) = &self.parent {
+            visit.call(parent)?;
+        }
+        if let Some(anim) = &self.animations {
+            visit.call(anim)?;
+        }
+        if let Some(data) = &self.data {
+            visit.call(data)?;
+        }
+        Ok(())
+    }
+
+    fn __clear__(&mut self) {
+        // Clear reference, this decrements ref counter.
+        self.animations = None;
+        self.data = None;
+        self.parent = None;
+    }
 }
 
 #[pyclass]
@@ -40,7 +69,6 @@ pub struct Camera { }
 #[derive(Default)]
 pub struct Mesh {
     #[pyo3(get, set)] pub material_names: Vec<String>,
-    #[pyo3(get, set)] pub weight_names: Vec<String>,
     #[pyo3(get, set)] pub has_normals: bool,
 
     #[pyo3(get, set)] pub vert_positions: Vec<(f32, f32, f32)>,
@@ -54,8 +82,8 @@ pub struct Mesh {
     #[pyo3(get, set)] pub face_materials: Vec<usize>,
 
     #[pyo3(get, set)] pub loop_normals: Vec<(f32, f32, f32)>,
-    #[pyo3(get, set)] pub loop_uv_layers: Vec<Vec<(f32, f32)>>,
-    #[pyo3(get, set)] pub loop_colour_layers: Vec<(f32, f32, f32, f32)>
+    #[pyo3(get, set)] pub loop_uv_layers: Vec<(String, Vec<(f32, f32)>)>,
+    #[pyo3(get, set)] pub loop_colour_layers: Vec<(String, Vec<(f32, f32, f32, f32)>)>
 }
 #[pymethods]
 impl Mesh {
