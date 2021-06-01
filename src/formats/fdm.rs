@@ -407,10 +407,10 @@ pub struct GeometrySection {
     pub tex_coord_6: Vec<Vec2f>,
     pub tex_coord_7: Vec<Vec2f>,
     pub weightcount_0: u32,
-    pub blend_indices_0: Vec<Vec4<u8>>,
+    pub blend_indices_0: Vec<Vec4<u16>>,
     pub blend_weight_0: Vec<Vec4f>,
     pub weightcount_1: u32,
-    pub blend_indices_1: Vec<Vec4<u8>>,
+    pub blend_indices_1: Vec<Vec4<u16>>,
     pub blend_weight_1: Vec<Vec4f>,
     pub normal: Vec<Vec3f>,
     pub binormal: Vec<Vec3f>,
@@ -423,6 +423,7 @@ impl parse_helpers::Parse for GeometrySection {
     fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], Self> {
         let (input, vertex_count) = u32::parse(input)?;
         let (input, descriptors) = Vec::<GeometryHeader>::parse(input)?;
+        println!("{} {} {}", input.len(), vertex_count, descriptors.len());
         
         let mut input = input;
         let mut result = GeometrySection::default();
@@ -439,25 +440,26 @@ impl parse_helpers::Parse for GeometrySection {
         }
 
         for desc in descriptors {
+            println!("{:?}", desc);
             use GeometryAttributeType::*;
             
-            fn parse_expand<'a, TItem, TAs>(input: &'a [u8]) -> IResult<&'a [u8], Vec4::<TItem>>
+            fn expand<'a, TItem, TAs>(input: &'a [u8]) -> IResult<&'a [u8], Vec4::<TItem>>
             where TAs: Parse, Vec4<TItem>: From<TAs> {
                 map(TAs::parse, Vec4::from)(input)
             }
 
             match desc.attribute_type {
-                BlendIndices0 | BlendWeight0 => { result.weightcount_0 = desc.attribute_format },
-                BlendIndices1 | BlendWeight1 => { result.weightcount_1 = desc.attribute_format },
+                BlendWeight0 => { result.weightcount_0 = desc.attribute_format },
+                BlendWeight1 => { result.weightcount_1 = desc.attribute_format },
                 _ => {}
             }
 
-            let (idxparse, weightparse): (fn(&'a [u8])->IResult<&'a [u8], Vec4::<u8>>, fn(&'a [u8])->IResult<&'a [u8], Vec4::<f32>>) = match desc.attribute_format {
-                2 => ( parse_expand::<u8, Vec2<u8>>, parse_expand::<f32, Vec2<f32>> ),
-                3 => ( parse_expand::<u8, Vec3<u8>>, parse_expand::<f32, Vec3<f32>> ),
-                4 => ( parse_expand::<u8, Vec4<u8>>, parse_expand::<f32, Vec4<f32>> ),
+            let (idxparse, weightparse): (fn(&'a [u8])->IResult<&'a [u8], Vec4::<u16>>, fn(&'a [u8])->IResult<&'a [u8], Vec4::<f32>>) = match desc.attribute_format {
+                2 =>( expand::<u16, Vec2<u16>>, expand::<f32, Vec2<f32>> ),
+                3 => ( expand::<u16, Vec3<u16>>, expand::<f32, Vec3<f32>> ),
+                4 => ( expand::<u16, Vec4<u16>>, expand::<f32, Vec4<f32>> ),
                 // Really this should be an error but we need a default for the non-weight-related ones anyway.
-                _ => ( parse_expand::<u8, Vec4<u8>>, parse_expand::<f32, Vec4<f32>> )
+                _ => ( expand::<u16, Vec4<u16>>, expand::<f32, Vec4<f32>> )
             };
 
             match_attribute_parsers!{
