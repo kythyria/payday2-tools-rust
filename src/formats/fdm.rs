@@ -120,50 +120,50 @@ macro_rules! make_document {
 }
 
 make_document! {
-    (0x0ffcd100, Object3D,                       Object3dSection     )
-    (0x33552583, LightSet,                       Unknown             )
-    (0x62212d88, Model,                          ModelSection        )
-    (0x7623c465, AuthorTag,                      AuthorSection       )
-    (0x7ab072d3, Geometry,                       GeometrySection     )
-    (0x072b4d37, SimpleTexture,                  Unknown             )
-    (0x2c5d6201, CubicTexture,                   Unknown             )
-    (0x1d0b1808, VolumetricTexture,              Unknown             )
-    (0x3c54609c, Material,                       MaterialSection     )
-    (0x29276b1d, MaterialGroup,                  MaterialGroupSection)
-    (0x2c1f096f, NormalManagingGP,               Unknown             )
-    (0x5ed2532f, TextureSpaceGP,                 Unknown             )
-    (0xe3a3b1ca, PassthroughGP,                  PassthroughGPSection)
-    (0x65cc1825, SkinBones,                      Unknown             )
-    (0x4c507a13, Topology,                       TopologySection     )
-    (0x03b634bd, TopologyIP,                     TopologyIPSection   )
-    (0x46bf31a7, Camera,                         Unknown             )
-    (0xffa13b80, Light,                          Unknown             )
-    (0x2060697e, ConstFloatController,           Unknown             )
-    (0x6da951b2, StepFloatController,            Unknown             )
-    (0x76bf5b66, LinearFloatController,          Unknown             )
-    (0x29743550, BezierFloatController,          Unknown             )
-    (0x5b0168d0, ConstVector3Controller,         Unknown             )
-    (0x544e238f, StepVector3Controller,          Unknown             )
-    (0x26a5128c, LinearVector3Controller,        Unknown             )
-    (0x28db639a, BezierVector3Controller,        Unknown             )
-    (0x33da0fc4, XYZVector3Controller,           Unknown             )
-    (0x2e540f3c, ConstRotationController,        Unknown             )
-    (0x033606e8, EulerRotationController,        Unknown             )
-    (0x007fb371, QuatStepRotationController,     Unknown             )
-    (0x648a206c, QuatLinearRotationController,   Unknown             )
-    (0x197345a5, QuatBezRotationController,      Unknown             )
-    (0x22126dc0, LookAtRotationController,       Unknown             )
-    (0x679d695b, LookAtConstrRotationController, Unknown             )
-    (0x3d756e0c, IKChainTarget,                  Unknown             )
-    (0xf6c1eef7, IKChainRotationController,      Unknown             )
-    (0xdd41d329, CompositeVector3Controller,     Unknown             )
-    (0x95bb08f7, CompositeRotationController,    Unknown             )
-    (0x5dc011b8, AnimationData,                  Unknown             )
-    (0x74f7363f, Animatable,                     Unknown             )
-    (0x186a8bbf, KeyEvents,                      Unknown             )
-    (0x7f3552d1, D3DShader,                      Unknown             )
-    (0x214b1aaf, D3DShaderPass,                  Unknown             )
-    (0x12812c1a, D3DShaderLibrary,               Unknown             )
+    (0x0ffcd100, Object3D,                       Object3dSection                      )
+    (0x33552583, LightSet,                       Unknown                              )
+    (0x62212d88, Model,                          ModelSection                         )
+    (0x7623c465, AuthorTag,                      AuthorSection                        )
+    (0x7ab072d3, Geometry,                       GeometrySection                      )
+    (0x072b4d37, SimpleTexture,                  Unknown                              )
+    (0x2c5d6201, CubicTexture,                   Unknown                              )
+    (0x1d0b1808, VolumetricTexture,              Unknown                              )
+    (0x3c54609c, Material,                       MaterialSection                      )
+    (0x29276b1d, MaterialGroup,                  MaterialGroupSection                 )
+    (0x2c1f096f, NormalManagingGP,               Unknown                              )
+    (0x5ed2532f, TextureSpaceGP,                 Unknown                              )
+    (0xe3a3b1ca, PassthroughGP,                  PassthroughGPSection                 )
+    (0x65cc1825, SkinBones,                      Unknown                              )
+    (0x4c507a13, Topology,                       TopologySection                      )
+    (0x03b634bd, TopologyIP,                     TopologyIPSection                    )
+    (0x46bf31a7, Camera,                         Unknown                              )
+    (0xffa13b80, Light,                          Unknown                              )
+    (0x2060697e, ConstFloatController,           Unknown                              )
+    (0x6da951b2, StepFloatController,            Unknown                              )
+    (0x76bf5b66, LinearFloatController,          LinearFloatControllerSection         )
+    (0x29743550, BezierFloatController,          Unknown                              )
+    (0x5b0168d0, ConstVector3Controller,         Unknown                              )
+    (0x544e238f, StepVector3Controller,          Unknown                              )
+    (0x26a5128c, LinearVector3Controller,        LinearVector3ControllerSection       )
+    (0x28db639a, BezierVector3Controller,        Unknown                              )
+    (0x33da0fc4, XYZVector3Controller,           Unknown                              )
+    (0x2e540f3c, ConstRotationController,        Unknown                              )
+    (0x033606e8, EulerRotationController,        Unknown                              )
+    (0x007fb371, QuatStepRotationController,     Unknown                              )
+    (0x648a206c, QuatLinearRotationController,   QuatLinearRotationControllerSection  )
+    (0x197345a5, QuatBezRotationController,      Unknown                              )
+    (0x22126dc0, LookAtRotationController,       Unknown                              )
+    (0x679d695b, LookAtConstrRotationController, LookAtConstrRotationControllerSection)
+    (0x3d756e0c, IKChainTarget,                  Unknown                              )
+    (0xf6c1eef7, IKChainRotationController,      Unknown                              )
+    (0xdd41d329, CompositeVector3Controller,     Unknown                              )
+    (0x95bb08f7, CompositeRotationController,    Unknown                              )
+    (0x5dc011b8, AnimationData,                  AnimationDataSection                 )
+    (0x74f7363f, Animatable,                     Unknown                              )
+    (0x186a8bbf, KeyEvents,                      Unknown                              )
+    (0x7f3552d1, D3DShader,                      Unknown                              )
+    (0x214b1aaf, D3DShaderPass,                  Unknown                              )
+    (0x12812c1a, D3DShaderLibrary,               Unknown                              )
 }
 
 pub fn parse_file<'a>(bytes: &'a [u8]) -> IResult<&'a [u8], HashMap<u32, Section>> {
@@ -636,4 +636,48 @@ pub struct MaterialSection {
 
     #[skip_before(48)]
     pub items: Vec<(u32, u32)>
+}
+
+#[derive(Debug, Parse)]
+pub struct AnimationDataSection {
+    pub name: Idstring,
+    pub unknown_2: u32,
+    pub duration: f32,
+    pub keyframes: Vec<f32>
+}
+
+#[derive(Debug, Parse)]
+pub struct LinearVector3ControllerSection {
+    pub name: Idstring,
+    pub flags: u32,
+    pub unknown_1: u32,
+    pub duration: f32,
+    pub keyframes: Vec<(f32, Vec3f)>
+}
+
+#[derive(Debug, Parse)]
+pub struct LinearFloatControllerSection {
+    pub name: Idstring,
+    pub flags: u32,
+    pub unknown_1: u32,
+    pub duration: f32,
+    pub keyframes: Vec<(f32, f32)>
+}
+
+#[derive(Debug, Parse)]
+pub struct QuatLinearRotationControllerSection {
+    pub name: Idstring,
+    pub flags: u32,
+    pub unknown_1: u32,
+    pub duration: f32,
+    pub keyframes: Vec<(f32, Vec4f)>
+}
+
+#[derive(Debug, Parse)]
+pub struct LookAtConstrRotationControllerSection {
+    pub name: Idstring,
+    pub unknown_1: u32,
+    pub section_1: u32,
+    pub section_2: u32,
+    pub section_3: u32
 }

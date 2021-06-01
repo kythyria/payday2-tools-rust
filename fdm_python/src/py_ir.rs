@@ -16,7 +16,11 @@ use pyo3::{PyGCProtocol, PyTraverseError, PyVisit};
 #[pyclass]
 pub struct Armature { }
 #[pyclass]
-pub struct Animation { }
+pub struct Animation {
+    #[pyo3(get, set)] pub target_path: String,
+    #[pyo3(get, set)] pub target_index: usize,
+    #[pyo3(get, set)] pub fcurve: Vec<(f32, f32)>
+}
 
 #[pyclass(gc)]
 pub struct Object {
@@ -30,7 +34,7 @@ pub struct Object {
         (f32, f32, f32, f32)
     ),
 
-    #[pyo3(get, set)] pub animations: Option<Py<Animation>>,
+    #[pyo3(get, set)] pub animations: Vec<Py<Animation>>,
     #[pyo3(get, set)] pub data: Option<PyObject>,
 
     // It makes 0 sense for this to be *here* but this is what blender does.
@@ -42,8 +46,8 @@ impl PyGCProtocol for Object {
         if let Some(parent) = &self.parent {
             visit.call(parent)?;
         }
-        if let Some(anim) = &self.animations {
-            visit.call(anim)?;
+        for a in &self.animations {
+            visit.call(a)?;
         }
         if let Some(data) = &self.data {
             visit.call(data)?;
@@ -53,14 +57,16 @@ impl PyGCProtocol for Object {
 
     fn __clear__(&mut self) {
         // Clear reference, this decrements ref counter.
-        self.animations = None;
+        self.animations = Vec::with_capacity(0);
         self.data = None;
         self.parent = None;
     }
 }
 
 #[pyclass]
-pub struct Light { }
+pub struct Light {
+    #[pyo3(get, set)] pub animations: Vec<Py<Animation>>,
+}
 
 #[pyclass]
 pub struct Camera { }
@@ -92,6 +98,9 @@ impl Mesh {
 
     #[getter]
     pub fn get_data_type(&self) -> &str { "MESH" }
+
+    #[getter]
+    pub fn get_animations(&self) -> Vec<Py<Animation>> { Vec::new() }
 }
 
 #[pyclass]

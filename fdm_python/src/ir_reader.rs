@@ -1,3 +1,10 @@
+//! Convert from FDM to py_ir.
+//!
+//! Currently recognised animations:
+//! * `[quaternion, 0, 0]`: rotation
+//! * `[vector3]`: position
+//! * `[quaternion, vector3]`: rotation position
+
 use std::collections::HashMap;
 use std::collections::HashSet;
 
@@ -17,6 +24,9 @@ pub enum ConversionError {
     #[error("Expected section {1} to be a {0:?}")]
     BadSectionType(fdm::SectionType, u32),
 
+    #[error("Expected {0} to be an animation controller (or unimplemented controller type)")]
+    NotAnimationSection(u32),
+
     #[error("Section {0} doesn't exist")]
     MissingSection(u32),
 
@@ -27,7 +37,10 @@ pub enum ConversionError {
     BadParent(u32, #[source] Box<ConversionError>),
 
     #[error("Failed to convert object {0}")]
-    CouldntConvertObject(u32, #[source] Box<ConversionError>)
+    CouldntConvertObject(u32, #[source] Box<ConversionError>),
+
+    #[error("Unrecognised animation combination")]
+    WeirdAnimation
 }
 type ConvResult<T> = Result<T, ConversionError>;
 
@@ -57,7 +70,7 @@ pub fn sections_to_ir<'s, 'hi, 'py>(py: Python<'py>, sections: &'s HashMap<u32, 
     for i in ids {
         reader.get_object(i)?;
     }
-    Ok(reader.objects.drain().map(|(k,v)| v).collect::<Vec<_>>())
+    Ok(reader.objects.drain().map(|(_,v)| v).collect::<Vec<_>>())
 }
 
 macro_rules! expect_section {
@@ -69,6 +82,14 @@ macro_rules! expect_section {
     }
 }
 
+enum AnimItem<'a> {
+    LinearFloat(&'a fdm::LinearFloatControllerSection),
+    LinearVec3f(&'a fdm::LinearVector3ControllerSection),
+    LinearVec4f(&'a fdm::QuatLinearRotationControllerSection),
+    Null,
+    OOB
+}
+
 struct IrReader<'s, 'hi, 'py> {
     py: Python<'py>,
     sections: &'s HashMap<u32, fdm::Section>,
@@ -78,24 +99,88 @@ struct IrReader<'s, 'hi, 'py> {
 }
 
 impl<'s, 'hi, 'py> IrReader<'s, 'hi, 'py> {
+    fn get_section(&self, id: u32) -> ConvResult<&fdm::Section> {
+        self.sections.get(&id).ok_or(ConversionError::MissingSection(id))
+    }
+
+    fn get_anim_item(&self, id: u32) -> ConvResult<AnimItem> {
+        if id == 0 {
+            return Ok(AnimItem::Null);
+        }
+        
+        match self.get_section(id)? {
+            fdm::Section::LinearFloatController(fc) => Ok(AnimItem::LinearFloat(&*fc)),
+            fdm::Section::LinearVector3Controller(lv) => Ok(AnimItem::LinearVec3f(&*lv)),
+            fdm::Section::QuatLinearRotationController(qlr) => Ok(AnimItem::LinearVec4f(&*qlr)),
+            _ => Err(ConversionError::NotAnimationSection(id))
+        }
+    }
+
+    fn resolve_controllers(&self, controller_ids: &Vec<u32>) -> ConvResult<(AnimItem, AnimItem, AnimItem, AnimItem)> {
+        use AnimItem::*;
+        
+        let mut res = (OOB, OOB, OOB, OOB);
+        if controller_ids.len() > 4 { return Err(ConversionError::WeirdAnimation) }
+        if controller_ids.len() >= 4 {
+            res.3 = self.get_anim_item(controller_ids[3])?;
+        }
+        if controller_ids.len() >= 3 {
+            res.2 = self.get_anim_item(controller_ids[2])?;
+        }
+        if controller_ids.len() >= 2 {
+            res.1 = self.get_anim_item(controller_ids[1])?;
+        }
+        if controller_ids.len() >= 1 {
+            res.0 = self.get_anim_item(controller_ids[0])?;
+        }
+        Ok(res)
+    }
+
+    fn import_animations(&self, obj: &fdm::Object3dSection, data: Py<ir::Object>) -> ConvResult<()> {
+        let mut data = data.borrow_mut(self.py);
+
+        let ctls = self.resolve_controllers(&obj.animation_controllers)?;
+        use AnimItem::*;
+        match ctls {
+            //(Light(li),  (LinearFloat(intensity), Null,                  Null, Null))                  => { },
+            //(Light(li),  (LinearVec3f(color),     Null,                  Null, OOB))                   => { },
+            //(Light(li),  (LinearFloat(intensity), LinearVec3f(color),    Null, LinearVec3f(position))) => { },
+            (LinearVec4f(rotation),  Null,                  Null, OOB) => {
+                data.animations.append(&mut rotation.to_animation(self.py, "rotation_quaternion")?);
+            },
+            (LinearVec3f(location),  OOB,                   OOB,  OOB) => {
+                data.animations.append(&mut location.to_animation(self.py, "location")?);
+            },
+            (LinearVec4f(rotation),  LinearVec3f(location), OOB,  OOB) => {
+                data.animations.append(&mut location.to_animation(self.py, "location")?);
+                data.animations.append(&mut rotation.to_animation(self.py, "rotation_quaternion")?);
+            },
+            _ => return Err(ConversionError::WeirdAnimation)
+        }
+        Ok(())
+    }
+
     /// Actually import an object.
-    fn import_object3d(&mut self, id: u32, obj: &fdm::Object3dSection) -> ConvResult<Py<ir::Object>> {
-        let name = self.hashlist.get_hash(obj.name.0).to_string();
-        let parent = match self.get_object(obj.parent) {
+    fn import_object3d(&mut self, id: u32, sec: &fdm::Object3dSection) -> ConvResult<Py<ir::Object>> {
+        let name = self.hashlist.get_hash(sec.name.0).to_string();
+        let parent = match self.get_object(sec.parent) {
             Ok(p) => p,
             Err(e) => return Err(ConversionError::BadParent(id, Box::new(e)))
         };
-        let mut tf = obj.transform;
+
+        let mut tf = sec.transform;
         tf.cols.w.x *= self.units_per_cm;
         tf.cols.w.y *= self.units_per_cm;
         tf.cols.w.z *= self.units_per_cm;
-        Ok(Py::new(self.py, ir::Object {
+        let obj = ir::Object {
             name, parent,
             transform: mat_to_row_tuples(tf),
-            animations: None,
+            animations: Vec::new(),
             data: None,
             weight_names: Vec::new()
-        })?)
+        };
+
+        Ok(Py::new(self.py, obj)?)
     }
 
     /// Obtain an object by it's section ID, or None if it doesn't exist at all.
@@ -108,12 +193,18 @@ impl<'s, 'hi, 'py> IrReader<'s, 'hi, 'py> {
         }
         match self.sections.get(&id) {
             Some(fdm::Section::Object3D(sec)) => {
-                let obj = self.import_object3d(id, sec)?;
+                let obj = self.import_object3d(id, sec).at_object_id(id)?;
+
+                self.import_animations(&sec, obj.clone())?;
+
                 self.objects.insert(id, obj.clone());
                 Ok(Some(obj))
             },
             Some(fdm::Section::Model(md)) => {
                 let obj = self.import_model(id, md)?;
+
+                self.import_animations(&md.object, obj.clone())?;
+
                 self.objects.insert(id, obj.clone());
                 Ok(Some(obj))
             }
@@ -137,7 +228,7 @@ impl<'s, 'hi, 'py> IrReader<'s, 'hi, 'py> {
         Ok(obj)
     }
 
-    fn import_bounds(&mut self, id: u32, obj: Py<ir::Object>, bounds: &fdm::Bounds) -> ConvResult<()> {
+    fn import_bounds(&mut self, _id: u32, obj: Py<ir::Object>, bounds: &fdm::Bounds) -> ConvResult<()> {
         let data: PyObject = Py::new(self.py, ir::BoundsObject {
             box_max: (bounds.max * self.units_per_cm).into_tuple(),
             box_min: (bounds.min * self.units_per_cm).into_tuple()
@@ -147,7 +238,7 @@ impl<'s, 'hi, 'py> IrReader<'s, 'hi, 'py> {
         Ok(())
     }
 
-    fn import_mesh(&mut self, id: u32, obj: Py<ir::Object>, src: &fdm::MeshModel) -> ConvResult<()> {
+    fn import_mesh(&mut self, _id: u32, obj: Py<ir::Object>, src: &fdm::MeshModel) -> ConvResult<()> {
         let gp = expect_section!(self.sections, src.geometry_provider, PassthroughGP)?;
         let geo = expect_section!(self.sections, gp.geometry, Geometry)?;
         let topo = expect_section!(self.sections, gp.topology, Topology)?;
@@ -348,4 +439,71 @@ fn rgba_bytes_to_float(c: Rgba) -> (f32, f32, f32, f32) {
         (c.b as f32)/255.0,
         (c.a as f32)/255.0
     )
+}
+
+trait ToAnimation {
+    fn to_animation(&self, py: Python, path: &str) -> pyo3::PyResult<Vec<Py<ir::Animation>>>;
+}
+
+impl ToAnimation for fdm::LinearVector3ControllerSection {
+    fn to_animation(&self, py: Python, path: &str) -> pyo3::PyResult<Vec<Py<ir::Animation>>> {
+        let xa = ir::Animation {
+            target_path: String::from(path),
+            target_index: 0,
+            fcurve: self.keyframes.iter().map(|(ts, v)| (*ts, v.x) ).collect()
+        };
+
+        let ya = ir::Animation {
+            target_path: String::from(path),
+            target_index: 0,
+            fcurve: self.keyframes.iter().map(|(ts, v)| (*ts, v.y) ).collect()
+        };
+
+        let za = ir::Animation {
+            target_path: String::from(path),
+            target_index: 0,
+            fcurve: self.keyframes.iter().map(|(ts, v)| (*ts, v.z) ).collect()
+        };
+
+        Ok(vec![
+            Py::new(py, xa)?,
+            Py::new(py, ya)?,
+            Py::new(py, za)?
+        ])
+    }
+}
+
+impl ToAnimation for fdm::QuatLinearRotationControllerSection {
+    fn to_animation(&self, py: Python, path: &str) -> pyo3::PyResult<Vec<Py<ir::Animation>>> {
+        let xa = ir::Animation {
+            target_path: String::from(path),
+            target_index: 0,
+            fcurve: self.keyframes.iter().map(|(ts, v)| (*ts, v.x) ).collect()
+        };
+
+        let ya = ir::Animation {
+            target_path: String::from(path),
+            target_index: 0,
+            fcurve: self.keyframes.iter().map(|(ts, v)| (*ts, v.y) ).collect()
+        };
+
+        let za = ir::Animation {
+            target_path: String::from(path),
+            target_index: 0,
+            fcurve: self.keyframes.iter().map(|(ts, v)| (*ts, v.z) ).collect()
+        };
+
+        let wa = ir::Animation {
+            target_path: String::from(path),
+            target_index: 0,
+            fcurve: self.keyframes.iter().map(|(ts, v)| (*ts, v.w) ).collect()
+        };
+
+        Ok(vec![
+            Py::new(py, xa)?,
+            Py::new(py, ya)?,
+            Py::new(py, za)?,
+            Py::new(py, wa)?
+        ])
+    }
 }
