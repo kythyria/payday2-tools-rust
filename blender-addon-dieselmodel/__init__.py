@@ -1,7 +1,13 @@
 from . import pd2tools_fdm
 
 import bpy
-import bmesh
+from bpy.props import (StringProperty,
+                        BoolProperty,
+                        EnumProperty,
+                        IntProperty,
+                        CollectionProperty)
+from bpy_extras.io_utils import ImportHelper
+from bpy.types import Operator
 from mathutils import *
 from datetime import datetime
 import struct
@@ -43,6 +49,9 @@ def import_ir_from_file(hlp, path):
         b_objects[obj].location = (loc.x, loc.y, loc.z)
         b_objects[obj].rotation_quaternion = rot
         b_objects[obj].scale = sca
+    ts_end = datetime.now()
+    print("Loading: {}".format(ts_conv - ts_start))
+    print("Importing: {}".format(ts_end - ts_conv))
 
 def data_from_ir(name, data, mats):
     if data is None:
@@ -120,3 +129,49 @@ def mesh_from_ir(name, data, mats):
             col.data[i].color = colours[i]
     
     return me
+
+class Pd2toolsPreferences(bpy.types.AddonPreferences):
+    bl_idname = __name__
+    hashlist_path: StringProperty(
+        name="Hashlist location",
+        description="Hashlist to use when importing models. The usual format: one string per line, LF line endings.",
+        subtype='FILE_PATH'
+    )
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "hashlist_path")
+
+
+class ImportDieselModel(bpy.types.Operator, ImportHelper):
+    """Read from a Diesel .model file"""
+    bl_idname = "import.pd2diesel"
+    bl_label = "Import Diesel model"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    filter_glob: StringProperty(default="*.model", options={'HIDDEN'})
+    filter_glob: StringProperty(
+	        default="*.model",
+	        options={'HIDDEN'},
+	        maxlen=1024
+	    )
+    
+    def execute(self, context):
+        preferences = context.preferences
+        addon_prefs = preferences.addons[__name__].preferences
+
+        import_ir_from_file(addon_prefs.hashlist_path, self.filepath)
+        return {'FINISHED'}
+
+def menu_func_import(self, context):
+    self.layout.operator(ImportDieselModel.bl_idname, text="Diesel model (.model)")
+
+def register():
+    bpy.utils.register_class(Pd2toolsPreferences)
+    bpy.utils.register_class(ImportDieselModel)
+    bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
+
+def unregister():
+    bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
+    bpy.utils.unregister_class(ImportDieselModel)
+    bpy.utils.unregister_class(Pd2toolsPreferences)
