@@ -423,7 +423,6 @@ impl parse_helpers::Parse for GeometrySection {
     fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], Self> {
         let (input, vertex_count) = u32::parse(input)?;
         let (input, descriptors) = Vec::<GeometryHeader>::parse(input)?;
-        println!("{} {} {}", input.len(), vertex_count, descriptors.len());
         
         let mut input = input;
         let mut result = GeometrySection::default();
@@ -440,7 +439,6 @@ impl parse_helpers::Parse for GeometrySection {
         }
 
         for desc in descriptors {
-            println!("{:?}", desc);
             use GeometryAttributeType::*;
             
             fn expand<'a, TItem, TAs>(input: &'a [u8]) -> IResult<&'a [u8], Vec4::<TItem>>

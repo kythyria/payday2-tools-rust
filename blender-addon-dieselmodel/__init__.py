@@ -46,9 +46,11 @@ def import_ir_from_file(hlp, path):
             bpy.context.view_layer.update()
         
         loc, rot, sca = Matrix(obj.transform).decompose()
+        print(obj.name, rot)
         b_objects[obj].location = (loc.x, loc.y, loc.z)
-        b_objects[obj].rotation_quaternion = rot
-        b_objects[obj].scale = sca
+        b_objects[obj].rotation_mode = "QUATERNION"
+        b_objects[obj].rotation_quaternion = (rot.w, rot.x, rot.y, rot.z)
+        b_objects[obj].scale = (sca.x, sca.y, sca.z)
     ts_end = datetime.now()
     print("Loading: {}".format(ts_conv - ts_start))
     print("Importing: {}".format(ts_end - ts_conv))
