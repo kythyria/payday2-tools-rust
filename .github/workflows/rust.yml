@@ -48,12 +48,17 @@ jobs:
       run: |
         cargo build --verbose --release
         cargo build --verbose --release --package pd2tools-fdm-python
+    - name: Package Blender addon
+      run: |
+        cp blender-addon-dieselmodel io_scene_diesel
+        cp target/release/pd2tools_fdm.dll io_scene_diesel/pd2tools_fdm.pyd
+        7z a io_scene_diesel.zip io_scene_diesel
     - uses: actions/upload-artifact@v2
       with:
         path: |
           target/release/pd2tools-bundlefs.exe
           target/release/pd2tools.exe
-          target/release/pd2tools_fdm.dll
+          io_scene_diesel.zip
     - uses: "marvinpinto/action-automatic-releases@latest"
       with:
         repo_token: "${{ secrets.GITHUB_TOKEN }}"
@@ -63,6 +68,6 @@ jobs:
         files: |
           target/release/pd2tools-bundlefs.exe
           target/release/pd2tools.exe
-          target/release/pd2tools_fdm.dll
+          io_scene_diesel.zip
 #    - name: Run tests
 #      run: cargo test --verbose
