@@ -42,9 +42,9 @@ impl<T> ConvResultExt for ConvResult<T> {
     }
 }
 
-pub fn sections_to_ir<'s, 'hi, 'py>(py: Python<'py>, sections: &'s HashMap<u32, fdm::Section>, hashlist: &'hi HashIndex) -> ConvResult<Vec<Py<ir::Object>>> {
+pub fn sections_to_ir<'s, 'hi, 'py>(py: Python<'py>, sections: &'s HashMap<u32, fdm::Section>, hashlist: &'hi HashIndex, units_per_cm: f32) -> ConvResult<Vec<Py<ir::Object>>> {
     let mut reader = IrReader {
-        py, sections, hashlist,
+        py, sections, hashlist, units_per_cm,
         objects: HashMap::new()
     };
 
@@ -73,6 +73,7 @@ struct IrReader<'s, 'hi, 'py> {
     py: Python<'py>,
     sections: &'s HashMap<u32, fdm::Section>,
     hashlist: &'hi HashIndex,
+    units_per_cm: f32,
     objects: HashMap<u32, Py<ir::Object>>
 }
 
@@ -84,9 +85,13 @@ impl<'s, 'hi, 'py> IrReader<'s, 'hi, 'py> {
             Ok(p) => p,
             Err(e) => return Err(ConversionError::BadParent(id, Box::new(e)))
         };
+        let mut tf = obj.transform;
+        tf.cols.w.x *= self.units_per_cm;
+        tf.cols.w.y *= self.units_per_cm;
+        tf.cols.w.z *= self.units_per_cm;
         Ok(Py::new(self.py, ir::Object {
             name, parent,
-            transform: mat_to_row_tuples(obj.transform),
+            transform: mat_to_row_tuples(tf),
             animations: None,
             data: None,
             weight_names: Vec::new()
@@ -134,8 +139,8 @@ impl<'s, 'hi, 'py> IrReader<'s, 'hi, 'py> {
 
     fn import_bounds(&mut self, id: u32, obj: Py<ir::Object>, bounds: &fdm::Bounds) -> ConvResult<()> {
         let data: PyObject = Py::new(self.py, ir::BoundsObject {
-            box_max: bounds.max.into_tuple(),
-            box_min: bounds.min.into_tuple()
+            box_max: (bounds.max * self.units_per_cm).into_tuple(),
+            box_min: (bounds.min * self.units_per_cm).into_tuple()
         })?.into_py(self.py);
         let mut objref = obj.borrow_mut(self.py);
         objref.data = Some(data);
@@ -155,7 +160,7 @@ impl<'s, 'hi, 'py> IrReader<'s, 'hi, 'py> {
             material_names.push(hs.to_string());
         }
 
-        let vcache = merge_vertices(geo);
+        let vcache = merge_vertices(geo, self.units_per_cm);
         let vertex_map = vcache.index_map;
         let mut mesh = ir::Mesh {
             material_names,
@@ -270,7 +275,7 @@ struct VertexKey {
     weights: Vec<(u32, f32)>
 }
 
-fn merge_vertices(geo: &fdm::GeometrySection) -> VertexCache {
+fn merge_vertices(geo: &fdm::GeometrySection, units_per_cm: f32) -> VertexCache {
     // For now we only merge bitwise-equivalent vertices.
     // This should be enough to undo automatic splitting.
 
@@ -282,7 +287,7 @@ fn merge_vertices(geo: &fdm::GeometrySection) -> VertexCache {
     let bufsize = 12 + 4 + 4 + 16 + 4 + 16;
     for i in 0..geo.position.len() {
         let mut vtx = VertexKey {
-            co: geo.position[i].into_tuple(),
+            co: (geo.position[i] * units_per_cm).into_tuple(),
             weights: Vec::with_capacity(8)
         };
         

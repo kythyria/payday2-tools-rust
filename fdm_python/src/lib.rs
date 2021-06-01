@@ -14,7 +14,7 @@ fn pd2tools_fdm(_py: Python, m: &PyModule) -> PyResult<()> {
     }
 
     #[pyfn(m, "import_ir_from_file")]
-    fn import_ir_from_file(py: Python, hashlist_path: &str, model_path: &str) -> PyResult<Vec<Py<py_ir::Object>>> {
+    fn import_ir_from_file(py: Python, hashlist_path: &str, model_path: &str, units_per_cm: f32) -> PyResult<Vec<Py<py_ir::Object>>> {
         let hlp = Some(String::from(hashlist_path));
         let hashlist = pd2tools_rust::get_hashlist(&hlp);
         let hashlist = match hashlist {
@@ -34,7 +34,7 @@ fn pd2tools_fdm(_py: Python, m: &PyModule) -> PyResult<()> {
             Ok((_, s)) => s
         };
 
-        let r = ir_reader::sections_to_ir(py, &sections, &hashlist);
+        let r = ir_reader::sections_to_ir(py, &sections, &hashlist, units_per_cm);
         r.map_err(|e| {
             let mut es = String::new();
             pd2tools_rust::util::write_error_chain(&mut es, e).unwrap();

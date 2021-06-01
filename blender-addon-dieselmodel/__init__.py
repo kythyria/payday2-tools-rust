@@ -24,9 +24,9 @@ bl_info = {
 def hash(s):
     return pd2tools_fdm.diesel_hash(s)
 
-def import_ir_from_file(hlp, path):
+def import_ir_from_file(hlp, path, units_per_cm):
     ts_start = datetime.now()
-    ir_objects = pd2tools_fdm.import_ir_from_file(hlp, path)
+    ir_objects = pd2tools_fdm.import_ir_from_file(hlp, path, units_per_cm)
     ts_conv = datetime.now()
 
     mat_dict = {}
@@ -162,7 +162,13 @@ class ImportDieselModel(bpy.types.Operator, ImportHelper):
         preferences = context.preferences
         addon_prefs = preferences.addons[__name__].preferences
 
-        import_ir_from_file(addon_prefs.hashlist_path, self.filepath)
+        # it seems that this is in metres per unit, so rearrange it to the other
+        # way around
+        metres_per_unit = context.scene.unit_settings.scale_length
+        cm_per_unit = metres_per_unit * 100
+        units_per_cm = 1/cm_per_unit
+
+        import_ir_from_file(addon_prefs.hashlist_path, self.filepath, units_per_cm)
         return {'FINISHED'}
 
 def menu_func_import(self, context):
