@@ -164,7 +164,7 @@ class ImportDieselModel(bpy.types.Operator, ImportHelper):
         return {'FINISHED'}
 
 def menu_func_import(self, context):
-    self.layout.operator(ImportDieselModel.bl_idname, text="Diesel model (.model)")
+    self.layout.operator(ImportDieselModel.bl_idname, text="Diesel Model (.model)")
 
 def register():
     bpy.utils.register_class(Pd2toolsPreferences)

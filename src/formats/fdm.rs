@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use nom::IResult;
 use nom::combinator::{all_consuming, map};
 use nom::multi::{length_data, length_count, count};
-use nom::number::complete::le_u32;
-use nom::sequence::tuple;
+use nom::number::complete::{le_u32, le_u64};
+use nom::sequence::{tuple, terminated};
 use vek::{Mat4, Vec2, Vec3, Vec4};
 
 use crate::hashindex::Hash as Idstring;
@@ -197,12 +197,32 @@ pub struct AuthorSection {
 #[derive(Debug, Parse)]
 pub struct Object3dSection {
     pub name: Idstring,
+
+    #[parse_as(AnimationControllerList)]
     pub animation_controllers: Vec<u32>,
     
     #[parse_as(Mat4WithPos<f32>)]
     pub transform: Mat4f,
 
     pub parent: u32
+}
+
+struct AnimationControllerList;
+impl WireFormat<Vec<u32>> for AnimationControllerList {
+    fn parse_into<'a>(input: &'a [u8]) -> IResult<&'a [u8], Vec<u32>> {
+        let item = terminated(le_u32, le_u64);
+        length_count(le_u32, item)(input)
+    }
+
+    fn serialize_from<O: std::io::Write>(data: &Vec<u32>, output: &mut O) -> std::io::Result<()> {
+        let count: u32 = data.len().try_into().map_err(|_| std::io::ErrorKind::InvalidInput)?;
+        count.serialize(output)?;
+        for i in data.iter() {
+            i.serialize(output)?;
+            0u64.serialize(output)?;
+        }
+        Ok(())
+    }
 }
 
 struct Mat4WithPos<T>{ _d: PhantomData<T> }
