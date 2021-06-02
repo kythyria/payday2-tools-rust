@@ -55,9 +55,9 @@ impl<T> ConvResultExt for ConvResult<T> {
     }
 }
 
-pub fn sections_to_ir<'s, 'hi, 'py>(py: Python<'py>, sections: &'s HashMap<u32, fdm::Section>, hashlist: &'hi HashIndex, units_per_cm: f32) -> ConvResult<Vec<Py<ir::Object>>> {
+pub fn sections_to_ir<'s, 'hi, 'py>(py: Python<'py>, sections: &'s HashMap<u32, fdm::Section>, hashlist: &'hi HashIndex, units_per_cm: f32, framerate: f32) -> ConvResult<Vec<Py<ir::Object>>> {
     let mut reader = IrReader {
-        py, sections, hashlist, units_per_cm,
+        py, sections, hashlist, units_per_cm, framerate,
         objects: HashMap::new()
     };
 
@@ -68,7 +68,7 @@ pub fn sections_to_ir<'s, 'hi, 'py>(py: Python<'py>, sections: &'s HashMap<u32, 
     }).collect::<Vec<u32>>();
 
     for i in ids {
-        reader.get_object(i)?;
+        reader.get_object(i).at_object_id(i)?;
     }
     Ok(reader.objects.drain().map(|(_,v)| v).collect::<Vec<_>>())
 }
@@ -95,6 +95,7 @@ struct IrReader<'s, 'hi, 'py> {
     sections: &'s HashMap<u32, fdm::Section>,
     hashlist: &'hi HashIndex,
     units_per_cm: f32,
+    framerate: f32,
     objects: HashMap<u32, Py<ir::Object>>
 }
 
@@ -145,16 +146,17 @@ impl<'s, 'hi, 'py> IrReader<'s, 'hi, 'py> {
             //(Light(li),  (LinearFloat(intensity), Null,                  Null, Null))                  => { },
             //(Light(li),  (LinearVec3f(color),     Null,                  Null, OOB))                   => { },
             //(Light(li),  (LinearFloat(intensity), LinearVec3f(color),    Null, LinearVec3f(position))) => { },
-            (LinearVec4f(rotation),  Null,                  Null, OOB) => {
-                data.animations.append(&mut rotation.to_animation(self.py, "rotation_quaternion")?);
+            (LinearVec4f(rotation),  Null,                  OOB, OOB) => {
+                data.animations.append(&mut rotation.to_animation(self.py, self.framerate, "rotation_quaternion", 1.0)?);
             },
             (LinearVec3f(location),  OOB,                   OOB,  OOB) => {
-                data.animations.append(&mut location.to_animation(self.py, "location")?);
+                data.animations.append(&mut location.to_animation(self.py, self.framerate, "location", self.units_per_cm)?);
             },
             (LinearVec4f(rotation),  LinearVec3f(location), OOB,  OOB) => {
-                data.animations.append(&mut location.to_animation(self.py, "location")?);
-                data.animations.append(&mut rotation.to_animation(self.py, "rotation_quaternion")?);
+                data.animations.append(&mut location.to_animation(self.py, self.framerate, "location", self.units_per_cm)?);
+                data.animations.append(&mut rotation.to_animation(self.py, self.framerate, "rotation_quaternion", 1.0)?);
             },
+            (OOB, OOB, OOB, OOB) => { },
             _ => return Err(ConversionError::WeirdAnimation)
         }
         Ok(())
@@ -195,7 +197,7 @@ impl<'s, 'hi, 'py> IrReader<'s, 'hi, 'py> {
             Some(fdm::Section::Object3D(sec)) => {
                 let obj = self.import_object3d(id, sec).at_object_id(id)?;
 
-                self.import_animations(&sec, obj.clone())?;
+                self.import_animations(&sec, obj.clone()).at_object_id(id)?;
 
                 self.objects.insert(id, obj.clone());
                 Ok(Some(obj))
@@ -203,7 +205,7 @@ impl<'s, 'hi, 'py> IrReader<'s, 'hi, 'py> {
             Some(fdm::Section::Model(md)) => {
                 let obj = self.import_model(id, md)?;
 
-                self.import_animations(&md.object, obj.clone())?;
+                self.import_animations(&md.object, obj.clone()).at_object_id(id)?;
 
                 self.objects.insert(id, obj.clone());
                 Ok(Some(obj))
@@ -442,27 +444,27 @@ fn rgba_bytes_to_float(c: Rgba) -> (f32, f32, f32, f32) {
 }
 
 trait ToAnimation {
-    fn to_animation(&self, py: Python, path: &str) -> pyo3::PyResult<Vec<Py<ir::Animation>>>;
+    fn to_animation(&self, py: Python, framerate: f32, path: &str, scale: f32) -> pyo3::PyResult<Vec<Py<ir::Animation>>>;
 }
 
 impl ToAnimation for fdm::LinearVector3ControllerSection {
-    fn to_animation(&self, py: Python, path: &str) -> pyo3::PyResult<Vec<Py<ir::Animation>>> {
+    fn to_animation(&self, py: Python, framerate: f32, path: &str, scale: f32) -> pyo3::PyResult<Vec<Py<ir::Animation>>> {
         let xa = ir::Animation {
             target_path: String::from(path),
             target_index: 0,
-            fcurve: self.keyframes.iter().map(|(ts, v)| (*ts, v.x) ).collect()
+            fcurve: self.keyframes.iter().map(|(ts, v)| (*ts * framerate, v.x * scale) ).collect()
         };
 
         let ya = ir::Animation {
             target_path: String::from(path),
-            target_index: 0,
-            fcurve: self.keyframes.iter().map(|(ts, v)| (*ts, v.y) ).collect()
+            target_index: 1,
+            fcurve: self.keyframes.iter().map(|(ts, v)| (*ts * framerate, v.y * scale) ).collect()
         };
 
         let za = ir::Animation {
             target_path: String::from(path),
-            target_index: 0,
-            fcurve: self.keyframes.iter().map(|(ts, v)| (*ts, v.z) ).collect()
+            target_index: 2,
+            fcurve: self.keyframes.iter().map(|(ts, v)| (*ts * framerate, v.z * scale) ).collect()
         };
 
         Ok(vec![
@@ -474,29 +476,29 @@ impl ToAnimation for fdm::LinearVector3ControllerSection {
 }
 
 impl ToAnimation for fdm::QuatLinearRotationControllerSection {
-    fn to_animation(&self, py: Python, path: &str) -> pyo3::PyResult<Vec<Py<ir::Animation>>> {
+    fn to_animation(&self, py: Python, framerate: f32, path: &str, _scale: f32) -> pyo3::PyResult<Vec<Py<ir::Animation>>> {
         let xa = ir::Animation {
             target_path: String::from(path),
-            target_index: 0,
-            fcurve: self.keyframes.iter().map(|(ts, v)| (*ts, v.x) ).collect()
+            target_index: 1,
+            fcurve: self.keyframes.iter().map(|(ts, v)| (*ts * framerate, v.x) ).collect()
         };
 
         let ya = ir::Animation {
             target_path: String::from(path),
-            target_index: 0,
-            fcurve: self.keyframes.iter().map(|(ts, v)| (*ts, v.y) ).collect()
+            target_index: 2,
+            fcurve: self.keyframes.iter().map(|(ts, v)| (*ts * framerate, v.y) ).collect()
         };
 
         let za = ir::Animation {
             target_path: String::from(path),
-            target_index: 0,
-            fcurve: self.keyframes.iter().map(|(ts, v)| (*ts, v.z) ).collect()
+            target_index: 3,
+            fcurve: self.keyframes.iter().map(|(ts, v)| (*ts * framerate, v.z) ).collect()
         };
 
         let wa = ir::Animation {
             target_path: String::from(path),
             target_index: 0,
-            fcurve: self.keyframes.iter().map(|(ts, v)| (*ts, v.w) ).collect()
+            fcurve: self.keyframes.iter().map(|(ts, v)| (*ts * framerate, v.w) ).collect()
         };
 
         Ok(vec![

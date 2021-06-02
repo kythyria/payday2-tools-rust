@@ -62,10 +62,32 @@ impl PyGCProtocol for Object {
         self.parent = None;
     }
 }
+#[pymethods]
+impl Object {
+    #[getter]
+    pub fn get_data_type(&self) -> &str { "OBJECT" }
+}
 
 #[pyclass]
 pub struct Light {
     #[pyo3(get, set)] pub animations: Vec<Py<Animation>>,
+}
+#[pyproto]
+impl PyGCProtocol for Light {
+    fn __traverse__(&self, visit: PyVisit) -> Result<(), PyTraverseError> {
+        for a in &self.animations {
+            visit.call(a)?;
+        }
+        Ok(())
+    }
+    fn __clear__(&mut self) {
+        self.animations = Vec::with_capacity(0);
+    }
+}
+#[pymethods]
+impl Light {
+    #[getter]
+    pub fn get_data_type(&self) -> &str { "LIGHT" }
 }
 
 #[pyclass]

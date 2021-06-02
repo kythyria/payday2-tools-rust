@@ -24,9 +24,9 @@ bl_info = {
 def hash(s):
     return pd2tools_fdm.diesel_hash(s)
 
-def import_ir_from_file(hlp, path, units_per_cm):
+def import_ir_from_file(hlp, path, units_per_cm, framerate):
     ts_start = datetime.now()
-    ir_objects = pd2tools_fdm.import_ir_from_file(hlp, path, units_per_cm)
+    ir_objects = pd2tools_fdm.import_ir_from_file(hlp, path, units_per_cm, framerate)
     ts_conv = datetime.now()
 
     mat_dict = {}
@@ -46,14 +46,31 @@ def import_ir_from_file(hlp, path, units_per_cm):
             bpy.context.view_layer.update()
         
         loc, rot, sca = Matrix(obj.transform).decompose()
-        print(obj.name, rot)
         b_objects[obj].location = (loc.x, loc.y, loc.z)
         b_objects[obj].rotation_mode = "QUATERNION"
         b_objects[obj].rotation_quaternion = (rot.w, rot.x, rot.y, rot.z)
         b_objects[obj].scale = (sca.x, sca.y, sca.z)
+
+        apply_anims(obj, b_objects[obj])
     ts_end = datetime.now()
     print("Loading: {}".format(ts_conv - ts_start))
     print("Importing: {}".format(ts_end - ts_conv))
+
+def apply_anims(src, dest):
+    if len(src.animations) == 0:
+        return
+    
+    dest.animation_data_create()
+    action = bpy.data.actions.new(dest.name)
+    action.id_root = src.data_type
+    dest.animation_data.action = action
+    for chan in src.animations:
+        curve = action.fcurves.new(chan.target_path, index=chan.target_index)
+        for (ts, v) in chan.fcurve:
+            kf =  curve.keyframe_points.insert(ts, v, options={"NEEDED"})
+            kf.handle_left_type = "VECTOR"
+            kf.handle_right_type = "VECTOR"
+
 
 def data_from_ir(name, data, mats):
     if data is None:
@@ -168,7 +185,9 @@ class ImportDieselModel(bpy.types.Operator, ImportHelper):
         cm_per_unit = metres_per_unit * 100
         units_per_cm = 1/cm_per_unit
 
-        import_ir_from_file(addon_prefs.hashlist_path, self.filepath, units_per_cm)
+        fps = context.scene.render.fps / context.scene.render.fps_base
+
+        import_ir_from_file(addon_prefs.hashlist_path, self.filepath, units_per_cm, fps)
         return {'FINISHED'}
 
 def menu_func_import(self, context):
