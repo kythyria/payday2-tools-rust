@@ -26,51 +26,36 @@ pub fn read_normal(data: &[u8], datafile_length: u64) -> Result<PackageHeaderFil
     };
 
     let is_x64 = read_u32_le(data, 8) == 0 && read_u32_le(data, 12) != 0;
-
     let ref_offset = read_u32_le(data, 0);
+
+    let words = if is_x64 {
+        (read_u64_le(data, 4), read_u64_le(data, 12), read_u64_le(data, 20), read_u32_le(data, 28) as u64, read_u32_le(data, 32) as u64)
+    }
+    else {
+        (read_u32_le(data, 4) as u64, read_u32_le(data, 8) as u64, read_u32_le(data, 12) as u64, read_u32_le(data, 16) as u64, read_u32_le(data, 20) as u64)
+    };
+
     let item_count: u64;
     let offset: u64;
     let has_length: bool;
 
-    if is_x64 {
-        if read_u64_le(data, 4) == read_u64_le(data, 12) {
-            item_count = read_u64_le(data, 4);
-            offset = read_u64_le(data, 20);
-            has_length = false;
-        }
-        else if read_u64_le(data, 12) == read_u64_le(data, 20) {
-            item_count = read_u64_le(data, 12);
-            offset = read_u32_le(data, 28).into();
-            has_length = true;
-        }
-        else if read_u64_le(data, 20) == (read_u32_le(data, 28) as u64) {
-            item_count = read_u64_le(data, 20);
-            offset = read_u32_le(data, 32).into();
-            has_length = true;
-        }
-        else {
-            return Err(ReadError::UnknownFormatOrMalformed);
-        }
+    if words.0 == words.1 {
+        item_count = words.0;
+        offset = words.2;
+        has_length = false;
+    }
+    else if words.1 == words.2 {
+        item_count = words.1;
+        offset = words.3;
+        has_length = true;
+    }
+    else if words.2 == words.3 {
+        item_count = words.2;
+        offset = words.4;
+        has_length = true;
     }
     else {
-        if read_u32_le(data, 4) == read_u32_le(data, 8) {
-            item_count = read_u32_le(data, 4).into();
-            offset = read_u32_le(data, 12).into();
-            has_length = false;
-        }
-        else if read_u32_le(data, 8) == read_u32_le(data, 12) {
-            item_count = read_u32_le(data, 8).into();
-            offset = read_u32_le(data, 16).into();
-            has_length = true;
-        }
-        else if read_u32_le(data, 12) == read_u32_le(data, 16) {
-            item_count = read_u32_le(data, 12).into();
-            offset = read_u32_le(data, 20).into();
-            has_length = true;
-        }
-        else {
-            return Err(ReadError::UnknownFormatOrMalformed);
-        }
+        return Err(ReadError::UnknownFormatOrMalformed);
     }
     
     let actual_offset : usize = if offset == 0 {
