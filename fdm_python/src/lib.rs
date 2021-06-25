@@ -4,9 +4,11 @@ mod ir_reader;
 use pyo3::prelude::*;
 
 use pd2tools_rust::formats::fdm;
+use pd2tools_rust::util::LIB_VERSION;
 
 #[pymodule]
 fn pd2tools_fdm(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add("LIB_VERSION", LIB_VERSION)?;
 
     #[pyfn(m, "diesel_hash")]
     fn diesel_hash(s: &str) -> u64 {

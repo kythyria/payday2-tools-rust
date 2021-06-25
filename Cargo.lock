@@ -192,6 +192,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fed34cd105917e91daa4da6b3728c47b068749d6a62c59811f06ed2ac71d9da7"
 
 [[package]]
+name = "git-version"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "94918e83f1e01dedc2e361d00ce9487b14c58c7f40bab148026fa39d42cb41e2"
+dependencies = [
+ "git-version-macro",
+ "proc-macro-hack",
+]
+
+[[package]]
+name = "git-version-macro"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "34a97a52fdee1870a34fa6e4b77570cba531b27d1838874fef4429a791a3d657"
+dependencies = [
+ "proc-macro-hack",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "heck"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -406,6 +428,7 @@ dependencies = [
  "clap",
  "dokan",
  "fnv",
+ "git-version",
  "nom",
  "num-traits",
  "pd2tools-macros",

@@ -89,3 +89,5 @@ where O: std::fmt::Write, E: std::error::Error
     }
     Ok(())
 }
+
+pub const LIB_VERSION: &str = git_version::git_version!();

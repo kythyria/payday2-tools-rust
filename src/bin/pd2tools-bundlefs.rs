@@ -3,9 +3,10 @@ use std::sync::Arc;
 use structopt::StructOpt;
 
 use pd2tools_rust::filesystem;
+use pd2tools_rust::util::LIB_VERSION;
 
 #[derive(Debug, StructOpt)]
-#[structopt(name="Payday 2 BundleFS", about="Mount asset bundles from Payday 2 as a Dokany filesystem")]
+#[structopt(name="Payday 2 BundleFS", about="Mount asset bundles from Payday 2 as a Dokany filesystem", version=LIB_VERSION)]
 struct Opt {
     /// Path of hashlist to use. By default look in cwd and then next to the executable.
     #[structopt(short, long)]

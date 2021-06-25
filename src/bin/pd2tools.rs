@@ -6,6 +6,7 @@ use clap::arg_enum;
 use structopt::StructOpt;
 
 use pd2tools_rust::*;
+use pd2tools_rust::util::LIB_VERSION;
 
 arg_enum! {
     #[derive(Debug, Clone, Copy, Ord, Eq, PartialOrd, PartialEq, Hash)]
@@ -18,7 +19,7 @@ arg_enum! {
 }
 
 #[derive(Debug, StructOpt)]
-#[structopt(name="Payday 2 CLI Tools", about="Does various things related to the game Payday 2")]
+#[structopt(name="Payday 2 CLI Tools", about="Does various things related to the game Payday 2", version=LIB_VERSION)]
 struct Opt {
     /// Path of hashlist to use. By default look in cwd and then next to the executable.
     #[structopt(short, long)]

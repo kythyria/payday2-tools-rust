@@ -21,6 +21,8 @@ bl_info = {
     "category": "Import-Export"
 }
 
+BINARY_VERSION = pd2tools_fdm.LIB_VERSION
+
 def hash(s):
     return pd2tools_fdm.diesel_hash(s)
 
@@ -168,12 +170,11 @@ class ImportDieselModel(bpy.types.Operator, ImportHelper):
     bl_label = "Import Diesel model"
     bl_options = {'REGISTER', 'UNDO'}
 
-    filter_glob: StringProperty(default="*.model", options={'HIDDEN'})
     filter_glob: StringProperty(
-	        default="*.model",
-	        options={'HIDDEN'},
-	        maxlen=1024
-	    )
+            default="*.model",
+            options={'HIDDEN'},
+            maxlen=1024
+        )
     
     def execute(self, context):
         preferences = context.preferences
