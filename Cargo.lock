@@ -435,6 +435,7 @@ dependencies = [
  "rayon",
  "roxmltree",
  "structopt",
+ "thiserror",
  "vek",
  "widestring",
  "winapi",

@@ -2,6 +2,9 @@ pub mod ordered_float;
 pub mod read_helpers;
 pub mod rc_cell;
 pub mod parse_helpers;
+pub mod subslice;
+
+pub use subslice::Subslice;
 
 use std::fmt::Write;
 

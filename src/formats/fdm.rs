@@ -9,11 +9,13 @@ use nom::multi::{length_data, length_count, count};
 use nom::number::complete::{le_u32, le_u64};
 use nom::sequence::{tuple, terminated};
 use vek::{Mat4, Vec2, Vec3, Vec4};
+use thiserror::Error;
 
 use crate::hashindex::Hash as Idstring;
 use crate::util::AsHex;
 use crate::util::parse_helpers;
 use crate::util::parse_helpers::{ Parse, WireFormat };
+use crate::util::Subslice;
 use pd2tools_macros::{EnumTryFrom, Parse};
 
 type Vec2f = vek::Vec2<f32>;
@@ -22,15 +24,53 @@ type Vec4f = vek::Vec4<f32>;
 type Mat4f = vek::Mat4<f32>;
 type Rgba = vek::Rgba<u8>;
 
+#[derive(Clone, Copy, Debug, Error)]
+pub enum ParseError {
+    #[error("Somehow failed to parse file or section headers at offset {0}")]
+    BadHeaders(usize),
+
+    #[error("Section {id} whose data is at {data_offset} has unknown type {:x}")]
+    UnknownSectionType {
+        id: u32,
+        r#type: u32,
+        data_offset: usize
+    },
+
+    #[error("Parse error in section {id} at offset {location}")]
+    BadSection { id: u32, location: usize },
+
+    #[error("Unexpected EOF during section {id}")]
+    TruncatedSection { id: u32 },
+
+    #[error("Unexpected EOF reading section {got} of {expected}")]
+    NotEnoughSections { got: u32, expected: u32 },
+}
+impl ParseError {
+    fn nom_err<TD, TS>(self) -> IResult<TD, TS, ParseError> {
+        Err(nom::Err::Failure(self))
+    }
+}
+
 pub struct UnparsedSection<'a> {
     pub r#type: u32,
     pub id: u32,
-    pub data: &'a [u8]
+    pub data: Subslice<'a, u8>
 }
 impl<'a> UnparsedSection<'a> {
-    fn parse(input: &'a [u8]) -> IResult<&'a[u8], UnparsedSection> {
-        let (input, (r#type, id)) = tuple((le_u32, le_u32))(input)?;
-        let (input, data) = length_data(le_u32)(input)?;
+    fn parse(input: Subslice<'a, u8>) -> IResult<Subslice<'a, u8>, UnparsedSection, ParseError> {
+        let hs = input.offset();
+        let mut parser = tuple::<_, _, (), _>((le_u32, le_u32));
+        let (input, (r#type, id)) = match parser(input) {
+            Ok(d) => d,
+            Err(_) => return ParseError::BadHeaders(hs).nom_err()
+        };
+        eprintln!("UnparsedSection::parse 1: {} {}", input.offset(), input.len());
+        let (input, data) = match length_data::<_, _, (), _>(le_u32)(input) {
+            Ok(d) => d,
+            Err(nom::Err::Incomplete(_)) => return ParseError::TruncatedSection { id }.nom_err(),
+            Err(_) => return ParseError::BadHeaders(hs).nom_err(),
+        };
+        eprintln!("UnparsedSection::parse 2: {} {}\n", input.offset(), input.len());
         Ok((input, UnparsedSection {
             r#type, id, data
         }))
@@ -45,15 +85,16 @@ struct Header {
     section_count: u32,
 }
 impl Header {
-    fn parse<'a>(input: &'a [u8]) -> IResult<&'a[u8], Header> {
+    fn parse<'a>(input: Subslice<'a, u8>) -> IResult<Subslice<'a, u8>, Header> {
         let (mut remain, (mut section_count, length)) = tuple((le_u32, le_u32))(input)?;
+        eprintln!("Header::parse 1: {} {}", remain.offset(), remain.len());
 
         if section_count == 0xFFFFFFFF {
             let (remain_1, count_1) = le_u32(remain)?;
             remain = remain_1;
             section_count = count_1;
         }
-
+        eprintln!("Header::parse 2: {} {}", remain.offset(), remain.len());
         Ok((remain, Header {
             section_count,
             length
@@ -61,23 +102,65 @@ impl Header {
     }
 }
 
-pub fn split_to_sections<'a>(input: &'a [u8]) -> IResult<&'a[u8], Vec<UnparsedSection>> {
-    let (input, header) = Header::parse(input)?;
-    count(UnparsedSection::parse, header.section_count as usize)(input)
+pub fn split_to_sections<'a>(input: Subslice<'a, u8>) -> IResult<Subslice<'a, u8>, Vec<UnparsedSection>, ParseError> {
+    let rph = match Header::parse(input) {
+        Ok(d) => d,
+        Err(_) => return ParseError::BadHeaders(0).nom_err()
+    };
+    let (input_2, header) = rph;
+
+    let mut parsed_sections = Vec::with_capacity(header.section_count as usize);
+    let mut remaining_input = input_2;
+    for i in 0..header.section_count {
+        eprintln!("split_to_sections: {} {} {}", i, remaining_input.offset(), remaining_input.len());
+        if remaining_input.len() == 0 {
+            return ParseError::NotEnoughSections { got: i, expected:header.section_count }.nom_err()
+        }
+
+        match UnparsedSection::parse(remaining_input) {
+            Ok((ri, h)) => {
+                parsed_sections.push(h);
+                remaining_input = ri;
+            },
+            Err(e) => return Err(e)
+        };
+    }
+    return Ok((remaining_input, parsed_sections))
+}
+
+pub fn parse_section_inner<'a, T: Parse>(sec: &UnparsedSection<'a>) -> Result<Box<T>, ParseError> {
+    let ac = all_consuming(T::parse);
+    let mut boxed = map(ac, Box::from);
+    match boxed(sec.data.inner()) {
+        Ok((_, bx)) => Ok(bx),
+        Err(nom::Err::Error(e)) => {
+            Err(ParseError::BadSection {
+                id: sec.id,
+                location: sec.data.offset_of(e.input)
+            })
+        },
+        Err(nom::Err::Failure(e)) => {
+            Err(ParseError::BadSection {
+                id: sec.id,
+                location: sec.data.offset_of(e.input)
+            })
+        },
+        Err(nom::Err::Incomplete(_)) => {
+            Err(ParseError::TruncatedSection{ id: sec.id })
+        }
+    }
 }
 
 macro_rules! make_document {
     (@vartype Unknown) => { Box<[u8]> };
     (@vartype $typename:ty) => { Box<$typename> };
 
-    (@parse_arm $sec:ident, $tag:literal, $variantname:expr, Unknown) => { 
-        Ok((b"", $variantname(Box::from($sec.data))))
+    (@parse_arm $sec:ident, $tag:literal, $variantname:expr, Unknown) => {
+        Ok($variantname($sec.data.inner_boxed()))
     };
     (@parse_arm $sec:ident, $tag:literal, $variantname:expr, $typename:ident) => {
         {
-            let ac = all_consuming($typename::parse);
-            let boxed = map(ac, Box::from);
-            map(boxed, $variantname)($sec.data)
+            parse_section_inner::<$typename>($sec).map($variantname)
         }
     };
 
@@ -110,10 +193,10 @@ macro_rules! make_document {
             }
         }
 
-        pub fn parse_section<'a>(sec: &UnparsedSection<'a>) -> IResult<&'a [u8], Section> {
+        pub fn parse_section<'a>(sec: &UnparsedSection<'a>) -> Result<Section, ParseError> {
             match sec.r#type {
                 $( $tag => make_document!(@parse_arm sec, $tag, Section::$variantname, $typename ), )+
-                t => panic!("Wildly unknown section type {}", t)
+                _ => Err(ParseError::UnknownSectionType{id: sec.id, r#type:sec.r#type, data_offset: sec.data.offset() })
             }
         }
     }
@@ -166,14 +249,21 @@ make_document! {
     (0x12812c1a, D3DShaderLibrary,               Unknown                              )
 }
 
-pub fn parse_file<'a>(bytes: &'a [u8]) -> IResult<&'a [u8], HashMap<u32, Section>> {
-    let (_, sections) = split_to_sections(bytes)?;
+pub fn parse_file<'a>(bytes: &'a [u8]) -> Result<HashMap<u32, Section>, ParseError> {
+    let input = Subslice::from(bytes);
+    eprintln!("parse_file 1: {} {}", input.offset(), input.len());
+    let sections = match split_to_sections(input) {
+        Ok((_, s)) => s,
+        Err(nom::Err::Incomplete(e)) => panic!("Somehow got an incomplete that split_to_sections didn't notice ({:?})", e),
+        Err(nom::Err::Failure(e)) => return Err(e),
+        Err(nom::Err::Error(e)) => return Err(e),
+    };
     let mut result = HashMap::<u32, Section>::new();
     for ups in sections {
-        let (_, parsed) = parse_section(&ups)?;
+        let parsed = parse_section(&ups)?;
         result.insert(ups.id, parsed);
     }
-    return Ok((b"", result));
+    return Ok(result);
 }
 
 /// Metadata about the model file. Release Diesel never, AFAIK, actually cares about this.

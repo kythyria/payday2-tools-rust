@@ -6,10 +6,10 @@ use std::convert::TryInto;
 use std::io::{Result as IoResult};
 use std::io::{Write};
 
-use nom::{IResult, sequence::Tuple};
-use nom::bytes::complete::{is_not, tag, take_until};
+use nom::IResult;
+use nom::bytes::complete::{tag, take_until};
 use nom::combinator::{map, map_res};
-use nom::multi::{fill, length_data, length_count};
+use nom::multi::{fill, length_count};
 use nom::number::complete::{le_u8, le_u16, le_u32, le_u64, le_i8, le_i16, le_i32, le_i64, le_f32, le_f64};
 use nom::sequence::{tuple, terminated};
 use pd2tools_macros::gen_tuple_parsers;

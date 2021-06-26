@@ -136,13 +136,14 @@ fn main() {
         },
         Command::Diesel{ input } => {
             let bytes = std::fs::read(input).unwrap();
-            let (_, sections) = formats::fdm::split_to_sections(&bytes).unwrap();
+            let bs = pd2tools_rust::util::Subslice::from(bytes.as_ref());
+            let (_, sections) = formats::fdm::split_to_sections(bs).unwrap();
             println!("Section count: {}", sections.len());
             for ups in sections {
                 print!("Section {}: ", ups.id);
                 match formats::fdm::parse_section(&ups) {
-                    Ok((_, d)) => println!("{:?}", d),
-                    Err(e) => println!(" {:x}  Err({:?})", ups.r#type, e)
+                    Ok(d) => println!("{:?}", d),
+                    Err(e) => println!(" {:x}  Err({})", ups.r#type, e)
                 }
             }
         }

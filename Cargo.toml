@@ -29,7 +29,7 @@ nom = "6.1.2"
 vek = "0.15.1"
 num-traits = "0.2.14"
 git-version = "0.3.4"
-
+thiserror = "1.0.25"
 pd2tools-macros = { path = './macros' }
 
 [workspace]

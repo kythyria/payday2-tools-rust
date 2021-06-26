@@ -1,5 +1,3 @@
-use std::convert::TryInto;
-
 use pd2tools_macros::Parse;
 use crate::util::read_helpers::*;
 use crate::util::parse_helpers;

@@ -158,9 +158,11 @@ class Pd2toolsPreferences(bpy.types.AddonPreferences):
         description="Hashlist to use when importing models. The usual format: one string per line, LF line endings.",
         subtype='FILE_PATH'
     )
+    version_string = f"Pd2Tools binary version: {BINARY_VERSION}"
 
     def draw(self, context):
         layout = self.layout
+        layout.label(text=self.version_string)
         layout.prop(self, "hashlist_path")
 
 

@@ -32,8 +32,11 @@ fn pd2tools_fdm(_py: Python, m: &PyModule) -> PyResult<()> {
         };
 
         let sections = match fdm::parse_file(&bytes) {
-            Err(_) => return PyResult::Err(pyo3::exceptions::PyException::new_err("Failed parsing FDM container")),
-            Ok((_, s)) => s
+            Err(e) => {
+                let msg = format!("Failed parsing FDM: {}", e);
+                return PyResult::Err(pyo3::exceptions::PyException::new_err(msg))
+            },
+            Ok(s) => s
         };
 
         let r = ir_reader::sections_to_ir(py, &sections, &hashlist, units_per_cm, framerate);
