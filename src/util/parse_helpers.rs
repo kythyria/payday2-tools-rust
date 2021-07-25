@@ -5,6 +5,7 @@
 use std::convert::TryInto;
 use std::io::{Result as IoResult};
 use std::io::{Write};
+use std::marker::PhantomData;
 
 use nom::IResult;
 use nom::bytes::complete::{tag, take_until};
@@ -138,6 +139,51 @@ impl<T: Parse> Parse for Vec<T> {
         for i in self.iter() {
             i.serialize(output)?;
         }
+        Ok(())
+    }
+}
+
+pub struct CountedVec<C, I, IF=I>(PhantomData<(C, I, IF)>);
+impl<C, I, IF> WireFormat<Vec<I>> for CountedVec<C, I, IF>
+where
+    usize: TryInto<C>,
+    C: Parse + nom::ToUsize,
+    IF: WireFormat<I>,
+    I: Parse
+{
+    fn parse_into<'a>(input: &'a [u8]) -> IResult<&'a [u8], Vec<I>> {
+        length_count(<C as Parse>::parse, <IF as WireFormat<I>>::parse_into)(input)
+    }
+
+    fn serialize_from<O: Write>(data: &Vec<I>, output: &mut O) -> IoResult<()> {
+        let count: C = data.len().try_into().map_err(|_| std::io::ErrorKind::InvalidInput)?;
+        count.serialize(output)?;
+        for i in data.iter() {
+            <IF as WireFormat<I>>::serialize_from(i, output)?;
+        }
+        Ok(())
+    }
+}
+
+pub struct CountedUtfString<C>(PhantomData<C>);
+impl<C> WireFormat<String> for CountedUtfString<C>
+where
+    C: Parse + nom:: ToUsize,
+    usize: TryInto<C>
+{
+    fn parse_into<'a>(input: &'a [u8]) -> IResult<&'a [u8], String> {
+        nom::combinator::map_res(
+            <CountedVec<C, u8> as WireFormat<Vec<u8>>>::parse_into,
+            String::from_utf8
+        )(input)
+    }
+
+    fn serialize_from<O>(data: &String, output: &mut O) -> Result<(), std::io::Error>
+    where O: std::io::Write
+    {
+        let count: C = data.len().try_into().map_err(|_| std::io::ErrorKind::InvalidInput)?;
+        count.serialize(output)?;
+        write!(output, "{}", data)?;
         Ok(())
     }
 }

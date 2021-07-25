@@ -14,7 +14,7 @@ use thiserror::Error;
 use crate::hashindex::Hash as Idstring;
 use crate::util::AsHex;
 use crate::util::parse_helpers;
-use crate::util::parse_helpers::{ Parse, WireFormat };
+use crate::util::parse_helpers::{ Parse, WireFormat, CountedVec, CountedUtfString };
 use crate::util::Subslice;
 use pd2tools_macros::{EnumTryFrom, Parse};
 
@@ -29,7 +29,7 @@ pub enum ParseError {
     #[error("Somehow failed to parse file or section headers at offset {0}")]
     BadHeaders(usize),
 
-    #[error("Section {id} whose data is at {data_offset} has unknown type {:x}")]
+    #[error("Section {id} whose data is at {data_offset} has unknown type {r#type:x}")]
     UnknownSectionType {
         id: u32,
         r#type: u32,
@@ -64,13 +64,13 @@ impl<'a> UnparsedSection<'a> {
             Ok(d) => d,
             Err(_) => return ParseError::BadHeaders(hs).nom_err()
         };
-        eprintln!("UnparsedSection::parse 1: {} {}", input.offset(), input.len());
+        
         let (input, data) = match length_data::<_, _, (), _>(le_u32)(input) {
             Ok(d) => d,
             Err(nom::Err::Incomplete(_)) => return ParseError::TruncatedSection { id }.nom_err(),
             Err(_) => return ParseError::BadHeaders(hs).nom_err(),
         };
-        eprintln!("UnparsedSection::parse 2: {} {}\n", input.offset(), input.len());
+        
         Ok((input, UnparsedSection {
             r#type, id, data
         }))
@@ -87,14 +87,13 @@ struct Header {
 impl Header {
     fn parse<'a>(input: Subslice<'a, u8>) -> IResult<Subslice<'a, u8>, Header> {
         let (mut remain, (mut section_count, length)) = tuple((le_u32, le_u32))(input)?;
-        eprintln!("Header::parse 1: {} {}", remain.offset(), remain.len());
 
         if section_count == 0xFFFFFFFF {
             let (remain_1, count_1) = le_u32(remain)?;
             remain = remain_1;
             section_count = count_1;
         }
-        eprintln!("Header::parse 2: {} {}", remain.offset(), remain.len());
+        
         Ok((remain, Header {
             section_count,
             length
@@ -112,7 +111,6 @@ pub fn split_to_sections<'a>(input: Subslice<'a, u8>) -> IResult<Subslice<'a, u8
     let mut parsed_sections = Vec::with_capacity(header.section_count as usize);
     let mut remaining_input = input_2;
     for i in 0..header.section_count {
-        eprintln!("split_to_sections: {} {} {}", i, remaining_input.offset(), remaining_input.len());
         if remaining_input.len() == 0 {
             return ParseError::NotEnoughSections { got: i, expected:header.section_count }.nom_err()
         }
@@ -247,6 +245,8 @@ make_document! {
     (0x7f3552d1, D3DShader,                      Unknown                              )
     (0x214b1aaf, D3DShaderPass,                  Unknown                              )
     (0x12812c1a, D3DShaderLibrary,               Unknown                              )
+
+    (0x7c7844fd, ModelToolHashes,                ModelToolHashSection                 )
 }
 
 pub fn parse_file<'a>(bytes: &'a [u8]) -> Result<HashMap<u32, Section>, ParseError> {
@@ -531,7 +531,7 @@ impl parse_helpers::Parse for GeometrySection {
         for desc in descriptors {
             use GeometryAttributeType::*;
             
-            fn expand<'a, TItem, TAs>(input: &'a [u8]) -> IResult<&'a [u8], Vec4::<TItem>>
+            fn expand<'a, TItem, TAs>(input: &'a [u8]) -> IResult<&'a [u8], Vec4<TItem>>
             where TAs: Parse, Vec4<TItem>: From<TAs> {
                 map(TAs::parse, Vec4::from)(input)
             }
@@ -542,7 +542,7 @@ impl parse_helpers::Parse for GeometrySection {
                 _ => {}
             }
 
-            let (idxparse, weightparse): (fn(&'a [u8])->IResult<&'a [u8], Vec4::<u16>>, fn(&'a [u8])->IResult<&'a [u8], Vec4::<f32>>) = match desc.attribute_format {
+            let (idxparse, weightparse): (fn(&'a [u8])->IResult<&'a [u8], Vec4<u16>>, fn(&'a [u8])->IResult<&'a [u8], Vec4<f32>>) = match desc.attribute_format {
                 2 =>( expand::<u16, Vec2<u16>>, expand::<f32, Vec2<f32>> ),
                 3 => ( expand::<u16, Vec3<u16>>, expand::<f32, Vec3<f32>> ),
                 4 => ( expand::<u16, Vec4<u16>>, expand::<f32, Vec4<f32>> ),
@@ -770,4 +770,12 @@ pub struct LookAtConstrRotationControllerSection {
     pub section_1: u32,
     pub section_2: u32,
     pub section_3: u32
+}
+
+#[derive(Debug, Parse)]
+pub struct ModelToolHashSection {
+    version: u16,
+
+    #[parse_as(CountedVec<u32, String, CountedUtfString<u16>>)]
+    strings: Vec<String>
 }

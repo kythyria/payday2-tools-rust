@@ -99,7 +99,10 @@ enum Command {
 
     /// Parse a FDM-format model file and print all recognised information.
     Diesel {
-        input: String
+        input: String,
+
+        #[structopt(short, long)]
+        binary: bool
     }
 }
 
@@ -134,20 +137,38 @@ fn main() {
             let path: std::path::PathBuf = input.into();
             formats::oil::print_sections(&path);
         },
-        Command::Diesel{ input } => {
+        Command::Diesel{ input, binary } => {
             let bytes = std::fs::read(input).unwrap();
             let bs = pd2tools_rust::util::Subslice::from(bytes.as_ref());
             let (_, sections) = formats::fdm::split_to_sections(bs).unwrap();
             println!("Section count: {}", sections.len());
             for ups in sections {
                 print!("Section {}: ", ups.id);
-                match formats::fdm::parse_section(&ups) {
-                    Ok(d) => println!("{:?}", d),
-                    Err(e) => println!(" {:x}  Err({})", ups.r#type, e)
+                if binary {
+                    println!("{:8x} {:x}", ups.r#type , PrintSlice(ups.data.inner()))
+                }
+                else {
+                    match formats::fdm::parse_section(&ups) {
+                        Ok(d) => println!("{:?}", d),
+                        Err(e) => println!(" {:x}  Err({})", ups.r#type, e)
+                    }
                 }
             }
         }
     };
+}
+
+struct PrintSlice<'a, T>(&'a [T]);
+impl<'a, T: std::fmt::LowerHex> std::fmt::LowerHex for PrintSlice<'a, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[")?;
+        for i in self.0 {
+            write!(f, " ")?;
+            <T as std::fmt::LowerHex>::fmt(i, f)?
+        }
+        write!(f, " ]")?;
+        Ok(())
+    }
 }
 
 
