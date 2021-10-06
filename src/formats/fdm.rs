@@ -218,7 +218,7 @@ make_document! {
     (0x4c507a13, Topology,                       TopologySection                      )
     (0x03b634bd, TopologyIP,                     TopologyIPSection                    )
     (0x46bf31a7, Camera,                         Unknown                              )
-    (0xffa13b80, Light,                          Unknown                              )
+    (0xffa13b80, Light,                          LightSection                         )
     (0x2060697e, ConstFloatController,           Unknown                              )
     (0x6da951b2, StepFloatController,            Unknown                              )
     (0x76bf5b66, LinearFloatController,          LinearFloatControllerSection         )
@@ -423,6 +423,26 @@ pub struct RenderAtom {
 
     /// Index of the material slot this uses.
     pub material: u32
+}
+
+/// Light source
+#[derive(Debug, Parse)]
+pub struct LightSection {
+    pub object: Object3dSection,
+    pub unknown_1: u8,
+    pub light_type: LightType,
+    pub color: vek::Rgba<f32>,
+    pub near_range: f32,
+    pub far_range: f32,
+    pub unknown_6: f32,
+    pub unknown_7: f32,
+    pub unknown_8: f32
+}
+
+#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, EnumTryFrom, Parse)]
+pub enum LightType {
+    Omnidirectional = 1,
+    Spot = 2
 }
 
 /// Indirection to vertex and index data
