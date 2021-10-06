@@ -3,12 +3,13 @@
 #[macro_use]
 pub mod util;
 
-pub mod diesel_hash;
-pub mod hashindex;
 pub mod bundles;
 pub mod formats;
 pub mod hashlist_scan;
 pub mod filesystem;
+
+pub use diesel_hash;
+pub use diesel_hash::hashlist as hashindex;
 
 use std::fs;
 use std::path::{Path, PathBuf};

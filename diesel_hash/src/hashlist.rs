@@ -3,7 +3,7 @@ use std::ops::Range;
 
 use fnv::FnvHashMap;
 
-use super::diesel_hash;
+use super::hash as diesel_hash;
 
 #[derive(Copy, Clone, Eq, Ord, PartialEq, PartialOrd, Hash)]
 pub struct Hash(pub u64);

@@ -31,9 +31,10 @@ num-traits = "0.2.14"
 git-version = "0.3.4"
 thiserror = "1.0.25"
 pd2tools-macros = { path = './macros' }
+diesel_hash = { path = './diesel_hash' }
 
 [workspace]
-members = [ "xmlparser", "fdm_python", "macros" ]
+members = [ "xmlparser", "fdm_python", "macros", "diesel_hash" ]
 
 [patch.crates-io]
 xmlparser = { path = 'xmlparser' }
