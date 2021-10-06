@@ -3,3 +3,4 @@
 hashlist
 __pycache__/
 *.pyd
+blender/io_scene_diesel/.vscode/

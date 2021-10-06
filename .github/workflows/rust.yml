@@ -50,7 +50,7 @@ jobs:
         cargo build --verbose --release --package pd2tools-fdm-python
     - name: Package Blender addon
       run: |
-        cp -recurse blender-addon-dieselmodel io_scene_diesel
+        cp -recurse blender/io_scene_diesel io_scene_diesel
         cp target/release/pd2tools_fdm.dll io_scene_diesel/pd2tools_fdm.pyd
         7z a io_scene_diesel.zip io_scene_diesel
     - uses: actions/upload-artifact@v2
