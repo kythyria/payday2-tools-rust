@@ -30,7 +30,7 @@ mod transcoder;
 /// Deliberately minimal, much of the complexity in dokan only exists to
 /// support writable filesystems.
 trait ReadOnlyFs : Send + Sync {
-    fn open_readable(&self, path: &str, stream: &str) -> Result<Arc<dyn FsReadHandle>, OperationError>;
+    fn open_readable(&self, path: &str, stream: &str) -> Result<Arc<dyn FsReadHandle>, FsError>;
 }
 
 /// Trait of the handles from a read-only filesystem
@@ -41,18 +41,50 @@ trait ReadOnlyFs : Send + Sync {
 trait FsReadHandle : Send + Sync {
     fn is_dir(&self) -> bool;
     fn len(&self) -> Option<usize>;
-    fn read_at(&self, buf: &mut [u8], offset: u64) -> Result<usize, OperationError>;
-    fn find_files(&self) -> Result<Box<dyn Iterator<Item=FsDirEntry>>, OperationError>;
-    fn list_streams(&self) -> Result<Box<dyn Iterator<Item=FindStreamData>>, OperationError>;
-    fn get_file_info(&self) -> Result<FileInfo, OperationError>;
+    fn read_at(&self, buf: &mut [u8], offset: u64) -> Result<usize, FsError>;
+    fn find_files(&self) -> Result<Box<dyn Iterator<Item=FsDirEntry>>, FsError>;
+    fn list_streams(&self) -> Result<Box<dyn Iterator<Item=FsStreamEntry>>, FsError>;
+    fn get_file_info(&self) -> Result<FileInfo, FsError>;
 }
 
 #[derive(Clone)]
 struct FsDirEntry {
-    is_dir: bool,
-    size: u64,
-    modification_time: SystemTime,
-    name: String
+    pub is_dir: bool,
+    pub size: u64,
+    pub modification_time: SystemTime,
+    pub name: String
+}
+
+struct FsStreamEntry {
+    pub size: i64,
+
+    /// Name of stream, without the type or colons.
+    pub name: String
+}
+
+#[derive(Debug)]
+enum FsError {
+    PastEnd,
+    FileCorrupt,
+    NotDirectory,
+    IsDirectory,
+    NotFound,
+    ReadError,
+    OsError(i32)
+}
+
+impl From<FsError> for OperationError {
+    fn from(e: FsError) -> Self {
+        match e {
+            FsError::PastEnd => OperationError::NtStatus(ntstatus::STATUS_BEYOND_VDL),
+            FsError::FileCorrupt => OperationError::NtStatus(ntstatus::STATUS_FILE_CORRUPT_ERROR),
+            FsError::NotDirectory => OperationError::NtStatus(ntstatus::STATUS_NOT_A_DIRECTORY),
+            FsError::IsDirectory => OperationError::NtStatus(ntstatus::STATUS_FILE_IS_A_DIRECTORY),
+            FsError::NotFound => OperationError::NtStatus(ntstatus::STATUS_NOT_FOUND),
+            FsError::ReadError => OperationError::Win32(winapi::shared::winerror::ERROR_READ_FAULT),
+            FsError::OsError(oe) => OperationError::Win32(oe.try_into().unwrap())
+        }
+    }
 }
 
 struct DokanAdapter<F: ReadOnlyFs> {
@@ -154,7 +186,11 @@ impl<'ctx, 'fs: 'ctx, F: ReadOnlyFs + 'fs + 'ctx> FileSystemHandler<'ctx, 'fs> f
     ) -> Result<(), OperationError> {
         let iter = _context.handle.list_streams()?;
         for item in iter {
-            _fill_find_stream_data(&item)?;
+            let fsd = FindStreamData {
+                size: item.size,
+                name: U16CString::from_str(format!(":{}:$DATA", item.name)).unwrap()
+            };
+            _fill_find_stream_data(&fsd)?;
         }
         Ok(())
     }
@@ -165,7 +201,7 @@ impl<'ctx, 'fs: 'ctx, F: ReadOnlyFs + 'fs + 'ctx> FileSystemHandler<'ctx, 'fs> f
         _info: &OperationInfo<'ctx, 'fs, Self>,
         _context: &Self::Context
     ) -> Result<FileInfo, OperationError> {
-        _context.handle.get_file_info()
+        _context.handle.get_file_info().map_err(Into::into)
     }
 }
 

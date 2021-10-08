@@ -6,14 +6,12 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
-use dokan::{FindStreamData, OperationError, FileInfo};
-use winapi::shared::ntstatus;
-use winapi::shared::winerror;
+use dokan::FileInfo;
 use winapi::um::winnt;
 
 use crate::bundles::database::{Database, DatabaseItem, HashStrKey, ItemType};
 use crate::diesel_hash;
-use super::{ReadOnlyFs,FsReadHandle,FsDirEntry};
+use super::{ReadOnlyFs, FsReadHandle, FsDirEntry, FsError, FsStreamEntry};
 
 pub struct BundleFs{
     database: Arc<Database>
@@ -26,7 +24,7 @@ impl<'a> BundleFs {
 }
 
 impl<'ctx, 'fs: 'ctx> ReadOnlyFs for BundleFs {
-    fn open_readable(&self, path: &str, stream: &str) -> Result<Arc<dyn FsReadHandle>, OperationError> {
+    fn open_readable(&self, path: &str, stream: &str) -> Result<Arc<dyn FsReadHandle>, FsError> {
         let firstbs = path.find("\\");
         let deslashed_path = match firstbs {
             Some(0) => &path[1..],
@@ -38,19 +36,19 @@ impl<'ctx, 'fs: 'ctx> ReadOnlyFs for BundleFs {
 
         let item = self.database
             .get_by_hashes(db_path, lang, extn)
-            .ok_or(OperationError::NtStatus(ntstatus::STATUS_NOT_FOUND))?;
+            .ok_or(FsError::NotFound)?;
         
         match item.item_type() {
             ItemType::File => match stream {
                 "" => return Ok(Arc::new(RawFileHandle::new(&item))),
                 "raw" => return Ok(Arc::new(RawFileHandle::new(&item))),
                 //"info" => return Ok(file_info_stream(item)),
-                _ => Err(OperationError::NtStatus(ntstatus::STATUS_NOT_FOUND))
+                _ => Err(FsError::NotFound)
             },
             ItemType::Folder => match stream {
                 "" => return Ok(Arc::new(FolderHandle::new(&item))),
                 //"info" => Ok(folder_info_stream(item)),
-                _ => Err(OperationError::NtStatus(ntstatus::STATUS_NOT_FOUND))
+                _ => Err(FsError::NotFound)
             }
         }
     }
@@ -122,20 +120,20 @@ impl RawFileHandle {
 impl FsReadHandle for RawFileHandle {
     fn is_dir(&self) -> bool { false }
     fn len(&self) -> Option<usize> { Some(self.length) }
-    fn find_files(&self) -> Result<Box<dyn Iterator<Item=FsDirEntry>>, OperationError> {
-        Err(OperationError::NtStatus(ntstatus::STATUS_NOT_A_DIRECTORY))
+    fn find_files(&self) -> Result<Box<dyn Iterator<Item=FsDirEntry>>, FsError> {
+        Err(FsError::NotDirectory)
     }
 
-    fn list_streams(&self) -> Result<Box<dyn Iterator<Item=FindStreamData>>, OperationError> {
-        Ok(Box::new(vec![
-            FindStreamData {
-                name: widestring::U16CString::from_str(&"::$DATA").unwrap(),
+    fn list_streams(&self) -> Result<Box<dyn Iterator<Item=FsStreamEntry>>, FsError> {
+        Ok(Box::new(std::iter::once(
+            FsStreamEntry {
+                name: "".into(),
                 size: self.length.try_into().unwrap()
             }
-        ].into_iter()))
+        )))
     }
 
-    fn get_file_info(&self) -> Result<FileInfo, OperationError> {
+    fn get_file_info(&self) -> Result<FileInfo, FsError> {
         Ok(FileInfo {
             attributes: winnt::FILE_ATTRIBUTE_READONLY,
             file_size: self.length as u64,
@@ -147,7 +145,7 @@ impl FsReadHandle for RawFileHandle {
         })
     }
 
-    fn read_at(&self, buf: &mut [u8], offset: u64) -> Result<usize, OperationError> {
+    fn read_at(&self, buf: &mut [u8], offset: u64) -> Result<usize, FsError> {
         let mut mg = self.backing_store.try_lock().unwrap();
         let backing = mg.get_or_insert_with(|| {
             let file_result = fs::File::open(&self.storage_path);
@@ -169,12 +167,11 @@ impl FsReadHandle for RawFileHandle {
         let capped_buf = &mut buf[0..(amount_to_read)];
 
         let res = backing.seek_read(capped_buf, read_from as u64);
-        return res.or_else(|e| {
-            let err = match e.raw_os_error(){
-                Some(error) => error.try_into().unwrap(),
-                None => winerror::ERROR_READ_FAULT
-            };
-            Err(OperationError::Win32(err))
+        return res.map_err(|e| {
+            match e.raw_os_error(){
+                Some(error) => FsError::OsError(error),
+                None => FsError::ReadError
+            }
         });
     }
 }
@@ -205,21 +202,21 @@ impl FolderHandle {
 impl FsReadHandle for FolderHandle {
     fn is_dir(&self) -> bool { true }
     fn len(&self) -> Option<usize> { None }
-    fn find_files(&self) -> Result<Box<dyn Iterator<Item=FsDirEntry>>, OperationError> {
+    fn find_files(&self) -> Result<Box<dyn Iterator<Item=FsDirEntry>>, FsError> {
         Ok(Box::new(self.items.clone().into_iter()))
     }
-    fn read_at(&self, _buf: &mut [u8], _offset: u64) -> Result<usize, OperationError> { 
-        Err(OperationError::NtStatus(ntstatus::STATUS_FILE_IS_A_DIRECTORY))
+    fn read_at(&self, _buf: &mut [u8], _offset: u64) -> Result<usize, FsError> {
+        Err(FsError::IsDirectory)
     }
-    fn list_streams(&self) -> Result<Box<dyn Iterator<Item=FindStreamData>>, OperationError> {
-        Ok(Box::new(vec![
-            FindStreamData {
-                name: widestring::U16CString::from_str(&":info").unwrap(),
+    fn list_streams(&self) -> Result<Box<dyn Iterator<Item=FsStreamEntry>>, FsError> {
+        Ok(Box::new(std::iter::once(
+            FsStreamEntry {
+                name: String::from("info"),
                 size: 0
             }
-        ].into_iter()))
+        )))
     }
-    fn get_file_info(&self) -> Result<FileInfo, OperationError> {
+    fn get_file_info(&self) -> Result<FileInfo, FsError> {
         Ok(FileInfo {
             attributes: winnt::FILE_ATTRIBUTE_READONLY | winnt::FILE_ATTRIBUTE_DIRECTORY,
             file_size: 0,

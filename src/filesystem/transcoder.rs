@@ -3,12 +3,11 @@ use std::io::Read;
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use dokan::*;
-use winapi::shared::ntstatus;
+use dokan::FileInfo;
 use winapi::um::winnt;
 
 use crate::hashindex::HashIndex;
-use super::{ReadOnlyFs, FsReadHandle, FsDirEntry};
+use super::{ReadOnlyFs, FsReadHandle, FsDirEntry, FsError, FsStreamEntry};
 
 pub(super) struct TranscoderFs<'a> {
     hashlist: Arc<HashIndex>,
@@ -25,7 +24,7 @@ impl<'a> TranscoderFs<'a> {
 }
 
 impl ReadOnlyFs for TranscoderFs<'_> {
-    fn open_readable(&self, path: &str, stream: &str) -> Result<Arc<dyn FsReadHandle>, OperationError> {
+    fn open_readable(&self, path: &str, stream: &str) -> Result<Arc<dyn FsReadHandle>, FsError> {
         let mut real_path = path.to_owned();
         let maybe_rule = TRANSCODE_RULES.iter().find(|i| real_path.ends_with(i.displayed_extension));
         match maybe_rule {
@@ -73,16 +72,16 @@ struct FolderHandle {
 impl FsReadHandle for FolderHandle {
     fn is_dir(&self) -> bool { true }
     fn len(&self) -> Option<usize> { self.backing.len() }
-    fn get_file_info(&self) -> Result<FileInfo, OperationError> {
+    fn get_file_info(&self) -> Result<FileInfo, FsError> {
         self.backing.get_file_info()
     }
-    fn read_at(&self, buf: &mut [u8], offset: u64) -> Result<usize, OperationError> {
+    fn read_at(&self, buf: &mut [u8], offset: u64) -> Result<usize, FsError> {
         self.backing.read_at(buf, offset)
     }
-    fn list_streams(&self) -> Result<Box<dyn Iterator<Item=FindStreamData>>, OperationError> {
+    fn list_streams(&self) -> Result<Box<dyn Iterator<Item=FsStreamEntry>>, FsError> {
         self.backing.list_streams()
     }
-    fn find_files(&self) -> Result<Box<dyn Iterator<Item=FsDirEntry>>, OperationError> {
+    fn find_files(&self) -> Result<Box<dyn Iterator<Item=FsDirEntry>>, FsError> {
         let backing_iter = self.backing.find_files()?;
         Ok(Box::new(backing_iter.map(|fd| {
             let mut newname = String::from(fd.name);
@@ -111,26 +110,26 @@ struct VecFileHandle {
 impl FsReadHandle for VecFileHandle {
     fn is_dir(&self) -> bool { false }
     fn len(&self) -> Option<usize> { Some(self.data.len()) }
-    fn read_at(&self, buf: &mut [u8], offset: u64) -> Result<usize, OperationError> {
+    fn read_at(&self, buf: &mut [u8], offset: u64) -> Result<usize, FsError> {
         let ofs: usize = offset.try_into().unwrap_or(usize::MAX);
         if ofs > self.data.len() {
-            return Err(OperationError::NtStatus(ntstatus::STATUS_BEYOND_VDL))
+            return Err(FsError::PastEnd)
         }
         let mut bs = &self.data[ofs..];
-        bs.read(buf).or(Err(OperationError::NtStatus(ntstatus::STATUS_FILE_CORRUPT_ERROR)))
+        bs.read(buf).or(Err(FsError::FileCorrupt))
     }
-    fn find_files(&self) -> Result<Box<dyn Iterator<Item=FsDirEntry>>, OperationError> {
-        Err(OperationError::NtStatus(ntstatus::STATUS_NOT_A_DIRECTORY))
+    fn find_files(&self) -> Result<Box<dyn Iterator<Item=FsDirEntry>>, FsError> {
+        Err(FsError::NotDirectory)
     }
-    fn list_streams(&self) -> Result<Box<dyn Iterator<Item=FindStreamData>>, OperationError> {
-        Ok(Box::new(vec![
-            FindStreamData {
-                name: widestring::U16CString::from_str(&"::$DATA").unwrap(),
+    fn list_streams(&self) -> Result<Box<dyn Iterator<Item=FsStreamEntry>>, FsError> {
+        Ok(Box::new(std::iter::once(
+            FsStreamEntry {
+                name: String::from("raw"),
                 size: self.data.len() as i64
             }
-        ].into_iter()))
+        )))
     }
-    fn get_file_info(&self) -> Result<FileInfo, OperationError> {
+    fn get_file_info(&self) -> Result<FileInfo, FsError> {
         Ok(FileInfo {
             attributes: winnt::FILE_ATTRIBUTE_READONLY,
             file_size: self.data.len() as u64,

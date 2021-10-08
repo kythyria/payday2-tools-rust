@@ -4,11 +4,10 @@ use std::io::Read;
 use std::iter;
 use std::time::SystemTime;
 
-use dokan::*;
-use winapi::shared::ntstatus;
+use dokan::FileInfo;
 use winapi::um::winnt;
 
-use super::{FsReadHandle, FsDirEntry};
+use super::{ReadOnlyFs, FsReadHandle, FsDirEntry, FsError, FsStreamEntry};
 
 pub struct StaticFile<'a> {
     pub data: &'a [u8],
@@ -19,30 +18,30 @@ pub struct StaticFile<'a> {
 impl<'a> FsReadHandle for StaticFile<'a> {
     fn is_dir(&self) -> bool { false }
     fn len(&self) -> Option<usize> { Some(self.data.len()) }
-    fn read_at(&self, buf: &mut [u8], offset: u64) -> Result<usize, OperationError> {
+    fn read_at(&self, buf: &mut [u8], offset: u64) -> Result<usize, FsError> {
         let ofs: usize = offset.try_into().unwrap_or(usize::MAX);
         if ofs > self.data.len() {
-            return Err(OperationError::NtStatus(ntstatus::STATUS_BEYOND_VDL))
+            return Err(FsError::PastEnd);
         }
         let mut bs = &self.data[ofs..];
-        bs.read(buf).or(Err(OperationError::NtStatus(ntstatus::STATUS_FILE_CORRUPT_ERROR)))
+        bs.read(buf).or(Err(FsError::FileCorrupt))
     }
-    fn find_files(&self) -> Result<Box<dyn Iterator<Item=FsDirEntry>>, OperationError> {
-        Err(OperationError::NtStatus(ntstatus::STATUS_NOT_A_DIRECTORY))
+    fn find_files(&self) -> Result<Box<dyn Iterator<Item=FsDirEntry>>, FsError> {
+        Err(FsError::NotDirectory)
     }
-    fn list_streams(&self) -> Result<Box<dyn Iterator<Item=FindStreamData>>, OperationError> {
+    fn list_streams(&self) -> Result<Box<dyn Iterator<Item=FsStreamEntry>>, FsError> {
         Ok(Box::new(vec![
-            FindStreamData {
-                name: widestring::U16CString::from_str(&"::$DATA").unwrap(),
+            FsStreamEntry {
+                name: String::from(""),
                 size: self.data.len() as i64
             },
-            FindStreamData {
-                name: widestring::U16CString::from_str(&":raw").unwrap(),
+            FsStreamEntry {
+                name: String::from("raw"),
                 size: b"Hello World!".len() as i64
             }
         ].into_iter()))
     }
-    fn get_file_info(&self) -> Result<FileInfo, OperationError> {
+    fn get_file_info(&self) -> Result<FileInfo, FsError> {
         Ok(FileInfo {
             attributes: winnt::FILE_ATTRIBUTE_READONLY,
             file_size: self.data.len() as u64,
@@ -59,14 +58,14 @@ pub struct TestFs {
 
 }
 
-impl<'ctx, 'fs: 'ctx> super::ReadOnlyFs for TestFs {
-    fn open_readable(&self, path: &str, stream: &str) -> Result<Arc<dyn FsReadHandle>, OperationError> {
+impl<'ctx, 'fs: 'ctx> ReadOnlyFs for TestFs {
+    fn open_readable(&self, path: &str, stream: &str) -> Result<Arc<dyn FsReadHandle>, FsError> {
         if path == "\\test.txt" {
             Ok(Arc::new(StaticFile {
                 data: match stream {
                     "" => b"Be alert, your country needs lerts.",
                     "raw" => b"Hello World!",
-                    _ => return Err(OperationError::NtStatus(ntstatus::STATUS_NOT_FOUND))
+                    _ => return Err(FsError::NotFound)
                 },
                 timestamp: SystemTime::UNIX_EPOCH,
                 file_id: 1
@@ -76,7 +75,7 @@ impl<'ctx, 'fs: 'ctx> super::ReadOnlyFs for TestFs {
             Ok(Arc::new(TestDir { }))
         }
         else {
-            Err(OperationError::NtStatus(ntstatus::STATUS_NOT_FOUND))
+            Err(FsError::NotFound)
         }
     }
 }
@@ -85,13 +84,13 @@ struct TestDir { }
 impl super::FsReadHandle for TestDir {
     fn is_dir(&self) -> bool { true }
     fn len(&self) -> Option<usize> { None }
-    fn read_at(&self, _buf: &mut [u8], _offset: u64) -> Result<usize, OperationError> { 
-        Err(OperationError::NtStatus(ntstatus::STATUS_FILE_IS_A_DIRECTORY))
+    fn read_at(&self, _buf: &mut [u8], _offset: u64) -> Result<usize, FsError> { 
+        Err(FsError::IsDirectory)
     }
-    fn list_streams(&self) -> Result<Box<dyn Iterator<Item=FindStreamData>>, OperationError> {
-        Err(OperationError::NtStatus(ntstatus::STATUS_FILE_IS_A_DIRECTORY))
+    fn list_streams(&self) -> Result<Box<dyn Iterator<Item=FsStreamEntry>>, FsError> {
+        Err(FsError::IsDirectory)
     }
-    fn find_files(&self) -> Result<Box<dyn Iterator<Item=FsDirEntry>>, OperationError> {
+    fn find_files(&self) -> Result<Box<dyn Iterator<Item=FsDirEntry>>, FsError> {
         Ok(Box::new(iter::once(
             FsDirEntry {
                 name: String::from("test.text"),
@@ -101,7 +100,7 @@ impl super::FsReadHandle for TestDir {
             }
         )))
     }
-    fn get_file_info(&self) -> Result<FileInfo, OperationError> {
+    fn get_file_info(&self) -> Result<FileInfo, FsError> {
         Ok(FileInfo {
             attributes: winnt::FILE_ATTRIBUTE_READONLY | winnt::FILE_ATTRIBUTE_DIRECTORY,
             file_size: 0,
