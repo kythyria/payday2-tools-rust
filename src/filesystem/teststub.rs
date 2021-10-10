@@ -4,10 +4,7 @@ use std::io::Read;
 use std::iter;
 use std::time::SystemTime;
 
-use dokan::FileInfo;
-use winapi::um::winnt;
-
-use super::{ReadOnlyFs, FsReadHandle, FsDirEntry, FsError, FsStreamEntry};
+use super::{ReadOnlyFs, FsReadHandle, FsDirEntry, FsError, FsFileInfo, FsStreamEntry};
 
 pub struct StaticFile<'a> {
     pub data: &'a [u8],
@@ -41,9 +38,10 @@ impl<'a> FsReadHandle for StaticFile<'a> {
             }
         ].into_iter()))
     }
-    fn get_file_info(&self) -> Result<FileInfo, FsError> {
-        Ok(FileInfo {
-            attributes: winnt::FILE_ATTRIBUTE_READONLY,
+    fn get_file_info(&self) -> Result<FsFileInfo, FsError> {
+        Ok(FsFileInfo {
+            is_dir: false,
+            read_only: true,
             file_size: self.data.len() as u64,
             file_index: self.file_id,
             creation_time: self.timestamp,
@@ -100,9 +98,10 @@ impl super::FsReadHandle for TestDir {
             }
         )))
     }
-    fn get_file_info(&self) -> Result<FileInfo, FsError> {
-        Ok(FileInfo {
-            attributes: winnt::FILE_ATTRIBUTE_READONLY | winnt::FILE_ATTRIBUTE_DIRECTORY,
+    fn get_file_info(&self) -> Result<FsFileInfo, FsError> {
+        Ok(FsFileInfo {
+            is_dir: true,
+            read_only: true,
             file_size: 0,
             file_index: 0,
             creation_time: SystemTime::UNIX_EPOCH,

@@ -6,12 +6,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
-use dokan::FileInfo;
-use winapi::um::winnt;
-
 use crate::bundles::database::{Database, DatabaseItem, HashStrKey, ItemType};
 use crate::diesel_hash;
-use super::{ReadOnlyFs, FsReadHandle, FsDirEntry, FsError, FsStreamEntry};
+use super::{ReadOnlyFs, FsReadHandle, FsDirEntry, FsError, FsFileInfo, FsStreamEntry};
 
 pub struct BundleFs{
     database: Arc<Database>
@@ -133,9 +130,10 @@ impl FsReadHandle for RawFileHandle {
         )))
     }
 
-    fn get_file_info(&self) -> Result<FileInfo, FsError> {
-        Ok(FileInfo {
-            attributes: winnt::FILE_ATTRIBUTE_READONLY,
+    fn get_file_info(&self) -> Result<FsFileInfo, FsError> {
+        Ok(FsFileInfo {
+            is_dir: false,
+            read_only: true,
             file_size: self.length as u64,
             file_index: self.file_id,
             creation_time: self.last_modified,
@@ -216,9 +214,10 @@ impl FsReadHandle for FolderHandle {
             }
         )))
     }
-    fn get_file_info(&self) -> Result<FileInfo, FsError> {
-        Ok(FileInfo {
-            attributes: winnt::FILE_ATTRIBUTE_READONLY | winnt::FILE_ATTRIBUTE_DIRECTORY,
+    fn get_file_info(&self) -> Result<FsFileInfo, FsError> {
+        Ok(FsFileInfo {
+            is_dir: true,
+            read_only: true,
             file_size: 0,
             file_index: 0,
             creation_time: SystemTime::UNIX_EPOCH,

@@ -44,7 +44,7 @@ trait FsReadHandle : Send + Sync {
     fn read_at(&self, buf: &mut [u8], offset: u64) -> Result<usize, FsError>;
     fn find_files(&self) -> Result<Box<dyn Iterator<Item=FsDirEntry>>, FsError>;
     fn list_streams(&self) -> Result<Box<dyn Iterator<Item=FsStreamEntry>>, FsError>;
-    fn get_file_info(&self) -> Result<FileInfo, FsError>;
+    fn get_file_info(&self) -> Result<FsFileInfo, FsError>;
 }
 
 #[derive(Clone)]
@@ -60,6 +60,30 @@ struct FsStreamEntry {
 
     /// Name of stream, without the type or colons.
     pub name: String
+}
+
+struct FsFileInfo {
+    /// The time when the file was created.
+	pub creation_time: SystemTime,
+
+	/// The time when the file was last accessed.
+	pub last_access_time: SystemTime,
+
+	/// The time when the file was last written to.
+	pub last_write_time: SystemTime,
+
+	/// Size of the file.
+	pub file_size: u64,
+
+	/// Number of hardlinks to the file.
+	pub number_of_links: u32,
+
+	/// The index that uniquely identifies the file in a volume.
+	pub file_index: u64,
+
+    pub is_dir: bool,
+
+    pub read_only: bool,
 }
 
 #[derive(Debug)]
@@ -201,7 +225,23 @@ impl<'ctx, 'fs: 'ctx, F: ReadOnlyFs + 'fs + 'ctx> FileSystemHandler<'ctx, 'fs> f
         _info: &OperationInfo<'ctx, 'fs, Self>,
         _context: &Self::Context
     ) -> Result<FileInfo, OperationError> {
-        _context.handle.get_file_info().map_err(Into::into)
+        let fi = _context.handle.get_file_info()?;
+        let mut att = 0;
+        if fi.is_dir {
+            att |= winnt::FILE_ATTRIBUTE_DIRECTORY;
+        }
+        if fi.read_only {
+            att |= winnt::FILE_ATTRIBUTE_READONLY;
+        }
+        Ok(FileInfo {
+            creation_time: fi.creation_time,
+            last_access_time: fi.last_access_time,
+            last_write_time: fi.last_write_time,
+            file_index: fi.file_index,
+            file_size: fi.file_size,
+            number_of_links: fi.number_of_links,
+            attributes: att
+        })
     }
 }
 

@@ -3,11 +3,8 @@ use std::io::Read;
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use dokan::FileInfo;
-use winapi::um::winnt;
-
 use crate::hashindex::HashIndex;
-use super::{ReadOnlyFs, FsReadHandle, FsDirEntry, FsError, FsStreamEntry};
+use super::{ReadOnlyFs, FsReadHandle, FsDirEntry, FsError, FsFileInfo, FsStreamEntry};
 
 pub(super) struct TranscoderFs<'a> {
     hashlist: Arc<HashIndex>,
@@ -72,7 +69,7 @@ struct FolderHandle {
 impl FsReadHandle for FolderHandle {
     fn is_dir(&self) -> bool { true }
     fn len(&self) -> Option<usize> { self.backing.len() }
-    fn get_file_info(&self) -> Result<FileInfo, FsError> {
+    fn get_file_info(&self) -> Result<FsFileInfo, FsError> {
         self.backing.get_file_info()
     }
     fn read_at(&self, buf: &mut [u8], offset: u64) -> Result<usize, FsError> {
@@ -129,9 +126,10 @@ impl FsReadHandle for VecFileHandle {
             }
         )))
     }
-    fn get_file_info(&self) -> Result<FileInfo, FsError> {
-        Ok(FileInfo {
-            attributes: winnt::FILE_ATTRIBUTE_READONLY,
+    fn get_file_info(&self) -> Result<FsFileInfo, FsError> {
+        Ok(FsFileInfo {
+            is_dir: false,
+            read_only: true,
             file_size: self.data.len() as u64,
             file_index: self.file_id,
             creation_time: self.timestamp,
