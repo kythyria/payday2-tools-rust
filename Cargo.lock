@@ -408,6 +408,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "pd2tools-bundlefs"
+version = "0.1.0"
+dependencies = [
+ "pd2tools-rust",
+ "structopt",
+]
+
+[[package]]
 name = "pd2tools-fdm-python"
 version = "0.1.0"
 dependencies = [

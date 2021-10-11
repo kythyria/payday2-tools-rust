@@ -34,7 +34,7 @@ pd2tools-macros = { path = './macros' }
 diesel_hash = { path = './diesel_hash' }
 
 [workspace]
-members = [ "xmlparser", "blender/fdm_python", "macros", "diesel_hash" ]
+members = [ "xmlparser", "blender/fdm_python", "macros", "diesel_hash", "bundlefs" ]
 
 [patch.crates-io]
 xmlparser = { path = 'xmlparser' }
