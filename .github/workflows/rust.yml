@@ -46,8 +46,7 @@ jobs:
 
     - name: Build
       run: |
-        cargo build --verbose --release
-        cargo build --verbose --release --package pd2tools-fdm-python
+        cargo build --workspace --verbose --release
     - name: Package Blender addon
       run: |
         cp -recurse blender/io_scene_diesel io_scene_diesel

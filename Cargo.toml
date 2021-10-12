@@ -13,9 +13,6 @@ lto = true
 default = []
 
 [dependencies]
-dokan = "0.1.0"
-widestring = "0.4.3"
-winapi = "0.3.9"
 fnv = "1.0.7"
 clap = "2.33.3"
 xmlwriter = "0.1.0"

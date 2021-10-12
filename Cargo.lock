@@ -411,8 +411,11 @@ dependencies = [
 name = "pd2tools-bundlefs"
 version = "0.1.0"
 dependencies = [
+ "dokan",
  "pd2tools-rust",
  "structopt",
+ "widestring",
+ "winapi",
 ]
 
 [[package]]
@@ -444,7 +447,6 @@ dependencies = [
  "chrono",
  "clap",
  "diesel_hash",
- "dokan",
  "fnv",
  "git-version",
  "nom",
@@ -455,8 +457,6 @@ dependencies = [
  "structopt",
  "thiserror",
  "vek",
- "widestring",
- "winapi",
  "xmlparser",
  "xmlwriter",
 ]

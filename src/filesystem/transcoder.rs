@@ -6,13 +6,13 @@ use std::time::SystemTime;
 use crate::hashindex::HashIndex;
 use super::{ReadOnlyFs, FsReadHandle, FsDirEntry, FsError, FsFileInfo, FsStreamEntry};
 
-pub(super) struct TranscoderFs<'a> {
+pub struct TranscoderFs<'a> {
     hashlist: Arc<HashIndex>,
     backing: Arc<dyn ReadOnlyFs + 'a>
 }
 
 impl<'a> TranscoderFs<'a> {
-    pub(super) fn new(hashlist: Arc<HashIndex>, backing: Arc<dyn ReadOnlyFs + 'a>) -> TranscoderFs<'a> {
+    pub fn new(hashlist: Arc<HashIndex>, backing: Arc<dyn ReadOnlyFs + 'a>) -> TranscoderFs<'a> {
         TranscoderFs {
             hashlist,
             backing
