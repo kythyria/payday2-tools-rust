@@ -1,3 +1,4 @@
+use std::path::{Path, PathBuf};
 use std::vec::Vec;
 use std::io::{Read,Write};
 
@@ -65,10 +66,10 @@ enum Command {
 
     /// Scan packages for strings
     Scan {
-        /// Directory containing bundle_db.blb
-        asset_dir: String,
         /// File to write the strings to
-        output: String
+        output: String,
+        /// Directory containing bundle_db.blb (autodetect if omitted)
+        asset_dir: Option<String>,
     },
 
     /// Convert between scriptdata formats
@@ -124,10 +125,27 @@ fn main() {
         },
         Command::ReadPackages{ asset_dir } => {
             if let Some(hashlist) = get_hashlist(&opt.hashlist) {
-                do_readpkg(hashlist, &asset_dir)
+                do_readpkg(hashlist, &PathBuf::from(asset_dir))
             }
         },
         Command::Scan{ asset_dir, output } => {
+            let asset_dir = match asset_dir {
+                Some(ad) => std::path::PathBuf::from(ad),
+                None => {
+                    let mebbe = steam::try_get_app_directory("218620");
+                    match mebbe {
+                        Ok(mut p) => {
+                            p.push("assets");
+                            p
+                        },
+                        Err(e) => {
+                            println!("Unable to find game directory: {}", e);
+                            println!("Maybe supply it as an explicit parameter?");
+                            return;
+                        }
+                    }
+                }
+            };
             do_scan(&opt.hashlist, &asset_dir, &output)
         },
         Command::Convert{ input, output, input_format, output_format, events } => {
@@ -188,7 +206,7 @@ fn do_unhash(hashlist: hashindex::HashIndex, texts: &Vec<String>, radix: u32) {
     }
 }
 
-fn do_readpkg(hashlist: hashindex::HashIndex, asset_dir: &str) {
+fn do_readpkg(hashlist: hashindex::HashIndex, asset_dir: &Path) {
     let r_bdb = get_packagedb(hashlist, asset_dir);
 
     match r_bdb {
@@ -199,7 +217,7 @@ fn do_readpkg(hashlist: hashindex::HashIndex, asset_dir: &str) {
     }
 }
 
-fn do_scan(hashlist_filename: &Option<String>, asset_dir: &str, outname: &str) {
+fn do_scan(hashlist_filename: &Option<String>, asset_dir: &Path, outname: &str) {
     let hashlist = get_hashlist(hashlist_filename).unwrap();
     let db = get_packagedb(hashlist, asset_dir).unwrap();
     let mut outfile = std::fs::OpenOptions::new().create(true).write(true).open(outname).unwrap();

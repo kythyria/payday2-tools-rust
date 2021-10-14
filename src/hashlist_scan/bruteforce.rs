@@ -18,13 +18,19 @@ pub fn scan_cubelights(database: &Database) -> Vec<Box<str>> {
     }).collect();
 
     let cubelight_fmap = worlds.par_iter().flat_map(|world| {
-        let alloc_len = world.len() + "/cube_lights/".len() + 6;
+        let alloc_len = world.len() + "/cube_lights/".len() + 7;
         let world = *world;
         (0..1000000).into_par_iter().map_init(
-            move ||{ String::with_capacity(alloc_len) },
-            move |buf, n| {
-                buf.clear();
-                write!(buf, "{}/cube_lights/{}", world, n).unwrap();
+            move ||{ 
+                let mut st = String::with_capacity(alloc_len);
+                write!(st, "{}/cube_lights/", world).unwrap();
+                let bl = st.len();
+                (st, bl)
+            },
+            move |(buf, bl), n| {
+                //buf.clear();
+                buf.truncate(*bl);
+                write!(buf, "{}", n).unwrap();
                 let hsh = dhash(&buf);
                 match database.get_by_hashes(hsh, dhash(""), dhash("texture")) {
                     Some(_) => {

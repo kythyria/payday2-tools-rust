@@ -1,4 +1,5 @@
 use std::convert::TryInto;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use dokan::*;
@@ -19,17 +20,36 @@ struct Opt {
     #[structopt(short, long)]
     hashlist: Option<String>,
 
-    /// Directory containing bundle_db.blb
-    asset_dir: String,
     /// Drive letter to mount on
-    mountpoint: String
+    mountpoint: String,
+
+    /// Directory containing bundle_db.blb
+    asset_dir: Option<String>
 }
 
 fn main() {
     let opt = Opt::from_args();
 
+    let asset_dir = match opt.asset_dir {
+        Some(ad) => PathBuf::from(ad),
+        None => {
+            let mebbe = steam::try_get_app_directory("218620");
+            match mebbe {
+                Ok(mut p) => {
+                    p.push("assets");
+                    p
+                },
+                Err(e) => {
+                    println!("Unable to find game directory: {}", e);
+                    println!("Maybe supply it as an explicit parameter?");
+                    return;
+                }
+            }
+        }
+    };
+
     let hashlist = pd2tools_rust::get_hashlist(&opt.hashlist).unwrap();
-    let db = pd2tools_rust::get_packagedb(hashlist, &opt.asset_dir).unwrap();
+    let db = pd2tools_rust::get_packagedb(hashlist, &asset_dir).unwrap();
     mount_cooked_database(&opt.mountpoint, db.hashes.clone(), Arc::new(db));
 }
 

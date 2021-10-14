@@ -1,15 +1,15 @@
 [package]
-name = "pd2tools-bundlefs"
+name = "steam"
 version = "0.1.0"
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-pd2tools-rust = { path = ".." }
-steam = { path = "../steam" }
+logos = "0.12.0"
+thiserror = "1.0.30"
 
-dokan = "0.1.0"
-structopt = "0.3.21"
+[target.'cfg(windows)'.dependencies]
+#winapi = "0.3.9"
 widestring = "0.4.3"
-winapi = "0.3.9"
+registry = "1.2.0"

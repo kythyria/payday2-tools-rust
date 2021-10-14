@@ -16,9 +16,8 @@ use std::path::{Path, PathBuf};
 
 use hashindex::HashIndex;
 
-pub fn get_packagedb<'a>(hashlist: hashindex::HashIndex, asset_dir: &str) -> Result<bundles::database::Database, bundles::ReadError> {
-    let path = std::path::PathBuf::from(asset_dir);
-    let coll = bundles::loader::load_bundle_dir(&path)?;
+pub fn get_packagedb<'a>(hashlist: hashindex::HashIndex, asset_dir: &Path) -> Result<bundles::database::Database, bundles::ReadError> {
+    let coll = bundles::loader::load_bundle_dir(asset_dir)?;
 
     println!("Packages: {}", coll.1.len());
     println!("BDB Entries: {}", coll.0.files.len());
