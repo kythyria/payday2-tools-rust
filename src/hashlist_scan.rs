@@ -52,6 +52,9 @@ pub fn do_scan<W: std::io::Write>(db: &Database, output: &mut W) -> io::Result<(
     eprintln_time!("Brute forcing material suffixes");
     found.extend(bruteforce::scan_mat_suffixes(db).iter().map(|s| Rc::from(s.as_ref())));
 
+    eprintln_time!("Brute forcing units");
+    found.extend(bruteforce::scan_unit_suffixes(db).iter().map(|s| Rc::from(s.as_ref())));
+
     eprintln_time!("Scan complete. Saving {} strings", found.len());
     let mut ordered: Vec<Rc<str>> = Vec::from_iter(found.drain());
     ordered.sort();

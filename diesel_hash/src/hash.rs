@@ -121,3 +121,7 @@ pub const fn hash_level(k : &[u8], level: u64) -> u64 {
 }
 
 pub const EMPTY: u64 = hash_str("");
+pub const SEQUENCE_MANAGER: u64 = hash_str("sequence_manager");
+pub const TEXTURE: u64 = hash_str("texture");
+pub const MATERIAL_CONFIG: u64 = hash_str("material_config");
+pub const UNIT: u64 = hash_str("unit");
