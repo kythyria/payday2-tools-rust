@@ -1,5 +1,4 @@
 use std::fmt::Write;
-use std::rc::Rc;
 
 use fnv::FnvHashSet;
 use rayon::prelude::*;

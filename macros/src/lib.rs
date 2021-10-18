@@ -231,3 +231,42 @@ fn get_skipbefore<'a>(attrs: &'a Vec<Attribute>) -> syn::Result<Option<LitInt>> 
         Ok(None)
     }
 }
+
+#[proc_macro_derive(EnumFromData)]
+pub fn derive_enum_from_data(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input = parse_macro_input!(item as syn::ItemEnum);
+    
+    let trees = input.variants.iter().map(|variant| {
+        match &variant.fields {
+            Fields::Named(n) => quote_spanned! {
+                n.span() => compile_error!("Variants must be tuples")
+            },
+            Fields::Unit => quote_spanned! {
+                variant.ident.span() => compile_error!("Variants must be tuples")
+            },
+            Fields::Unnamed(fields) => {
+                if fields.unnamed.len() != 1 {
+                    quote_spanned! {
+                        fields.span() => compile_error!("Variants must have one item")
+                    }
+                }
+                else {
+                    let span = variant.span();
+                    let from_type = &variant.fields.iter().next().unwrap();
+                    let enum_type = &input.ident;
+                    let variant_name = &variant.ident;
+                    let generics = &input.generics;
+            
+                    quote_spanned! { span => 
+                        impl#generics From<#from_type> for #enum_type#generics {
+                            fn from(src: #from_type) -> Self {
+                                #enum_type::#variant_name(src)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+    TokenStream::from(quote!{ #(#trees)* }).into()
+}

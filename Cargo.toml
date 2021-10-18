@@ -8,6 +8,7 @@ edition = "2018"
 
 [profile.release]
 lto = true
+debug = 1
 
 [features]
 default = []
@@ -32,7 +33,7 @@ diesel_hash = { path = './diesel_hash' }
 steam = { path = "./steam" }
 
 [workspace]
-members = [ "xmlparser", "blender/fdm_python", "macros", "diesel_hash", "bundlefs", "steam" ]
+members = [ "xmlparser", "blender/fdm_python", "macros", "diesel_hash", "bundlefs", "steam", "scriptdata" ]
 
 [patch.crates-io]
 xmlparser = { path = 'xmlparser' }
