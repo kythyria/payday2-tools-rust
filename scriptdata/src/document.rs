@@ -1,9 +1,10 @@
 use std::rc::Rc;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::thread::Builder;
 
 use pd2tools_macros::EnumFromData;
 
-use crate::ScriptdataWriter;
+use crate::{ElementWriter, ReopeningWriter, ScriptdataWriter};
 
 #[derive(Debug, Clone)]
 pub struct DocumentRef(Rc<DocumentData>);
@@ -158,7 +159,47 @@ impl Iterator for IPairs {
     }
 }
 
-pub struct DocumentBuilder {
+pub struct DocumentBuilder();
+impl ScriptdataWriter for DocumentBuilder {
+    type Error = ();
+    type Output = DocumentRef;
+    type ElementWriter = TablesBuilder;
+
+    fn scalar_document<I: Into<ScalarItem>>(&mut self, value: I) -> Result<Self::Output, Self::Error> {
+        let item = value.into();
+        if let ScalarItem::Table(_) = item {
+            return Err(());
+        }
+        let dd = DocumentData {
+            root: Some(item.into()),
+            tables: Vec::new()
+        };
+        Ok(DocumentRef(Rc::new(dd)))
+    }
+
+    fn table_document(&mut self, meta: Option<&str>) -> Self::ElementWriter {
+        let mut sc = HashSet::<Rc<str>>::default();
+        let meta = meta.map(|st|{
+            let st = Rc::<str>::from(st);
+            sc.insert(st.clone());
+            st
+        });
+        TablesBuilder {
+            state: BuilderState::NextKey,
+            root: Some(ScalarItem::Table(TableId(0))),
+            tables: vec![
+                TableData {
+                    meta,
+                    ..Default::default()
+                }
+            ],
+            current_table: vec![ TableId(0) ],
+            string_cache: sc
+        }
+    }
+}
+
+pub struct TablesBuilder {
     state: BuilderState,
     root: Option<ScalarItem>,
     tables: Vec<TableData>,
@@ -166,16 +207,7 @@ pub struct DocumentBuilder {
     string_cache: HashSet<Rc<str>>
 }
 
-impl DocumentBuilder {
-    fn new() -> DocumentBuilder {
-        DocumentBuilder{
-            state: BuilderState::Begin,
-            root: None,
-            tables: Vec::new(),
-            current_table: Vec::new(),
-            string_cache: HashSet::new()
-        }
-    }
+impl TablesBuilder {
 
     fn intern(&mut self, data: &str) -> Rc<str> {
         match self.string_cache.get(data) {
@@ -188,24 +220,18 @@ impl DocumentBuilder {
         }
     }
 
-    fn add_table(&mut self, meta: Option<&str>) -> TableId {
-        let tid = TableId(self.tables.len());
-        let meta = meta.map(|i| self.intern(i));
-        self.tables.push(TableData {
-            meta, ..Default::default()
-        });
-        self.current_table.push(tid);
-        tid
-    }
-
-    fn add_table_with<I>(&mut self, meta: Option<&str>, inserter: I) -> Result<TableId, BuilderError>
-    where
-        I: FnOnce(&mut Self, TableId) -> Option<ScalarItem>
-    {
-        let new_tid = self.add_table(meta);
-        inserter(self, new_tid);
-        self.state = BuilderState::NextKey;
-        Ok(new_tid)
+    fn insert<'s, I: FnOnce(&mut Self) -> ScalarItem>(&mut self, key: Key<'s>, make_item: I) -> Option<ScalarItem> {
+        let curr_tid = *self.current_table.last().unwrap();
+        let item = make_item(self);
+        match key.into() {
+            Key::Index(idx) => {
+                self.tables[curr_tid.0].numeric.insert(idx, item)
+            }
+            Key::String(st) => {
+                let key = self.intern(st);
+                self.tables[curr_tid.0].stringed.insert(key, item)
+            }
+        }
     }
 
     fn become_broken<T>(&mut self, e: BuilderError) -> Result<T, BuilderError> {
@@ -214,130 +240,74 @@ impl DocumentBuilder {
     }
 }
 
-impl ScriptdataWriter for DocumentBuilder {
+impl ElementWriter for TablesBuilder {
     type Error = BuilderError;
-    type Document = DocumentRef;
+    type Output = DocumentRef;
 
-    fn key<'s, K: Into<Key<'s>>>(&mut self, key: K) -> Result<(), BuilderError> {
+    fn scalar_entry<'s, K, I>(&mut self, key: K, value: I) -> Result<(), Self::Error>
+    where K: Into<Key<'s>>, I: Into<self::ScalarItem> {
+        if self.current_table.is_empty() {
+            return self.become_broken(BuilderError::MultipleRoots);
+        }
         match &self.state {
-            BuilderState::Begin => self.become_broken(BuilderError::KeyAtRoot),
             BuilderState::NextKey => {
-                match key.into() {
-                    Key::Index(idx) => {
-                        let curr_tid = *self.current_table.last().unwrap();
-                        if self.tables[curr_tid.0].numeric.contains_key(&idx) {
-                            self.become_broken(BuilderError::DuplicateKey)
-                        }
-                        else {
-                            self.state = BuilderState::NextIndexedEntry(idx);
-                            Ok(())
-                        }
-                    },
-                    Key::String(str) => {
-                        let curr_tid = *self.current_table.last().unwrap();
-                        let key = self.intern(str);
-                        if self.tables[curr_tid.0].stringed.contains_key(str) {
-                            self.become_broken(BuilderError::DuplicateKey)
-                        }
-                        else {
-                            self.state = BuilderState::NextStringedEntry(key);
-                            Ok(())
-                        }
+                let value = value.into();
+                if let ScalarItem::Table(tid) = value {
+                    if tid.0 >= self.tables.len() {
+                        return Err(BuilderError::DanglingReference)
                     }
                 }
+                match self.insert(key.into(), |_| value) {
+                    Some(_) => self.become_broken(BuilderError::DuplicateKey),
+                    None => Ok(())
+                }
             },
-            BuilderState::NextIndexedEntry(_) => self.become_broken(BuilderError::MultipleKeys),
-            BuilderState::NextStringedEntry(_) => self.become_broken(BuilderError::MultipleKeys),
-            BuilderState::End => self.become_broken(BuilderError::KeyAtRoot),
             BuilderState::Broken => panic!("Continued to try to use a broken DocumentBuilder")
         }
     }
 
-    fn value<I: Into<self::ScalarItem>>(&mut self, value: I) -> Result<(), Self::Error> {
-        match &self.state {
-            BuilderState::Begin => {
-                let v = value.into();
-                if let ScalarItem::Table(_) = v {
-                    return self.become_broken(BuilderError::DanglingReference);
-                }
-                self.root = Some(v);
-                self.state = BuilderState::End;
-                Ok(())
-            }
-            BuilderState::NextKey => self.become_broken(BuilderError::NoKeySpecified),
-            BuilderState::NextIndexedEntry(idx) => {
-                let curr_tid = *self.current_table.last().unwrap();
-                let idx = *idx;
-                self.tables[curr_tid.0].numeric.insert(idx, value.into());
-                self.state = BuilderState::NextKey;
-                Ok(())
-            },
-            BuilderState::NextStringedEntry(st) => {
-                let curr_tid = *self.current_table.last().unwrap();
-                self.tables[curr_tid.0].stringed.insert(st.clone(), value.into());
-                self.state = BuilderState::NextKey;
-                Ok(())
-            },
-            BuilderState::End => self.become_broken(BuilderError::MultipleRoots),
-            BuilderState::Broken => panic!("Continued to try to use a broken DocumentBuilder"),
+    fn begin_table<'s, K>(&mut self, key: K, meta: Option<&'s str>) -> Result<TableId, Self::Error>
+    where K: Into<Key<'s>> {
+        if self.current_table.is_empty() {
+            return self.become_broken(BuilderError::MultipleRoots);
         }
-    }
-
-    fn begin_table(&mut self, meta: Option<&str>) -> Result<TableId, BuilderError> {
         match &self.state {
-            BuilderState::Begin => {
-                self.add_table_with(meta, |s, id| { s.root = Some(id.into()); None})
+            BuilderState::NextKey => {
+                let new_tid = TableId(self.tables.len());
+                let meta = meta.map(|i| self.intern(i));
+                
+                let res = self.insert(key.into(), |s| {
+                    s.tables.push(TableData {
+                        meta, ..Default::default()
+                    });
+                    s.current_table.push(new_tid);
+                    new_tid.into()
+                });
+                match res {
+                    Some(_) => self.become_broken(BuilderError::DuplicateKey),
+                    None => Ok(new_tid)
+                }
             },
-            BuilderState::NextKey => self.become_broken(BuilderError::NoKeySpecified),
-            BuilderState::NextIndexedEntry(idx) => {
-                let curr_tid = *self.current_table.last().unwrap();
-                let idx = *idx;
-                self.add_table_with(meta, |s, tid| {
-                    s.tables[curr_tid.0].numeric.insert(idx, tid.into())
-                })
-            },
-            BuilderState::NextStringedEntry(st) => {
-                let curr_tid = *self.current_table.last().unwrap();
-                let st = st.clone();
-                self.add_table_with(meta, |s, tid| {
-                    s.tables[curr_tid.0].stringed.insert(st, tid.into())
-                })
-            },
-            BuilderState::End => self.become_broken(BuilderError::MultipleRoots),
             BuilderState::Broken => panic!("Continued to try to use a broken DocumentBuilder")
         }
     }
 
     fn end_table(&mut self) -> Result<(), Self::Error> {
+        if self.current_table.is_empty() {
+            return self.become_broken(BuilderError::NoOpenTables);
+        }
         match &self.state {
-            BuilderState::Begin => self.become_broken(BuilderError::NoOpenTables),
             BuilderState::NextKey => {
                 self.current_table.pop();
-                if self.current_table.is_empty() {
-                    self.state = BuilderState::End;
-                }
                 Ok(())
             },
-            BuilderState::NextIndexedEntry(_) => self.become_broken(BuilderError::MissingValue),
-            BuilderState::NextStringedEntry(_) => self.become_broken(BuilderError::MissingValue),
-            BuilderState::End => self.become_broken(BuilderError::NoOpenTables),
             BuilderState::Broken => panic!("Continued to try to use a broken DocumentBuilder"),
         }
     }
 
-    fn finish(mut self) -> Result<DocumentRef, BuilderError> {
+    fn finish(self) -> Result<DocumentRef, BuilderError> {
         match &self.state {
-            BuilderState::Begin => {
-                let dd = Rc::new(DocumentData {
-                    root: None,
-                    tables: Vec::default()
-                });
-                Ok(DocumentRef(dd))
-            },
-            BuilderState::NextKey => (&mut self).become_broken(BuilderError::OpenTables),
-            BuilderState::NextIndexedEntry(_) => (&mut self).become_broken(BuilderError::MissingValue),
-            BuilderState::NextStringedEntry(_) => (&mut self).become_broken(BuilderError::MissingValue),
-            BuilderState::End => {
+            BuilderState::NextKey => {
                 let dd = Rc::new(DocumentData {
                     root: self.root,
                     tables: self.tables
@@ -349,23 +319,37 @@ impl ScriptdataWriter for DocumentBuilder {
     }
 }
 
+impl ReopeningWriter for TablesBuilder {
+    fn reopen_table<'s, K>(&mut self, key: K, tid: TableId) -> Result<(), Self::Error>
+    where K: Into<Key<'s>>
+    {
+        match &self.state {
+            BuilderState::NextKey => {
+                if tid.0 >= self.tables.len() {
+                    return Err(BuilderError::DanglingReference)
+                }
+                let res = self.insert(key.into(), |s| {
+                    s.current_table.push(tid);
+                    tid.into()
+                });
+                match res {
+                    Some(_) => self.become_broken(BuilderError::DuplicateKey),
+                    None => Ok(())
+                }
+            },
+            BuilderState::Broken => panic!("Continued to try to use a broken DocumentBuilder"),
+        }
+    }
+}
+
 enum BuilderState {
-    Begin,
     NextKey,
-    NextIndexedEntry(usize),
-    NextStringedEntry(Rc<str>),
-    End,
     Broken
 }
 
 pub enum BuilderError {
-    KeyAtRoot,
     MultipleRoots,
-    NoKeySpecified,
-    MultipleKeys,
     DuplicateKey,
-    DanglingReference,
     NoOpenTables,
-    MissingValue,
-    OpenTables
+    DanglingReference
 }
