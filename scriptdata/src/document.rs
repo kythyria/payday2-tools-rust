@@ -216,6 +216,7 @@ impl DocumentBuilder {
 
 impl ScriptdataWriter for DocumentBuilder {
     type Error = BuilderError;
+    type Document = DocumentRef;
 
     fn key<'s, K: Into<Key<'s>>>(&mut self, key: K) -> Result<(), BuilderError> {
         match &self.state {
@@ -235,7 +236,7 @@ impl ScriptdataWriter for DocumentBuilder {
                     Key::String(str) => {
                         let curr_tid = *self.current_table.last().unwrap();
                         let key = self.intern(str);
-                        if self.tables[curr_tid.0].stringed.contains_key(&str) {
+                        if self.tables[curr_tid.0].stringed.contains_key(str) {
                             self.become_broken(BuilderError::DuplicateKey)
                         }
                         else {
@@ -314,8 +315,8 @@ impl ScriptdataWriter for DocumentBuilder {
                 self.current_table.pop();
                 if self.current_table.is_empty() {
                     self.state = BuilderState::End;
-                    Ok(())
                 }
+                Ok(())
             },
             BuilderState::NextIndexedEntry(_) => self.become_broken(BuilderError::MissingValue),
             BuilderState::NextStringedEntry(_) => self.become_broken(BuilderError::MissingValue),
@@ -324,8 +325,27 @@ impl ScriptdataWriter for DocumentBuilder {
         }
     }
 
-    fn finish(self) -> self::DocumentRef {
-        todo!()
+    fn finish(mut self) -> Result<DocumentRef, BuilderError> {
+        match &self.state {
+            BuilderState::Begin => {
+                let dd = Rc::new(DocumentData {
+                    root: None,
+                    tables: Vec::default()
+                });
+                Ok(DocumentRef(dd))
+            },
+            BuilderState::NextKey => (&mut self).become_broken(BuilderError::OpenTables),
+            BuilderState::NextIndexedEntry(_) => (&mut self).become_broken(BuilderError::MissingValue),
+            BuilderState::NextStringedEntry(_) => (&mut self).become_broken(BuilderError::MissingValue),
+            BuilderState::End => {
+                let dd = Rc::new(DocumentData {
+                    root: self.root,
+                    tables: self.tables
+                });
+                Ok(DocumentRef(dd))
+            },
+            BuilderState::Broken => panic!("Continued to try to use a broken DocumentBuilder"),
+        }
     }
 }
 
@@ -346,5 +366,6 @@ pub enum BuilderError {
     DuplicateKey,
     DanglingReference,
     NoOpenTables,
-    MissingValue
+    MissingValue,
+    OpenTables
 }
