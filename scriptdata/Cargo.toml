@@ -6,6 +6,14 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+roxmltree = "0.14.0"
+thiserror = "1.0.30"
 vek = "0.15.1"
+xmlparser = "0.13.3"
+xmlwriter = "0.1.0"
+either = "1.6.1"
 
 pd2tools-macros = { path = '../macros' }
+
+[patch.crates-io]
+xmlparser = { path = '../xmlparser' }

@@ -1,6 +1,5 @@
 use std::rc::Rc;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::thread::Builder;
 
 use pd2tools_macros::EnumFromData;
 
@@ -159,13 +158,28 @@ impl Iterator for IPairs {
     }
 }
 
-pub struct DocumentBuilder();
+#[derive(Default)]
+pub struct DocumentBuilder {
+    string_cache: HashSet<Rc<str>>
+}
+
 impl ScriptdataWriter for DocumentBuilder {
     type Error = ();
     type Output = DocumentRef;
     type ElementWriter = TablesBuilder;
 
-    fn scalar_document<I: Into<ScalarItem>>(&mut self, value: I) -> Result<Self::Output, Self::Error> {
+    fn intern(&mut self, data: &str) -> Rc<str> {
+        match self.string_cache.get(data) {
+            Some(s) => s.clone(),
+            None => {
+                let d = Rc::<str>::from(data);
+                self.string_cache.insert(d.clone());
+                d
+            }
+        }
+    }
+
+    fn scalar_document<I: Into<ScalarItem>>(self, value: I) -> Result<Self::Output, Self::Error> {
         let item = value.into();
         if let ScalarItem::Table(_) = item {
             return Err(());
@@ -177,14 +191,9 @@ impl ScriptdataWriter for DocumentBuilder {
         Ok(DocumentRef(Rc::new(dd)))
     }
 
-    fn table_document(&mut self, meta: Option<&str>) -> Self::ElementWriter {
-        let mut sc = HashSet::<Rc<str>>::default();
-        let meta = meta.map(|st|{
-            let st = Rc::<str>::from(st);
-            sc.insert(st.clone());
-            st
-        });
-        TablesBuilder {
+    fn table_document(mut self, meta: Option<&str>) -> (Self::ElementWriter, TableId) {
+        let meta = meta.map(|s| self.intern(s));
+        let tb = TablesBuilder {
             state: BuilderState::NextKey,
             root: Some(ScalarItem::Table(TableId(0))),
             tables: vec![
@@ -194,8 +203,9 @@ impl ScriptdataWriter for DocumentBuilder {
                 }
             ],
             current_table: vec![ TableId(0) ],
-            string_cache: sc
-        }
+            string_cache: self.string_cache
+        };
+        (tb, TableId(0))
     }
 }
 
@@ -243,6 +253,10 @@ impl TablesBuilder {
 impl ElementWriter for TablesBuilder {
     type Error = BuilderError;
     type Output = DocumentRef;
+
+    fn intern(&mut self, st: &str) -> Rc<str> {
+        self.intern(st)
+    }
 
     fn scalar_entry<'s, K, I>(&mut self, key: K, value: I) -> Result<(), Self::Error>
     where K: Into<Key<'s>>, I: Into<self::ScalarItem> {
@@ -347,6 +361,7 @@ enum BuilderState {
     Broken
 }
 
+#[derive(Debug)]
 pub enum BuilderError {
     MultipleRoots,
     DuplicateKey,

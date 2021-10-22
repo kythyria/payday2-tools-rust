@@ -232,18 +232,17 @@ fn get_skipbefore<'a>(attrs: &'a Vec<Attribute>) -> syn::Result<Option<LitInt>> 
     }
 }
 
-#[proc_macro_derive(EnumFromData)]
+#[proc_macro_derive(EnumFromData, attributes(no_auto_from))]
 pub fn derive_enum_from_data(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(item as syn::ItemEnum);
     
     let trees = input.variants.iter().map(|variant| {
+        if let Some(_) = get_attribute(&variant.attrs, "no_auto_from") {
+            return quote!{}
+        }
         match &variant.fields {
-            Fields::Named(n) => quote_spanned! {
-                n.span() => compile_error!("Variants must be tuples")
-            },
-            Fields::Unit => quote_spanned! {
-                variant.ident.span() => compile_error!("Variants must be tuples")
-            },
+            Fields::Named(n) => quote! {},
+            Fields::Unit => quote!{},
             Fields::Unnamed(fields) => {
                 if fields.unnamed.len() != 1 {
                     quote_spanned! {
