@@ -241,7 +241,7 @@ pub fn derive_enum_from_data(item: proc_macro::TokenStream) -> proc_macro::Token
             return quote!{}
         }
         match &variant.fields {
-            Fields::Named(n) => quote! {},
+            Fields::Named(_) => quote! {},
             Fields::Unit => quote!{},
             Fields::Unnamed(fields) => {
                 if fields.unnamed.len() != 1 {

@@ -1,5 +1,6 @@
 pub mod document;
 pub mod generic;
+mod reference_tree;
 
 use std::borrow::Borrow;
 use std::rc::Rc;
@@ -13,7 +14,7 @@ pub struct DuplicateKey(OwnedKey);
 #[derive(Debug)]
 pub struct DanglingTableId(TableId);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Key<T> {
     Index(usize),
     String(T)
@@ -27,7 +28,7 @@ impl<T> From<usize> for Key<T> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Scalar<S> {
     Bool(bool),
     Number(f32),
@@ -56,7 +57,7 @@ impl<S> Scalar<S> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Item<S: Borrow<str>, T> {
     Scalar(Scalar<S>),
     Table(T)
@@ -124,6 +125,9 @@ pub enum SchemaError {
 
     #[error("Duplicate key {0:?}")]
     DuplicateKey(OwnedKey),
+
+    #[error("Duplicate id {0:?}")]
+    DuplicateId(Rc<str>)
 }
 impl<T> From<SchemaError> for Result<T, SchemaError> {
     fn from(src: SchemaError) -> Self {
