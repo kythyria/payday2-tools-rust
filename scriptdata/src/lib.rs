@@ -1,41 +1,61 @@
 pub mod document;
 pub mod generic;
-pub mod generic2;
 
+use std::borrow::Borrow;
 use std::rc::Rc;
+
 use thiserror::Error;
-use either::*;
 
-pub trait ScriptdataWriter {
-    type Error;
-    type Output;
-    type ElementWriter: ElementWriter<Output=Self::Output>;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TableId(usize);
+pub struct DuplicateKey(OwnedKey);
 
-    fn intern(&mut self, st: &str) -> Rc<str>;
-    fn scalar_document<I: Into<document::ScalarItem>>(self, value: I) -> Result<Self::Output, Self::Error>;
-    fn table_document(self, meta: Option<&str>) -> (Self::ElementWriter, document::TableId);
+#[derive(Debug)]
+pub struct DanglingTableId(TableId);
+
+#[derive(Debug, Clone)]
+pub enum Key<T> {
+    Index(usize),
+    String(T)
+}
+type BorrowedKey<'s> = Key<&'s str>;
+type OwnedKey = Key<Rc<str>>;
+
+impl<T> From<usize> for Key<T> {
+    fn from(src: usize) -> Key<T> {
+        Key::Index(src)
+    }
 }
 
-pub trait ElementWriter {
-    type Error;
-    type Output;
-
-    fn intern(&mut self, st: &str) -> Rc<str>;
-
-    fn scalar_entry<'s, K, I>(&mut self, key: K, value: I) -> Result<(), Self::Error>
-    where K: Into<document::Key<'s>>, I: Into<document::ScalarItem>;
-    
-    fn begin_table<'s, K>(&mut self, key: K, meta: Option<&'s str>) -> Result<document::TableId, Self::Error>
-    where K: Into<document::Key<'s>>;
-
-    fn end_table(&mut self)-> Result<(), Self::Error>;
-
-    fn finish(self) -> Result<Self::Output, Self::Error>;
+#[derive(Debug, Clone, PartialEq)]
+pub enum Scalar<S> {
+    Bool(bool),
+    Number(f32),
+    IdString(u64),
+    String(S),
+    Vector(vek::Vec3<f32>),
+    Quaternion(vek::Quaternion<f32>),
 }
+impl<S> From<bool> for Scalar<S> { fn from(s: bool) -> Scalar<S> { Scalar::Bool(s) } }
+impl<S> From<f32> for Scalar<S> { fn from(s: f32) -> Scalar<S> { Scalar::Number(s) } }
+impl<S> From<u64> for Scalar<S> { fn from(s:u64) -> Scalar<S> { Scalar::IdString(s) } }
+impl<S> From<vek::Vec3<f32>> for Scalar<S> { fn from(s: vek::Vec3<f32>) -> Scalar<S> { Scalar::Vector(s) } }
+impl<S> From<vek::Quaternion<f32>> for Scalar<S> { fn from(s: vek::Quaternion<f32>) -> Scalar<S> { Scalar::Quaternion(s) } }
 
-pub trait ReopeningWriter: ElementWriter {
-    fn reopen_table<'s, K>(&mut self, key: K, tid: document::TableId) -> Result<(), Self::Error>
-    where K: Into<document::Key<'s>>;
+#[derive(Debug, Clone, PartialEq)]
+pub enum Item<S: Borrow<str>, T> {
+    Scalar(Scalar<S>),
+    Table(T)
+}
+pub type ScalarItem = Item<Rc<str>, TableId>;
+
+impl<S: Borrow<str>, T> Item<S,T> {
+    pub fn map_table<TO>(self, func: impl FnOnce(T) -> TO) -> Item<S, TO> {
+        match self {
+            Item::Scalar(s) => Item::Scalar(s),
+            Item::Table(t) => Item::Table(func(t))
+        }
+    }
 }
 
 #[derive(Error, Debug)]
@@ -89,10 +109,15 @@ pub enum SchemaError {
     KeyAndIndex(Rc<str>, Rc<str>),
 
     #[error("Duplicate key {0:?}")]
-    DuplicateKey(Rc<str>),
+    DuplicateKey(OwnedKey),
 }
 impl<T> From<SchemaError> for Result<T, SchemaError> {
     fn from(src: SchemaError) -> Self {
         Err(src)
+    }
+}
+impl From<DuplicateKey> for SchemaError {
+    fn from(src: DuplicateKey) -> Self {
+        SchemaError::DuplicateKey(src.0)
     }
 }

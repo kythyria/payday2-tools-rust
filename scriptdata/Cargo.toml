@@ -14,6 +14,7 @@ xmlwriter = "0.1.0"
 either = "1.6.1"
 
 pd2tools-macros = { path = '../macros' }
+ego-tree = "0.6.2"
 
 [patch.crates-io]
 xmlparser = { path = '../xmlparser' }

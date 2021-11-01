@@ -1,33 +1,29 @@
-use std::convert::TryFrom;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::rc::Rc;
 
 use roxmltree::{Document as RoxDocument, Node as RoxNode};
+use xmlwriter::XmlWriter;
 
 use pd2tools_macros::EnumFromData;
-use crate::document::{DocumentBuilder, DocumentRef, Key, ScalarItem, TableId, TableRef, TablesBuilder};
-use crate::{ElementWriter, ReopeningWriter, ScriptdataWriter};
-use crate::SchemaError;
+use crate::document::{DocumentBuilder, DocumentRef, InteriorTableWriter, TableRef};
+use crate::{BorrowedKey, Item, Scalar, ScalarItem, SchemaError, TableId};
 
 pub fn load<'a>(doc: &'a RoxDocument<'a>) -> Result<DocumentRef, SchemaError> {
     let rn = doc.root_element();
     rn.assert_name("generic_scriptdata")?;
 
-    let mut builder = DocumentBuilder::default();
+    let builder = DocumentBuilder::default();
     
     let root_data = load_value(&rn)?;
     match root_data {
-        LoadScalarResult::Bool(val) => Ok(builder.scalar_document(val).unwrap()),
-        LoadScalarResult::Number(val) => Ok(builder.scalar_document(val).unwrap()),
-        LoadScalarResult::IdString(val) => Ok(builder.scalar_document(val).unwrap()),
-        LoadScalarResult::String(val) => {
-            let val = builder.intern(val);
-            Ok(builder.scalar_document(val).unwrap())
-        },
-        LoadScalarResult::Vector(val) => Ok(builder.scalar_document(val).unwrap()),
-        LoadScalarResult::Quaternion(val) => Ok(builder.scalar_document(val).unwrap()),
-        LoadScalarResult::Table { id } => load_root_table(&rn, builder),
+        LoadScalarResult::Bool(val) => Ok(builder.bool_document(val)),
+        LoadScalarResult::Number(val) => Ok(builder.number_document(val)),
+        LoadScalarResult::IdString(val) => Ok(builder.idstring_document(val)),
+        LoadScalarResult::String(val) => Ok(builder.string_document(val)),
+        LoadScalarResult::Vector(val) => Ok(builder.vector_document(val)),
+        LoadScalarResult::Quaternion(val) => Ok(builder.quaternion_document(val)),
+        LoadScalarResult::Table => load_root_table(&rn, builder),
         LoadScalarResult::Ref(r) => Err(SchemaError::DanglingReference(r.into())),
     }
 }
@@ -40,7 +36,7 @@ fn load_value<'a, 'input>(node: &RoxNode<'a, 'input>) -> Result<LoadScalarResult
 
         ("number", Some(ns)) => match f32::from_str(ns) {
             Ok(n) => Ok(n.into()),
-            Err(_) => Err(SchemaError::InvalidBool)
+            Err(_) => Err(SchemaError::InvalidFloat)
         },
 
         ("idstring", Some(ids)) => match u64::from_str_radix(ids, 16) {
@@ -75,7 +71,7 @@ fn load_value<'a, 'input>(node: &RoxNode<'a, 'input>) -> Result<LoadScalarResult
         ("table", None) => {
             match (node.attribute("_id"), node.attribute("_ref")) {
                 (Some(id), Some(_)) => Err(SchemaError::TableIdAndRef(Rc::from(id))),
-                (id, None) => Ok(LoadScalarResult::Table{id}),
+                (_, None) => Ok(LoadScalarResult::Table),
                 (_, Some(r)) => Ok(LoadScalarResult::Ref(r))
             }
         },
@@ -84,26 +80,40 @@ fn load_value<'a, 'input>(node: &RoxNode<'a, 'input>) -> Result<LoadScalarResult
     }
 }
 
-fn load_key<'a, 'input>(node: &RoxNode<'a, 'input>) -> Result<Key<'a>, SchemaError> {
+fn load_key<'a, 'input>(node: &RoxNode<'a, 'input>) -> Result<BorrowedKey<'a>, SchemaError> {
     match (node.attribute("index"), node.attribute("key")) {
         (Some(i), Some(k)) => Err(SchemaError::KeyAndIndex(i.into(), k.into())),
         (Some(i), None) => match usize::from_str_radix(i, 10) {
-            Ok(i) => Ok(Key::Index(i)),
+            Ok(i) => Ok(BorrowedKey::Index(i)),
             Err(_) => Err(SchemaError::BadIndex(i.into())),
         },
-        (None, Some(k)) => Ok(Key::String(k)),
+        (None, Some(k)) => Ok(BorrowedKey::String(k)),
         (None, None) => Err(SchemaError::NoKey)
     }
 }
 
-fn load_root_table<'a, 'input>(node: &RoxNode<'a, 'input>, builder: DocumentBuilder) -> Result<DocumentRef, SchemaError> {
-    
-    let meta = node.attribute("meta");
-    let (mut builder, root_tid) = builder.table_document(meta);
-    
-    let root_rid = node.attribute("_id");
+fn load_root_table<'a, 'input>(node: &RoxNode<'a, 'input>, mut doc_builder: DocumentBuilder) -> Result<DocumentRef, SchemaError> {
     let mut ids = HashMap::<&str, TableId>::new();
-    root_rid.and_then(|rr| ids.insert(rr, root_tid));
+    let mut found_ids = HashSet::<&str>::new();
+    
+    let (builder, _) = doc_builder.table_document();
+
+    load_table(node, &mut ids, &mut found_ids, builder)?;
+
+    //drop(builder);
+    Ok(doc_builder.finish())
+}
+
+fn load_table<'a, 'input, 't>(node: &RoxNode<'a, 'input>, ids: &mut HashMap<&'a str, TableId>, found_ids: &mut HashSet<&'a str>, mut table: InteriorTableWriter<'t>) -> Result<(), SchemaError> {
+    let tid = table.table_id();
+    let rid = node.attribute("_id");
+    rid.map(|rr| {
+        found_ids.insert(rr);
+        ids.insert(rr, tid)
+    });
+
+    let meta = node.attribute("metatable");
+    table.set_meta(meta);
 
     for n in node.children() {
         n.assert_name("entry")?;
@@ -111,42 +121,36 @@ fn load_root_table<'a, 'input>(node: &RoxNode<'a, 'input>, builder: DocumentBuil
         let key = load_key(&n)?;
         let datum = load_value(&n)?;
 
-        let res = match datum {
-            LoadScalarResult::Bool(val) => builder.scalar_entry(key, val),
-            LoadScalarResult::Number(val) => builder.scalar_entry(key, val),
-            LoadScalarResult::IdString(val) => builder.scalar_entry(key, val),
-            LoadScalarResult::String(val) => {
-                let interned = builder.intern(val);
-                builder.scalar_entry(key, interned)
+        let ew = table.key(key)?;
+
+        match datum {
+            LoadScalarResult::Bool(val) => ew.bool(val),
+            LoadScalarResult::Number(val) => ew.number(val),
+            LoadScalarResult::IdString(val) => ew.idstring(val),
+            LoadScalarResult::String(val) => ew.string(val),
+            LoadScalarResult::Vector(val) => ew.vector(val),
+            LoadScalarResult::Quaternion(val) => ew.quaternion(val),
+            LoadScalarResult::Table => {
+                let id = node.attribute("_id").and_then(|i| ids.get(i));
+                let tb = match id {
+                    None => ew.new_table(),
+                    Some(tid) => ew.resume_table(*tid).unwrap(),
+                };
+                load_table(&n, ids, found_ids, tb.1)?
             },
-            LoadScalarResult::Vector(val) => builder.scalar_entry(key, val),
-            LoadScalarResult::Quaternion(val) => builder.scalar_entry(key, val),
-            LoadScalarResult::Table { id } => todo!(),
             LoadScalarResult::Ref(rid) => {
                 match ids.get(rid) {
-                    Some(tid) => builder.reopen_table(key, *tid),
+                    Some(tid) => { ew.resume_table(*tid).unwrap(); },
                     None => {
-                        let meta = node.attribute("meta");
-                        builder.begin_table(key, meta)
-                            .and_then(|tid| {ids.insert(rid, tid); Ok(())})
-                    },
-                }.and_then(|_| builder.end_table())
+                        let (tid, mut tb) = ew.new_table();
+                        tb.set_meta(n.attribute("meta"));
+                        ids.insert(rid, tid);
+                    }
+                }
             },
         };
-
-        match res {
-            Ok(_) => (),
-            Err(e) => match e {
-                crate::document::BuilderError::MultipleRoots => unreachable!(),
-                crate::document::BuilderError::DuplicateKey => return Err(SchemaError::DuplicateKey(n.attribute("key").unwrap().into())),
-                crate::document::BuilderError::NoOpenTables => unreachable!(),
-                crate::document::BuilderError::DanglingReference => return Err(SchemaError::DanglingReference(n.attribute("_ref").unwrap().into())),
-            },
-        }
     }
-
-    builder.end_table().unwrap();
-    Ok(builder.finish().unwrap())
+    Ok(())
 }
 
 #[derive(EnumFromData)]
@@ -157,7 +161,7 @@ enum LoadScalarResult<'s> {
     String(&'s str),
     Vector(vek::Vec3<f32>),
     Quaternion(vek::Quaternion<f32>),
-    Table { id: Option<&'s str> },
+    Table,
     
     #[no_auto_from]
     Ref(&'s str),
@@ -180,5 +184,37 @@ impl<'a, 'input> RoxmlNodeExt for RoxNode<'a, 'input> {
             Some(s) => Ok(s),
             None => Err(SchemaError::MissingAttribute(name))
         }
+    }
+}
+
+pub fn dump(doc: DocumentRef, opts: xmlwriter::Options) -> String {
+    let mut xw = XmlWriter::new(opts);
+    xw.start_element("generic_scriptdata");
+    match doc.root() {
+        None => xw.write_attribute("type", "nil"),
+        Some(itm) => write_item(&mut xw, itm)
+    }
+    xw.end_element();
+    xw.end_document()
+}
+
+macro_rules! wa {
+    ($xw:expr, $t:literal, $f:literal, $($fa:expr),*) => { {
+        $xw.write_attribute("type", $t);
+        $xw.write_attribute_fmt("value", format_args!($f, $($fa),*));
+    } }
+}
+
+fn write_item(xw: &mut XmlWriter, itm: Item<Rc<str>, TableRef>) {
+    match itm {
+        Item::Scalar(Scalar::Bool(b)) => wa!(xw, "boolean", "{}", b),
+        Item::Scalar(Scalar::Number(n)) => wa!(xw, "number", "{}", n),
+        Item::Scalar(Scalar::IdString(ids)) => wa!(xw, "idstring", "{:>016x}", ids),
+        Item::Scalar(Scalar::String(s)) => wa!(xw, "string", "{}", s),
+        Item::Scalar(Scalar::Vector(v)) => wa!(xw, "vector", "{} {} {}", v.x, v.y, v.z),
+        Item::Scalar(Scalar::Quaternion(q)) => wa!(xw, "quaternion", "{} {} {} {}", q.x, q.y, q.z, q.w),
+        Item::Table(tab) => {
+            xw.write_attribute("type", "table");
+        },
     }
 }

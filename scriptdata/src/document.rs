@@ -1,9 +1,11 @@
+use std::borrow::Borrow;
 use std::rc::Rc;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use pd2tools_macros::EnumFromData;
+type Quaternion = vek::Quaternion<f32>;
+type Vec3f = vek::Vec3<f32>;
 
-use crate::{ElementWriter, ReopeningWriter, ScriptdataWriter};
+use crate::{BorrowedKey, DanglingTableId, DuplicateKey, Item, OwnedKey, Scalar, ScalarItem, TableId};
 
 #[derive(Debug, Clone)]
 pub struct DocumentRef(Rc<DocumentData>);
@@ -13,8 +15,8 @@ struct DocumentData{
     tables: Vec<TableData>
 }
 impl DocumentRef {
-    pub fn root(&self) -> Option<Item> {
-        self.0.root.as_ref().and_then(|i| i.with_document(self.clone()))
+    pub fn root(&self) -> Option<Item<Rc<str>, TableRef>> {
+        self.0.root.as_ref().map(|i| self.refify_table(i.clone()))
     }
     pub fn table(&self, id: TableId) -> Option<TableRef> {
         if self.0.tables.len() > id.0 {
@@ -24,67 +26,16 @@ impl DocumentRef {
             None
         }
     }
-}
 
-#[derive(EnumFromData, Debug, Clone, PartialEq)]
-pub enum ScalarItem {
-    Bool(bool),
-    Number(f32),
-    IdString(u64),
-    String(Rc<str>),
-    Vector(vek::Vec3<f32>),
-    Quaternion(vek::Quaternion<f32>),
-    Table(TableId)
-}
-impl ScalarItem{
-    pub fn with_document(&self, doc: DocumentRef) -> Option<Item> {
-        Some(match self {
-            ScalarItem::Bool(i) => Item::Bool(*i),
-            ScalarItem::Number(i) => Item::Number(*i),
-            ScalarItem::IdString(i) => Item::IdString(*i),
-            ScalarItem::String(i) => Item::String(Rc::clone(i)),
-            ScalarItem::Vector(i) => Item::Vector(*i),
-            ScalarItem::Quaternion(i) => Item::Quaternion(*i),
-            ScalarItem::Table(i) => {
-                if i.0 >= doc.0.tables.len() { return None }
-                else { Item::Table(TableRef(doc.0, *i)) }
+    fn refify_table<S: Borrow<str>>(&self, item: Item<S, TableId>) -> Item<S, TableRef> {
+        item.map_table(|t| {
+            if t.0 >= self.0.tables.len() {
+                panic!("{:?} somehow points outside of the table it's in", t);
             }
+            TableRef(self.0.clone(), t)
         })
     }
 }
-impl From<Item> for ScalarItem {
-    fn from(src: Item) -> Self {
-        match src {
-            Item::Bool(i) => ScalarItem::Bool(i),
-            Item::Number(i) => ScalarItem::Number(i),
-            Item::IdString(i) => ScalarItem::IdString(i),
-            Item::String(i) => ScalarItem::String(Rc::clone(&i)),
-            Item::Vector(i) => ScalarItem::Vector(i),
-            Item::Quaternion(i) => ScalarItem::Quaternion(i),
-            Item::Table(t) => ScalarItem::Table(t.1),
-        }
-    }
-}
-
-#[derive(EnumFromData, Debug, Clone)]
-pub enum Item {
-    Bool(bool),
-    Number(f32),
-    IdString(u64),
-    String(Rc<str>),
-    Vector(vek::Vec3<f32>),
-    Quaternion(vek::Quaternion<f32>),
-    Table(TableRef)
-}
-
-#[derive(EnumFromData, Debug, Clone)]
-pub enum Key<'s> {
-    Index(usize),
-    String(&'s str)
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct TableId(usize);
 
 #[derive(Debug, Default)]
 struct TableData {
@@ -105,29 +56,34 @@ impl TableRef {
         &self.0.tables[tid]
     }
 
-    pub fn get_item(&self, key: Key) -> Option<ScalarItem> {
+    pub fn get_item(&self, key: BorrowedKey) -> Option<ScalarItem> {
         match key {
-            Key::Index(idx) => { self.table().numeric.get(&idx).map(Clone::clone) },
-            Key::String(s) => { self.table().stringed.get(s).map(Clone::clone) }
+            BorrowedKey::Index(idx) => { self.table().numeric.get(&idx).map(Clone::clone) },
+            BorrowedKey::String(s) => { self.table().stringed.get(s).map(Clone::clone) }
         }
     }
 
-    pub fn get<'s, K: Into<Key<'s>>>(&self, key: K) -> Option<Item> {
+    pub fn get<'s, K: Into<BorrowedKey<'s>>>(&self, key: K) -> Option<Item<Rc<str>, TableRef>> {
         let k = key.into();
         let item = self.get_item(k);
-        item.and_then(|i| i.with_document(self.document()))
+        item.map(|i| i.map_table(|t| {
+            TableRef(self.0.clone(), t)
+        }))
     }
     
-    pub fn integer_pairs(&self) -> impl Iterator<Item=(usize, Item)> { 
+    pub fn integer_pairs(&self) -> impl Iterator<Item=(usize, Item<Rc<str>, TableRef>)> { 
         IPairs::new(self.clone())
     }
 
-    pub fn string_pairs<'s>(&'s self) -> impl Iterator<Item=(Rc<str>, Item)> + 's {
+    pub fn string_pairs<'s>(&'s self) -> impl Iterator<Item=(Rc<str>, Item<Rc<str>, TableRef>)> + 's {
         let doc = self.document();
         self.table().stringed.iter().map(move |(k,v)| {
             let kc = k.clone();
-            let vi = v.with_document(doc.clone());
-            (kc, vi.unwrap())
+            let vc = v.clone();
+            let vi = vc.map_table(|t| {
+                TableRef(self.0.clone(), t)
+            });
+            (kc, vi)
         })
     }
 }
@@ -145,7 +101,7 @@ impl IPairs {
     }
 }
 impl Iterator for IPairs {
-    type Item = (usize, Item);
+    type Item = (usize, Item<Rc<str>, TableRef>);
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.table.get(self.current_idx + 1) {
@@ -160,211 +116,158 @@ impl Iterator for IPairs {
 
 #[derive(Default)]
 pub struct DocumentBuilder {
-    string_cache: HashSet<Rc<str>>
+    string_cache: HashSet<Rc<str>>,
+    tables: Vec<TableData>
 }
+impl DocumentBuilder {
+    pub fn new() -> Self { Default::default() }
 
-impl ScriptdataWriter for DocumentBuilder {
-    type Error = ();
-    type Output = DocumentRef;
-    type ElementWriter = TablesBuilder;
+    pub fn empty_document(self) -> DocumentRef {
+        DocumentRef(Rc::from(DocumentData{root: None, tables: Vec::default()}))
+    }
 
-    fn intern(&mut self, data: &str) -> Rc<str> {
-        match self.string_cache.get(data) {
+    fn doc(self, item: ScalarItem) -> DocumentRef {
+        DocumentRef(Rc::from(DocumentData{
+            root: Some(item),
+            tables: Vec::default()
+        }))
+    }
+
+    fn intern<S: Borrow<str>>(&mut self, it: &S) -> Rc<str> {
+        match self.string_cache.get(it.borrow()) {
             Some(s) => s.clone(),
             None => {
-                let d = Rc::<str>::from(data);
-                self.string_cache.insert(d.clone());
-                d
+                let owned = Rc::<str>::from(it.borrow());
+                self.string_cache.insert(owned.clone());
+                owned
             }
         }
     }
 
-    fn scalar_document<I: Into<ScalarItem>>(self, value: I) -> Result<Self::Output, Self::Error> {
-        let item = value.into();
-        if let ScalarItem::Table(_) = item {
-            return Err(());
-        }
-        let dd = DocumentData {
-            root: Some(item.into()),
-            tables: Vec::new()
-        };
-        Ok(DocumentRef(Rc::new(dd)))
+    pub fn scalar_document(self, item: Scalar<Rc<str>>) -> DocumentRef {
+        self.doc(ScalarItem::Scalar(item))
+    }
+    pub fn bool_document(self, b: bool) -> DocumentRef { self.scalar_document(b.into()) }
+    pub fn number_document(self, n: f32) -> DocumentRef { self.scalar_document(n.into()) }
+    pub fn idstring_document(self, id: u64) -> DocumentRef { self.scalar_document(id.into()) }
+    pub fn vector_document(self, v: Vec3f) -> DocumentRef { self.scalar_document(v.into()) }
+    pub fn quaternion_document(self, q: Quaternion) -> DocumentRef { self.scalar_document(q.into()) }
+    pub fn string_document(self, s: &str) -> DocumentRef {
+        self.doc(ScalarItem::Scalar(Scalar::String(Rc::from(s))))
     }
 
-    fn table_document(mut self, meta: Option<&str>) -> (Self::ElementWriter, TableId) {
-        let meta = meta.map(|s| self.intern(s));
-        let tb = TablesBuilder {
-            state: BuilderState::NextKey,
+    pub fn table_document<'t>(&'t mut self) -> (InteriorTableWriter<'t>, TableId) {
+        self.tables.push(TableData {
+            meta: None,
+            numeric: BTreeMap::default(),
+            stringed: HashMap::default()
+        });
+        let tw = InteriorTableWriter {
+            root: self,
+            table: 0
+        };
+        (tw, TableId(0))
+    }
+
+    pub fn finish(self) -> DocumentRef {
+        DocumentRef(Rc::from(DocumentData{
             root: Some(ScalarItem::Table(TableId(0))),
-            tables: vec![
-                TableData {
-                    meta,
-                    ..Default::default()
-                }
-            ],
-            current_table: vec![ TableId(0) ],
-            string_cache: self.string_cache
+            tables: self.tables
+        }))
+    }
+}
+
+pub struct InteriorTableWriter<'t> {
+    root: &'t mut DocumentBuilder,
+    table: usize,
+}
+impl<'t> InteriorTableWriter<'t> {
+    pub fn table_id(&self) -> TableId { TableId(self.table) }
+    pub fn set_meta(&mut self, meta: Option<&str>) {
+        let meta = meta.map(|s| self.root.intern(&s));
+        self.root.tables[self.table].meta = meta
+    }
+
+    pub fn indexed(&mut self, idx: usize) -> Result<EntryWriter<'_>, DuplicateKey> {
+        if self.root.tables[self.table].numeric.contains_key(&idx) {
+            return Err(DuplicateKey(OwnedKey::Index(idx)))
+        }
+
+        Ok(EntryWriter {
+            root: self.root,
+            table: self.table,
+            key: OwnedKey::Index(idx)
+        })
+    }
+
+    pub fn string_keyed<S: Borrow<str>>(&mut self, s: &S) -> Result<EntryWriter<'_>, DuplicateKey> {
+        let key = self.root.intern(s);
+        if self.root.tables[self.table].stringed.contains_key(&key) {
+            let k = OwnedKey::String(Rc::from(s.borrow()));
+            return Err(DuplicateKey(k))
+        }
+
+        Ok(EntryWriter {
+            root: self.root,
+            table: 0,
+            key: OwnedKey::String(key)
+        })
+    }
+
+    pub fn key(&mut self, key: BorrowedKey) -> Result<EntryWriter<'_>, DuplicateKey> {
+        match key {
+            BorrowedKey::Index(idx) => self.indexed(idx),
+            BorrowedKey::String(st) => self.string_keyed(&st),
+        }
+    }
+}
+
+pub struct EntryWriter<'t> {
+    root: &'t mut DocumentBuilder,
+    table: usize,
+    key: OwnedKey,
+}
+impl<'t> EntryWriter<'t> {
+    fn insert_scalar(&mut self, item: ScalarItem) {
+        match self.key.clone() {
+            OwnedKey::Index(idx) => self.root.tables[self.table].numeric.insert(idx, item),
+            OwnedKey::String(st) => self.root.tables[self.table].stringed.insert(st, item)
         };
-        (tb, TableId(0))
-    }
-}
-
-pub struct TablesBuilder {
-    state: BuilderState,
-    root: Option<ScalarItem>,
-    tables: Vec<TableData>,
-    current_table: Vec<TableId>,
-    string_cache: HashSet<Rc<str>>
-}
-
-impl TablesBuilder {
-
-    fn intern(&mut self, data: &str) -> Rc<str> {
-        match self.string_cache.get(data) {
-            Some(s) => s.clone(),
-            None => {
-                let d = Rc::<str>::from(data);
-                self.string_cache.insert(d.clone());
-                d
-            }
-        }
     }
 
-    fn insert<'s, I: FnOnce(&mut Self) -> ScalarItem>(&mut self, key: Key<'s>, make_item: I) -> Option<ScalarItem> {
-        let curr_tid = *self.current_table.last().unwrap();
-        let item = make_item(self);
-        match key.into() {
-            Key::Index(idx) => {
-                self.tables[curr_tid.0].numeric.insert(idx, item)
-            }
-            Key::String(st) => {
-                let key = self.intern(st);
-                self.tables[curr_tid.0].stringed.insert(key, item)
-            }
-        }
+    pub fn scalar(mut self, it: Scalar<Rc<str>>) { self.insert_scalar(ScalarItem::Scalar(it))}
+    pub fn bool(mut self, it: bool) { self.scalar(it.into()); }
+    pub fn number(mut self, it: f32) { self.scalar(it.into()); }
+    pub fn idstring(mut self, it: u64) { self.scalar(it.into()); }
+    pub fn vector(mut self, it: Vec3f) { self.scalar(it.into()); }
+    pub fn quaternion(mut self, it: Quaternion) { self.scalar(it.into()); }
+    pub fn string(mut self, it: &str) {
+        let s = self.root.intern(&it);
+        self.insert_scalar(ScalarItem::Scalar(Scalar::String(s)));
     }
 
-    fn become_broken<T>(&mut self, e: BuilderError) -> Result<T, BuilderError> {
-        self.state = BuilderState::Broken;
-        Err(e)
-    }
-}
-
-impl ElementWriter for TablesBuilder {
-    type Error = BuilderError;
-    type Output = DocumentRef;
-
-    fn intern(&mut self, st: &str) -> Rc<str> {
-        self.intern(st)
-    }
-
-    fn scalar_entry<'s, K, I>(&mut self, key: K, value: I) -> Result<(), Self::Error>
-    where K: Into<Key<'s>>, I: Into<self::ScalarItem> {
-        if self.current_table.is_empty() {
-            return self.become_broken(BuilderError::MultipleRoots);
-        }
-        match &self.state {
-            BuilderState::NextKey => {
-                let value = value.into();
-                if let ScalarItem::Table(tid) = value {
-                    if tid.0 >= self.tables.len() {
-                        return Err(BuilderError::DanglingReference)
-                    }
-                }
-                match self.insert(key.into(), |_| value) {
-                    Some(_) => self.become_broken(BuilderError::DuplicateKey),
-                    None => Ok(())
-                }
-            },
-            BuilderState::Broken => panic!("Continued to try to use a broken DocumentBuilder")
-        }
+    pub fn new_table(mut self) -> (TableId, InteriorTableWriter<'t>) {
+        let tid = self.root.tables.len();
+        self.root.tables.push(TableData {
+            meta: None,
+            numeric: BTreeMap::new(), 
+            stringed: HashMap::new()
+        });
+        self.insert_scalar(ScalarItem::Table(TableId(tid)));
+        let ier = InteriorTableWriter {
+            root: self.root,
+            table: tid
+        };
+        (TableId(tid), ier)
     }
 
-    fn begin_table<'s, K>(&mut self, key: K, meta: Option<&'s str>) -> Result<TableId, Self::Error>
-    where K: Into<Key<'s>> {
-        if self.current_table.is_empty() {
-            return self.become_broken(BuilderError::MultipleRoots);
-        }
-        match &self.state {
-            BuilderState::NextKey => {
-                let new_tid = TableId(self.tables.len());
-                let meta = meta.map(|i| self.intern(i));
-                
-                let res = self.insert(key.into(), |s| {
-                    s.tables.push(TableData {
-                        meta, ..Default::default()
-                    });
-                    s.current_table.push(new_tid);
-                    new_tid.into()
-                });
-                match res {
-                    Some(_) => self.become_broken(BuilderError::DuplicateKey),
-                    None => Ok(new_tid)
-                }
-            },
-            BuilderState::Broken => panic!("Continued to try to use a broken DocumentBuilder")
+    pub fn resume_table(self, table: TableId) -> Result<(TableId, InteriorTableWriter<'t>), DanglingTableId> {
+        if table.0 >= self.root.tables.len() { Err(DanglingTableId(table)) }
+        else {
+            Ok((table, InteriorTableWriter {
+                root: self.root,
+                table: table.0
+            }))
         }
     }
-
-    fn end_table(&mut self) -> Result<(), Self::Error> {
-        if self.current_table.is_empty() {
-            return self.become_broken(BuilderError::NoOpenTables);
-        }
-        match &self.state {
-            BuilderState::NextKey => {
-                self.current_table.pop();
-                Ok(())
-            },
-            BuilderState::Broken => panic!("Continued to try to use a broken DocumentBuilder"),
-        }
-    }
-
-    fn finish(self) -> Result<DocumentRef, BuilderError> {
-        match &self.state {
-            BuilderState::NextKey => {
-                let dd = Rc::new(DocumentData {
-                    root: self.root,
-                    tables: self.tables
-                });
-                Ok(DocumentRef(dd))
-            },
-            BuilderState::Broken => panic!("Continued to try to use a broken DocumentBuilder"),
-        }
-    }
-}
-
-impl ReopeningWriter for TablesBuilder {
-    fn reopen_table<'s, K>(&mut self, key: K, tid: TableId) -> Result<(), Self::Error>
-    where K: Into<Key<'s>>
-    {
-        match &self.state {
-            BuilderState::NextKey => {
-                if tid.0 >= self.tables.len() {
-                    return Err(BuilderError::DanglingReference)
-                }
-                let res = self.insert(key.into(), |s| {
-                    s.current_table.push(tid);
-                    tid.into()
-                });
-                match res {
-                    Some(_) => self.become_broken(BuilderError::DuplicateKey),
-                    None => Ok(())
-                }
-            },
-            BuilderState::Broken => panic!("Continued to try to use a broken DocumentBuilder"),
-        }
-    }
-}
-
-enum BuilderState {
-    NextKey,
-    Broken
-}
-
-#[derive(Debug)]
-pub enum BuilderError {
-    MultipleRoots,
-    DuplicateKey,
-    NoOpenTables,
-    DanglingReference
 }
