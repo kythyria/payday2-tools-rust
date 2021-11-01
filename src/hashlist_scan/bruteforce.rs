@@ -4,11 +4,49 @@ use fnv::FnvHashSet;
 use rayon::prelude::*;
 
 use crate::bundles::database::Database;
-use crate::diesel_hash::hash_str as dhash;
+use diesel_hash::hash_nonconst::hash_str as dhash;
 use diesel_hash::hash::{EMPTY, MATERIAL_CONFIG, TEXTURE, UNIT};
+
+use std::iter::FromIterator;
+
+pub struct Bitfield64K([u16; 8192]);
+impl Bitfield64K {
+    pub fn new() -> Bitfield64K { Bitfield64K([0; 8192]) }
+
+    pub fn get(&self, idx: u16) -> bool {
+        let byte_idx = (idx & 0xFFF8) >> 3;
+        let shift = idx & 0x0007;
+        let byte = self.0[byte_idx as usize];
+        //let test = 1 << (idx & 0x0007);
+        let test = 1 << shift;
+        byte & test != 0
+    }
+
+    pub fn set(&mut self, idx: u16, val: bool) {
+        let byte_idx = (idx & 0xFFF8) >> 3;
+        let shift = idx & 0x0007;
+        let byte = self.0[byte_idx as usize];
+        self.0[byte_idx as usize] = match val {
+            true => byte | (1 << shift),
+            false => byte & !(1 << shift)
+        };
+    }
+}
+impl FromIterator<u64> for Bitfield64K {
+    fn from_iter<I: IntoIterator<Item=u64>>(iter: I) -> Self {
+        let mut bf = Bitfield64K([0; 8192]);
+        for i in iter {
+            let idx = (i >> 48) as u16;
+            bf.set(idx, true)
+        }
+        bf
+    }
+}
 
 pub fn scan_cubelights(database: &Database) -> Vec<Box<str>> {
     let mut hashes_to_find = FnvHashSet::default();
+    let mut prefilter = Bitfield64K::new();
+
     let worlds: Vec<_> = database.files().filter_map(|item|{
         let k = item.key();
         hashes_to_find.insert(k.path.hash);
@@ -17,6 +55,9 @@ pub fn scan_cubelights(database: &Database) -> Vec<Box<str>> {
             if let Some(ls) = path.rfind('/') {
                 return Some(&path[..ls]);
             }
+        }
+        else {
+            prefilter.set((k.path.hash >> 48) as u16, true);
         }
         None
     }).collect();
@@ -37,13 +78,16 @@ pub fn scan_cubelights(database: &Database) -> Vec<Box<str>> {
                 write!(buf, "{}", n).unwrap();
                 let hsh = dhash(&buf);
                 //match database.get_by_hashes(hsh, EMPTY, TEXTURE) {
-                match hashes_to_find.contains(&hsh) {
-                    true => { //Some(_) => {
-                        let b = Box::<str>::from(buf.as_str());
-                        Some(b)
-                    },
-                    false => None//None => None
+                if prefilter.get((hsh >> 48) as u16) {
+                    match hashes_to_find.contains(&hsh) {
+                        true => { //Some(_) => {
+                            let b = Box::<str>::from(buf.as_str());
+                            Some(b)
+                        },
+                        false => None//None => None
+                    }
                 }
+                else { None }
             }
         ).filter_map(|i| i)
     });
@@ -73,6 +117,8 @@ pub fn scan_texture_suffixes(database: &Database) -> Vec<Box<str>> {
     let mut hashes_to_find = FnvHashSet::<u64>::default();
     let mut known_paths = FnvHashSet::<&str>::default();
     let mut known_suffixes = FnvHashSet::<&str>::default();
+    let mut prefilter = Bitfield64K::new();
+    
     for file in database.files() {
         let k = file.key();
         hashes_to_find.insert(k.path.hash);
@@ -83,6 +129,10 @@ pub fn scan_texture_suffixes(database: &Database) -> Vec<Box<str>> {
                     known_paths.insert(stem);
                     known_suffixes.insert(suffix);
                 }
+            }
+            else {
+                let idx = (k.path.hash >> 48) as u16;
+                prefilter.set(idx, true);
             }
         }
     }
@@ -101,8 +151,11 @@ pub fn scan_texture_suffixes(database: &Database) -> Vec<Box<str>> {
             buf.clear();
             buf.push_str(path);
 
-            if hashes_to_find.contains(&dhash(buf.as_str())) {
-                inner_result.insert(Box::<str>::from(buf.as_str()));
+            let h = dhash(buf.as_str());
+            if prefilter.get((h >> 48) as u16) {
+                if hashes_to_find.contains(&h) {
+                    inner_result.insert(Box::<str>::from(buf.as_str()));
+                }
             }
 
             //insert_if_exists(&mut inner_result, database, &[MATERIAL_CONFIG, TEXTURE], buf.as_str());
@@ -112,8 +165,11 @@ pub fn scan_texture_suffixes(database: &Database) -> Vec<Box<str>> {
                 buf.truncate(path.len()+1);
                 buf.push_str(suffix);
 
-                if hashes_to_find.contains(&dhash(buf.as_str())) {
-                    inner_result.insert(Box::<str>::from(buf.as_str()));
+                let h = dhash(buf.as_str());
+                if prefilter.get((h >> 48) as u16) {
+                    if hashes_to_find.contains(&h) {
+                        inner_result.insert(Box::<str>::from(buf.as_str()));
+                    }
                 }
                 
                 //insert_if_exists(&mut inner_result, database, &[MATERIAL_CONFIG, TEXTURE], buf.as_str());
