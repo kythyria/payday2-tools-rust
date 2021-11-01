@@ -2,9 +2,6 @@ use std::borrow::Borrow;
 use std::rc::Rc;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-type Quaternion = vek::Quaternion<f32>;
-type Vec3f = vek::Vec3<f32>;
-
 use crate::{BorrowedKey, DanglingTableId, DuplicateKey, Item, OwnedKey, Scalar, ScalarItem, TableId};
 
 #[derive(Debug, Clone)]
@@ -76,7 +73,6 @@ impl TableRef {
     }
 
     pub fn string_pairs<'s>(&'s self) -> impl Iterator<Item=(Rc<str>, Item<Rc<str>, TableRef>)> + 's {
-        let doc = self.document();
         self.table().stringed.iter().map(move |(k,v)| {
             let kc = k.clone();
             let vc = v.clone();
@@ -144,16 +140,9 @@ impl DocumentBuilder {
         }
     }
 
-    pub fn scalar_document(self, item: Scalar<Rc<str>>) -> DocumentRef {
+    pub fn scalar_document(self, item: Scalar<&str>) -> DocumentRef {
+        let item = item.map_string(Rc::from);
         self.doc(ScalarItem::Scalar(item))
-    }
-    pub fn bool_document(self, b: bool) -> DocumentRef { self.scalar_document(b.into()) }
-    pub fn number_document(self, n: f32) -> DocumentRef { self.scalar_document(n.into()) }
-    pub fn idstring_document(self, id: u64) -> DocumentRef { self.scalar_document(id.into()) }
-    pub fn vector_document(self, v: Vec3f) -> DocumentRef { self.scalar_document(v.into()) }
-    pub fn quaternion_document(self, q: Quaternion) -> DocumentRef { self.scalar_document(q.into()) }
-    pub fn string_document(self, s: &str) -> DocumentRef {
-        self.doc(ScalarItem::Scalar(Scalar::String(Rc::from(s))))
     }
 
     pub fn table_document<'t>(&'t mut self) -> (InteriorTableWriter<'t>, TableId) {
@@ -235,15 +224,9 @@ impl<'t> EntryWriter<'t> {
         };
     }
 
-    pub fn scalar(mut self, it: Scalar<Rc<str>>) { self.insert_scalar(ScalarItem::Scalar(it))}
-    pub fn bool(mut self, it: bool) { self.scalar(it.into()); }
-    pub fn number(mut self, it: f32) { self.scalar(it.into()); }
-    pub fn idstring(mut self, it: u64) { self.scalar(it.into()); }
-    pub fn vector(mut self, it: Vec3f) { self.scalar(it.into()); }
-    pub fn quaternion(mut self, it: Quaternion) { self.scalar(it.into()); }
-    pub fn string(mut self, it: &str) {
-        let s = self.root.intern(&it);
-        self.insert_scalar(ScalarItem::Scalar(Scalar::String(s)));
+    pub fn scalar(mut self, it: Scalar<&str>) {
+        let it = it.map_string(|s| self.root.intern(&s));
+        self.insert_scalar(ScalarItem::Scalar(it))
     }
 
     pub fn new_table(mut self) -> (TableId, InteriorTableWriter<'t>) {

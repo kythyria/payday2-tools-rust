@@ -7,7 +7,7 @@ use xmlwriter::XmlWriter;
 
 use pd2tools_macros::EnumFromData;
 use crate::document::{DocumentBuilder, DocumentRef, InteriorTableWriter, TableRef};
-use crate::{BorrowedKey, Item, Scalar, ScalarItem, SchemaError, TableId};
+use crate::{BorrowedKey, Item, Scalar, SchemaError, TableId};
 
 pub fn load<'a>(doc: &'a RoxDocument<'a>) -> Result<DocumentRef, SchemaError> {
     let rn = doc.root_element();
@@ -17,34 +17,30 @@ pub fn load<'a>(doc: &'a RoxDocument<'a>) -> Result<DocumentRef, SchemaError> {
     
     let root_data = load_value(&rn)?;
     match root_data {
-        LoadScalarResult::Bool(val) => Ok(builder.bool_document(val)),
-        LoadScalarResult::Number(val) => Ok(builder.number_document(val)),
-        LoadScalarResult::IdString(val) => Ok(builder.idstring_document(val)),
-        LoadScalarResult::String(val) => Ok(builder.string_document(val)),
-        LoadScalarResult::Vector(val) => Ok(builder.vector_document(val)),
-        LoadScalarResult::Quaternion(val) => Ok(builder.quaternion_document(val)),
-        LoadScalarResult::Table => load_root_table(&rn, builder),
-        LoadScalarResult::Ref(r) => Err(SchemaError::DanglingReference(r.into())),
+        LoadEntryResult::Scalar(val) => Ok(builder.scalar_document(val)),
+        LoadEntryResult::Table => load_root_table(&rn, builder),
+        LoadEntryResult::Ref(r) => Err(SchemaError::DanglingReference(r.into())),
     }
 }
 
-fn load_value<'a, 'input>(node: &RoxNode<'a, 'input>) -> Result<LoadScalarResult<'a>, SchemaError> {
+fn load_value<'a, 'input>(node: &RoxNode<'a, 'input>) -> Result<LoadEntryResult<'a>, SchemaError> {
+    use LoadEntryResult::Scalar as LS;
     match (node.required_attribute("type")?, node.attribute("value")) {
-        ("boolean", Some("true")) => Ok(true.into()),
-        ("boolean", Some("false")) => Ok(false.into()),
+        ("boolean", Some("true")) => Ok(LS(true.into())),
+        ("boolean", Some("false")) => Ok(LS(false.into())),
         ("boolean", Some(_)) => Err(SchemaError::InvalidBool),
 
         ("number", Some(ns)) => match f32::from_str(ns) {
-            Ok(n) => Ok(n.into()),
+            Ok(n) => Ok(LS(n.into())),
             Err(_) => Err(SchemaError::InvalidFloat)
         },
 
         ("idstring", Some(ids)) => match u64::from_str_radix(ids, 16) {
-            Ok(val) => Ok(val.swap_bytes().into()),
+            Ok(val) => Ok(LS(val.swap_bytes().into())),
             Err(_) => Err(SchemaError::InvalidIdString)
         },
 
-        ("string", Some(str)) => Ok(str.into()),
+        ("string", Some(str)) => Ok(LS(Scalar::String(str))),
 
         ("vector", Some(val)) => {
             let v: Vec<_> = val.split(' ').map(f32::from_str).filter_map(Result::ok).collect();
@@ -52,7 +48,7 @@ fn load_value<'a, 'input>(node: &RoxNode<'a, 'input>) -> Result<LoadScalarResult
                 Err(SchemaError::InvalidVector)
             }
             else {
-                Ok(vek::Vec3::new(v[0], v[1], v[2]).into())
+                Ok(LS(vek::Vec3::new(v[0], v[1], v[2]).into()))
             }
         }
 
@@ -63,7 +59,7 @@ fn load_value<'a, 'input>(node: &RoxNode<'a, 'input>) -> Result<LoadScalarResult
             }
             else {
                 let q = vek::Quaternion::from_xyzw(v[0], v[1], v[2], v[3]);
-                Ok(LoadScalarResult::Quaternion(q))
+                Ok(LS(q.into()))
             }
         }
 
@@ -71,8 +67,8 @@ fn load_value<'a, 'input>(node: &RoxNode<'a, 'input>) -> Result<LoadScalarResult
         ("table", None) => {
             match (node.attribute("_id"), node.attribute("_ref")) {
                 (Some(id), Some(_)) => Err(SchemaError::TableIdAndRef(Rc::from(id))),
-                (_, None) => Ok(LoadScalarResult::Table),
-                (_, Some(r)) => Ok(LoadScalarResult::Ref(r))
+                (_, None) => Ok(LoadEntryResult::Table),
+                (_, Some(r)) => Ok(LoadEntryResult::Ref(r))
             }
         },
 
@@ -124,13 +120,8 @@ fn load_table<'a, 'input, 't>(node: &RoxNode<'a, 'input>, ids: &mut HashMap<&'a 
         let ew = table.key(key)?;
 
         match datum {
-            LoadScalarResult::Bool(val) => ew.bool(val),
-            LoadScalarResult::Number(val) => ew.number(val),
-            LoadScalarResult::IdString(val) => ew.idstring(val),
-            LoadScalarResult::String(val) => ew.string(val),
-            LoadScalarResult::Vector(val) => ew.vector(val),
-            LoadScalarResult::Quaternion(val) => ew.quaternion(val),
-            LoadScalarResult::Table => {
+            LoadEntryResult::Scalar(s) => ew.scalar(s),
+            LoadEntryResult::Table => {
                 let id = node.attribute("_id").and_then(|i| ids.get(i));
                 let tb = match id {
                     None => ew.new_table(),
@@ -138,7 +129,7 @@ fn load_table<'a, 'input, 't>(node: &RoxNode<'a, 'input>, ids: &mut HashMap<&'a 
                 };
                 load_table(&n, ids, found_ids, tb.1)?
             },
-            LoadScalarResult::Ref(rid) => {
+            LoadEntryResult::Ref(rid) => {
                 match ids.get(rid) {
                     Some(tid) => { ew.resume_table(*tid).unwrap(); },
                     None => {
@@ -154,13 +145,8 @@ fn load_table<'a, 'input, 't>(node: &RoxNode<'a, 'input>, ids: &mut HashMap<&'a 
 }
 
 #[derive(EnumFromData)]
-enum LoadScalarResult<'s> {
-    Bool(bool),
-    Number(f32),
-    IdString(u64),
-    String(&'s str),
-    Vector(vek::Vec3<f32>),
-    Quaternion(vek::Quaternion<f32>),
+enum LoadEntryResult<'s> {
+    Scalar(Scalar<&'s str>),
     Table,
     
     #[no_auto_from]

@@ -42,6 +42,20 @@ impl<S> From<u64> for Scalar<S> { fn from(s:u64) -> Scalar<S> { Scalar::IdString
 impl<S> From<vek::Vec3<f32>> for Scalar<S> { fn from(s: vek::Vec3<f32>) -> Scalar<S> { Scalar::Vector(s) } }
 impl<S> From<vek::Quaternion<f32>> for Scalar<S> { fn from(s: vek::Quaternion<f32>) -> Scalar<S> { Scalar::Quaternion(s) } }
 
+impl<S> Scalar<S> {
+    pub fn map_string<SO>(self, func: impl FnOnce(S) -> SO) -> Scalar<SO> {
+        use Scalar::*;
+        match self {
+            String(s) => String(func(s)),
+            Bool(i) => Bool(i),
+            Number(i) => Number(i),
+            IdString(i) => IdString(i),
+            Vector(i) => Vector(i),
+            Quaternion(i) => Quaternion(i),
+        } 
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item<S: Borrow<str>, T> {
     Scalar(Scalar<S>),
