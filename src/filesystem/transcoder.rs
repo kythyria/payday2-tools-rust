@@ -192,7 +192,7 @@ struct_from_tuple_table! {
         (".mission"         , ".mission"         , true , Some(transcode_sd_generic) ),
         (".nav_data"        , ".nav_data"        , true , Some(transcode_sd_generic) ),
         (".objective"       , ".objective"       , true , Some(transcode_sd_custom ) ),
-        (".sequence_manager", ".sequence_manager", true , Some(transcode_sd_custom ) ),
+        (".sequence_manager", ".sequence_manager", true , Some(transcode_sd_generic) ),
         (".timeline"        , ".timeline"        , true , Some(transcode_sd_custom ) ),
         (".world"           , ".world"           , true , Some(transcode_sd_generic) ),
         (".world_cameras"   , ".world_cameras"   , true , Some(transcode_sd_custom ) ),

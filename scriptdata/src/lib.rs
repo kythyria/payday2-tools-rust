@@ -1,6 +1,7 @@
 pub mod document;
 pub mod generic;
 mod reference_tree;
+pub mod custom;
 
 use std::borrow::Borrow;
 use std::rc::Rc;
@@ -150,5 +151,25 @@ impl<T> From<SchemaError> for Result<T, SchemaError> {
 impl From<DuplicateKey> for SchemaError {
     fn from(src: DuplicateKey) -> Self {
         SchemaError::DuplicateKey(src.0)
+    }
+}
+
+
+trait RoxmlNodeExt {
+    fn assert_name(&self, name: &'static str) -> Result<(), SchemaError>;
+    fn required_attribute(&self, name: &'static str)-> Result<&str, SchemaError>;
+}
+impl<'a, 'input> RoxmlNodeExt for roxmltree::Node<'a, 'input> {
+    fn assert_name(&self, name: &'static str) -> Result<(), SchemaError> {
+        if !self.has_tag_name(name) {
+            return Err(SchemaError::WrongElement(name))
+        }
+        else { Ok(()) }
+    }
+    fn required_attribute(&self, name: &'static str)-> Result<&'a str, SchemaError> {
+        match self.attribute(name) {
+            Some(s) => Ok(s),
+            None => Err(SchemaError::MissingAttribute(name))
+        }
     }
 }

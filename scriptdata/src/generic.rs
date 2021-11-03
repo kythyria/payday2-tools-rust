@@ -19,7 +19,7 @@ use xmlwriter::XmlWriter;
 
 use crate::document::DocumentRef;
 use crate::reference_tree as rt;
-use crate::{BorrowedKey, Key, Scalar, SchemaError};
+use crate::{BorrowedKey, Key, RoxmlNodeExt, Scalar, SchemaError};
 
 pub fn load<'a>(doc: &'a RoxDocument<'a>) -> Result<DocumentRef, SchemaError> {
     let rn = doc.root_element();
@@ -39,7 +39,7 @@ pub fn load<'a>(doc: &'a RoxDocument<'a>) -> Result<DocumentRef, SchemaError> {
                 key: BorrowedKey::Index(0),
                 value: root_data
             });
-            load_table2(&rn, tree.root_mut())?;
+            load_table(&rn, tree.root_mut())?;
             Ok(tree)
         }
     };
@@ -114,7 +114,7 @@ fn load_key<'a, 'input>(node: &RoxNode<'a, 'input>) -> Result<BorrowedKey<'a>, S
     }
 }
 
-fn load_table2<'t, 'a, 'input>(xml: &RoxNode<'a, 'input>, mut reftree: rt::NodeMut<'t, 'a>) -> Result<(), SchemaError> {
+fn load_table<'t, 'a, 'input>(xml: &RoxNode<'a, 'input>, mut reftree: rt::NodeMut<'t, 'a>) -> Result<(), SchemaError> {
     for n in xml.children() {
         n.assert_name("entry")?;
         let key = load_key(&n)?;
@@ -124,30 +124,11 @@ fn load_table2<'t, 'a, 'input>(xml: &RoxNode<'a, 'input>, mut reftree: rt::NodeM
             rt::Value::Ref(_) => { reftree.append(rt::Data {key, value: datum}); },
             rt::Value::Table(_) => {
                 let child = reftree.append(rt::Data {key, value: datum});
-                load_table2(&n, child)?
+                load_table(&n, child)?
             }
         };
     }
     Ok(())
-}
-
-trait RoxmlNodeExt {
-    fn assert_name(&self, name: &'static str) -> Result<(), SchemaError>;
-    fn required_attribute(&self, name: &'static str)-> Result<&str, SchemaError>;
-}
-impl<'a, 'input> RoxmlNodeExt for RoxNode<'a, 'input> {
-    fn assert_name(&self, name: &'static str) -> Result<(), SchemaError> {
-        if !self.has_tag_name(name) {
-            return Err(SchemaError::WrongElement(name))
-        }
-        else { Ok(()) }
-    }
-    fn required_attribute(&self, name: &'static str)-> Result<&'a str, SchemaError> {
-        match self.attribute(name) {
-            Some(s) => Ok(s),
-            None => Err(SchemaError::MissingAttribute(name))
-        }
-    }
 }
 
 pub fn dump(doc: DocumentRef) -> String {

@@ -10,7 +10,7 @@
             "name": "Debug executable 'pd2tools-rust'",
             "cargo": {
                 "args": [
-                    "+stable-x86_64-pc-windows-msvc",
+                    "+stable-x86_64-pc-windows-gnu",
                     "build",
                     "--bin=pd2tools",
                     "--package=pd2tools-rust"
