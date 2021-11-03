@@ -56,6 +56,19 @@ impl<S> Scalar<S> {
         } 
     }
 }
+impl<S: Borrow<str>> Scalar<S>{
+    pub fn to_borrowed<'s>(&'s self) -> Scalar<&'s str> {
+        use Scalar::*;
+        match self {
+            String(s) => String(s.borrow()),
+            Bool(i) => Bool(*i),
+            Number(i) => Number(*i),
+            IdString(i) => IdString(*i),
+            Vector(i) => Vector(*i),
+            Quaternion(i) => Quaternion(*i),
+        } 
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Item<S: Borrow<str>, T> {

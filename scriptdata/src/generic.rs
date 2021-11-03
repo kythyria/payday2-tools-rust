@@ -1,11 +1,25 @@
+//! `generic_xml` scriptdata support
+//! 
+//! This is the easier schema:
+//! - The root element is `generic_scriptdata`
+//! - All other elements are `entry`
+//! - `@type` dictates the type of the entry.
+//! - If the root item is nil, it has `@type="nil"`
+//! - Any entry has one of `@index` (integer key) or `@key` (string key)
+//! - On `table`:
+//!     - `@metadata` specifies the metatable string
+//!     - `@_ref` is used in lieu of children, pointing at the element with matching `@id`
+//!     - Table entries are just its children.
+
 use std::str::FromStr;
 use std::rc::Rc;
 
 use roxmltree::{Document as RoxDocument, Node as RoxNode};
+use xmlwriter::XmlWriter;
 
 use crate::document::DocumentRef;
 use crate::reference_tree as rt;
-use crate::{BorrowedKey, Scalar, SchemaError};
+use crate::{BorrowedKey, Key, Scalar, SchemaError};
 
 pub fn load<'a>(doc: &'a RoxDocument<'a>) -> Result<DocumentRef, SchemaError> {
     let rn = doc.root_element();
@@ -32,7 +46,7 @@ pub fn load<'a>(doc: &'a RoxDocument<'a>) -> Result<DocumentRef, SchemaError> {
     reftree.and_then(rt::to_document)
 }
 
-fn load_value<'a, 'input>(node: &RoxNode<'a, 'input>) -> Result<rt::Value<'a>, SchemaError> {
+fn load_value<'a, 'input>(node: &RoxNode<'a, 'input>) -> Result<rt::Value<&'a str>, SchemaError> {
     use rt::Value::Scalar as VS;
     match (node.required_attribute("type")?, node.attribute("value")) {
         ("boolean", Some("true")) => Ok(VS(true.into())),
@@ -80,7 +94,7 @@ fn load_value<'a, 'input>(node: &RoxNode<'a, 'input>) -> Result<rt::Value<'a>, S
                     id,
                     meta: node.attribute("metatable")
                 })),
-                (_, Some(r)) => Ok(rt::Value::Ref(r))
+                (_, Some(r)) => Ok(rt::Value::Ref(r.into()))
             }
         },
 
@@ -136,3 +150,64 @@ impl<'a, 'input> RoxmlNodeExt for RoxNode<'a, 'input> {
     }
 }
 
+pub fn dump(doc: DocumentRef) -> String {
+    match crate::reference_tree::from_document(doc) {
+        None => String::from(r#"<generic_scriptdata type="nil"/>"#),
+        Some(tree) => {
+            let mut xwo = xmlwriter::Options::default();
+            xwo.indent = xmlwriter::Indent::Spaces(4);
+            let mut xw = XmlWriter::new(xwo);
+
+            xw.start_element("generic_scriptdata");
+            dump_entry(&mut xw, tree.root());
+            xw.end_element();
+
+            xw.end_document()
+        }
+    }
+}
+
+fn dump_entry<'t>(xw: &mut XmlWriter, node: ego_tree::NodeRef<'t, rt::Data<Rc<str>>>) {
+    match &node.value().value {
+        rt::Value::Scalar(s) => dump_scalar(xw, s),
+        rt::Value::Table(t) => {
+            xw.write_attribute("type", "table");
+            if let Some(id) = &t.id {
+                xw.write_attribute("_id", &id);
+            }
+            if let Some(meta) = &t.meta {
+                xw.write_attribute("metadata", &meta);
+            }
+            for entry in node.children() {
+                xw.start_element("entry");
+                match &node.value().key {
+                    Key::Index(idx) => xw.write_attribute_fmt("index", format_args!("{}", idx)),
+                    Key::String(str) => xw.write_attribute("key", &str),
+                }
+                dump_entry(xw, entry);
+                xw.end_element();
+            }
+        },
+        rt::Value::Ref(r) => {
+            xw.write_attribute("type", "table");
+            xw.write_attribute("_ref", &r);
+        },
+    }
+}
+
+fn dump_scalar(xw: &mut XmlWriter, val: &Scalar<Rc<str>>) {
+    macro_rules! wa{
+        ($ty:literal, $fmt:literal, $($fa:expr),*) => {{
+            xw.write_attribute("type", $ty);
+            xw.write_attribute_fmt("value", format_args!($fmt, $($fa),*));
+        }}
+    }
+    match val {
+        Scalar::Bool(v) => wa!("boolean", "{}", v),
+        Scalar::Number(v) => wa!("number", "{}", v),
+        Scalar::IdString(v) => wa!("idstring", "{:>016x}", v),
+        Scalar::String(v) => wa!("string", "{}", v),
+        Scalar::Vector(v) => wa!("vector", "{} {} {}", v.x, v.y, v.z),
+        Scalar::Quaternion(v) => wa!("quaternion", "{} {} {} {}", v.x, v.y, v.z, v.w),
+    }
+}
