@@ -7,27 +7,27 @@ use crate::{Key, Item, Scalar, SchemaError, TableId};
 use crate::document::{DocumentBuilder, DocumentRef, InteriorTableWriter, TableRef};
 
 #[derive(EnumFromData, Debug, Clone)]
-pub enum Value<S> {
-    Scalar(Scalar<S>),
-    Table(TableHeader<S>),
-    Ref(S),
+pub enum Value {
+    Scalar(Scalar<Rc<str>>),
+    Table(TableHeader),
+    Ref(Rc<str>)
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct TableHeader<S> {
-    pub id: Option<S>,
-    pub meta: Option<S>
+#[derive(Debug, Clone)]
+pub struct TableHeader {
+    pub id: Option<Rc<str>>,
+    pub meta: Option<Rc<str>>
 }
 
 #[derive(Debug, Clone)]
 pub struct Data<S> {
     pub key: Key<S>,
-    pub value: Value<S>
+    pub value: Value
 }
 
-pub type Tree<'s> = ego_tree::Tree<Data<&'s str>>;
-pub type Node<'t, 's> = ego_tree::NodeRef<'t, Data<&'s str>>;
-pub type NodeMut<'t, 's> = ego_tree::NodeMut<'t, Data<&'s str>>;
+pub type Tree<'s> = ego_tree::Tree<Data<Rc<str>>>;
+pub type Node<'t> = ego_tree::NodeRef<'t, Data<Rc<str>>>;
+pub type NodeMut<'t> = ego_tree::NodeMut<'t, Data<Rc<str>>>;
 
 pub fn to_document(tree: Tree) -> Result<DocumentRef, SchemaError> {
     let root = tree.root();
@@ -35,24 +35,24 @@ pub fn to_document(tree: Tree) -> Result<DocumentRef, SchemaError> {
         Value::Scalar(item) => Ok(DocumentBuilder::new().scalar_document(item.clone())),
         Value::Ref(_) => panic!("RefTree construction didn't reject a root Ref before it got here."),
         Value::Table(head) => {
-            let mut ids = HashMap::<&str, TableId>::new();
-            let mut found_ids = HashSet::<&str>::new();
+            let mut ids = HashMap::<Rc<str>, TableId>::new();
+            let mut found_ids = HashSet::<Rc<str>>::new();
             let mut doc_builder = DocumentBuilder::new();
             let (builder, _) = doc_builder.table_document();
 
-            load_table(root, *head, &mut ids, &mut found_ids, builder)?;
+            load_table(root, head.clone(), &mut ids, &mut found_ids, builder)?;
 
             Ok(doc_builder.finish())
         }
     }
 }
 
-fn load_table<'s, 't: 's>(node: Node<'t, 's>, table_header: TableHeader<&'s str>, ids: &mut HashMap<&'s str, TableId>, found_ids: &mut HashSet<&'s str>, mut table: InteriorTableWriter<'_>) -> Result<(), SchemaError> {
+fn load_table<'s, 't: 's>(node: Node<'t>, table_header: TableHeader, ids: &mut HashMap<Rc<str>, TableId>, found_ids: &mut HashSet<Rc<str>>, mut table: InteriorTableWriter<'_>) -> Result<(), SchemaError> {
     if let Some(id) = table_header.id {
-        if !found_ids.insert(id) {
-            return Err(SchemaError::DuplicateId(Rc::from(id)))
+        if !found_ids.insert(id.clone()) {
+            return Err(SchemaError::DuplicateId(id))
         }
-        ids.insert(id, table.table_id());
+        ids.insert(id.clone(), table.table_id());
     }
 
     table.set_meta(table_header.meta);
@@ -60,24 +60,24 @@ fn load_table<'s, 't: 's>(node: Node<'t, 's>, table_header: TableHeader<&'s str>
     for cn in node.children() {
         let ew = table.key(cn.value().key.clone())?;
         match &cn.value().value {
-            Value::Scalar(it) => ew.scalar(*it),
+            Value::Scalar(it) => ew.scalar(it.clone()),
             Value::Table(tab) => {
-                let id = tab.id.and_then(|i| ids.get(i));
+                let id = tab.id.as_ref().and_then(|i| ids.get(i));
                 let tb = match id {
                     None => ew.new_table(),
                     Some(tid) => ew.resume_table(*tid).unwrap()
                 };
-                load_table(cn, *tab, ids, found_ids, tb.1)?
+                load_table(cn, tab.clone(), ids, found_ids, tb.1)?
             },
             Value::Ref(r) => {
                 match ids.get(r) {
                     Some(tid) => { ew.resume_table(*tid).unwrap(); },
                     None => {
                         let (tid, _) = ew.new_table();
-                        ids.insert(r.borrow(), tid);
+                        ids.insert(r.clone(), tid);
                     }
                 }
-            },
+            }
         }
     }
     Ok(())

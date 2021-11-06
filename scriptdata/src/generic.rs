@@ -19,7 +19,7 @@ use xmlwriter::XmlWriter;
 
 use crate::document::DocumentRef;
 use crate::reference_tree as rt;
-use crate::{BorrowedKey, Key, RoxmlNodeExt, Scalar, SchemaError};
+use crate::{Key, OwnedKey, RoxmlNodeExt, Scalar, SchemaError};
 
 pub fn load<'a>(doc: &'a RoxDocument<'a>) -> Result<DocumentRef, SchemaError> {
     let rn = doc.root_element();
@@ -27,26 +27,26 @@ pub fn load<'a>(doc: &'a RoxDocument<'a>) -> Result<DocumentRef, SchemaError> {
     
     let root_data = load_value(&rn)?;
     let reftree = match root_data {
-        rt::Value::Ref(r) => Err(SchemaError::DanglingReference(r.into())),
+        rt::Value::Ref(r) => return Err(SchemaError::DanglingReference(r.into())),
         rt::Value::Scalar(_) => {
-            Ok(rt::Tree::new(rt::Data {
-                key: BorrowedKey::Index(0),
+            rt::Tree::new(rt::Data {
+                key: OwnedKey::Index(0),
                 value: root_data
-            }))
+            })
         },
         rt::Value::Table(_) => {
             let mut tree = rt::Tree::new(rt::Data {
-                key: BorrowedKey::Index(0),
+                key: OwnedKey::Index(0),
                 value: root_data
             });
             load_table(&rn, tree.root_mut())?;
-            Ok(tree)
+            tree
         }
     };
-    reftree.and_then(rt::to_document)
+    rt::to_document(reftree)
 }
 
-fn load_value<'a, 'input>(node: &RoxNode<'a, 'input>) -> Result<rt::Value<&'a str>, SchemaError> {
+fn load_value<'a, 'input>(node: &RoxNode<'a, 'input>) -> Result<rt::Value, SchemaError> {
     use rt::Value::Scalar as VS;
     match (node.required_attribute("type")?, node.attribute("value")) {
         ("boolean", Some("true")) => Ok(VS(true.into())),
@@ -63,7 +63,7 @@ fn load_value<'a, 'input>(node: &RoxNode<'a, 'input>) -> Result<rt::Value<&'a st
             Err(_) => Err(SchemaError::InvalidIdString)
         },
 
-        ("string", Some(str)) => Ok(VS(Scalar::String(str))),
+        ("string", Some(str)) => Ok(VS(Scalar::String(str.into()))),
 
         ("vector", Some(val)) => {
             let v: Vec<_> = val.split(' ').map(f32::from_str).filter_map(Result::ok).collect();
@@ -91,8 +91,8 @@ fn load_value<'a, 'input>(node: &RoxNode<'a, 'input>) -> Result<rt::Value<&'a st
             match (node.attribute("_id"), node.attribute("_ref")) {
                 (Some(id), Some(_)) => Err(SchemaError::TableIdAndRef(Rc::from(id))),
                 (id, None) => Ok(rt::Value::Table(rt::TableHeader {
-                    id,
-                    meta: node.attribute("metatable")
+                    id: id.map(Rc::from),
+                    meta: node.attribute("metatable").map(Rc::from)
                 })),
                 (_, Some(r)) => Ok(rt::Value::Ref(r.into()))
             }
@@ -102,19 +102,19 @@ fn load_value<'a, 'input>(node: &RoxNode<'a, 'input>) -> Result<rt::Value<&'a st
     }
 }
 
-fn load_key<'a, 'input>(node: &RoxNode<'a, 'input>) -> Result<BorrowedKey<'a>, SchemaError> {
+fn load_key<'a, 'input>(node: &RoxNode<'a, 'input>) -> Result<OwnedKey, SchemaError> {
     match (node.attribute("index"), node.attribute("key")) {
         (Some(i), Some(k)) => Err(SchemaError::KeyAndIndex(i.into(), k.into())),
         (Some(i), None) => match usize::from_str_radix(i, 10) {
-            Ok(i) => Ok(BorrowedKey::Index(i)),
+            Ok(i) => Ok(OwnedKey::Index(i)),
             Err(_) => Err(SchemaError::BadIndex(i.into())),
         },
-        (None, Some(k)) => Ok(BorrowedKey::String(k)),
+        (None, Some(k)) => Ok(OwnedKey::String(k.into())),
         (None, None) => Err(SchemaError::NoKey)
     }
 }
 
-fn load_table<'t, 'a, 'input>(xml: &RoxNode<'a, 'input>, mut reftree: rt::NodeMut<'t, 'a>) -> Result<(), SchemaError> {
+fn load_table<'t, 'a, 'input>(xml: &RoxNode<'a, 'input>, mut reftree: rt::NodeMut) -> Result<(), SchemaError> {
     for n in xml.children() {
         n.assert_name("entry")?;
         let key = load_key(&n)?;
@@ -148,7 +148,7 @@ pub fn dump(doc: DocumentRef) -> String {
     }
 }
 
-fn dump_entry<'t>(xw: &mut XmlWriter, node: ego_tree::NodeRef<'t, rt::Data<Rc<str>>>) {
+fn dump_entry<'t>(xw: &mut XmlWriter, node: rt::Node<'t>) {
     match &node.value().value {
         rt::Value::Scalar(s) => dump_scalar(xw, s),
         rt::Value::Table(t) => {

@@ -2,7 +2,7 @@ use std::borrow::Borrow;
 use std::rc::Rc;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use crate::{BorrowedKey, DanglingTableId, DuplicateKey, Item, OwnedKey, Scalar, ScalarItem, TableId};
+use crate::{BorrowedKey, DanglingTableId, DuplicateKey, Item, Key, OwnedKey, Scalar, ScalarItem, TableId};
 
 #[derive(Debug, Clone)]
 pub struct DocumentRef(Rc<DocumentData>);
@@ -140,8 +140,7 @@ impl DocumentBuilder {
         }
     }
 
-    pub fn scalar_document(self, item: Scalar<&str>) -> DocumentRef {
-        let item = item.map_string(Rc::from);
+    pub fn scalar_document(self, item: Scalar<Rc<str>>) -> DocumentRef {
         self.doc(ScalarItem::Scalar(item))
     }
 
@@ -172,7 +171,7 @@ pub struct InteriorTableWriter<'t> {
 }
 impl<'t> InteriorTableWriter<'t> {
     pub fn table_id(&self) -> TableId { TableId(self.table) }
-    pub fn set_meta(&mut self, meta: Option<&str>) {
+    pub fn set_meta(&mut self, meta: Option<Rc<str>>) {
         let meta = meta.map(|s| self.root.intern(&s));
         self.root.tables[self.table].meta = meta
     }
@@ -203,10 +202,10 @@ impl<'t> InteriorTableWriter<'t> {
         })
     }
 
-    pub fn key(&mut self, key: BorrowedKey) -> Result<EntryWriter<'_>, DuplicateKey> {
+    pub fn key<S: Borrow<str>>(&mut self, key: Key<S>) -> Result<EntryWriter<'_>, DuplicateKey> {
         match key {
-            BorrowedKey::Index(idx) => self.indexed(idx),
-            BorrowedKey::String(st) => self.string_keyed(&st),
+            Key::Index(idx) => self.indexed(idx),
+            Key::String(st) => self.string_keyed(&st),
         }
     }
 }
@@ -224,7 +223,7 @@ impl<'t> EntryWriter<'t> {
         };
     }
 
-    pub fn scalar(mut self, it: Scalar<&str>) {
+    pub fn scalar(mut self, it: Scalar<Rc<str>>) {
         let it = it.map_string(|s| self.root.intern(&s));
         self.insert_scalar(ScalarItem::Scalar(it))
     }

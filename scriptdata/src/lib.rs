@@ -28,6 +28,11 @@ impl<T> From<usize> for Key<T> {
         Key::Index(src)
     }
 }
+impl From<&str> for Key<Rc<str>> {
+    fn from(src: &str) -> Self {
+        Key::String(src.into())
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Scalar<S> {
@@ -155,11 +160,11 @@ impl From<DuplicateKey> for SchemaError {
 }
 
 
-trait RoxmlNodeExt {
+trait RoxmlNodeExt<'a> {
     fn assert_name(&self, name: &'static str) -> Result<(), SchemaError>;
-    fn required_attribute(&self, name: &'static str)-> Result<&str, SchemaError>;
+    fn required_attribute(&self, name: &'static str)-> Result<&'a str, SchemaError>;
 }
-impl<'a, 'input> RoxmlNodeExt for roxmltree::Node<'a, 'input> {
+impl<'a, 'input> RoxmlNodeExt<'a> for roxmltree::Node<'a, 'input> {
     fn assert_name(&self, name: &'static str) -> Result<(), SchemaError> {
         if !self.has_tag_name(name) {
             return Err(SchemaError::WrongElement(name))
@@ -171,5 +176,13 @@ impl<'a, 'input> RoxmlNodeExt for roxmltree::Node<'a, 'input> {
             Some(s) => Ok(s),
             None => Err(SchemaError::MissingAttribute(name))
         }
+    }
+}
+
+/// This only exists because the extension trait version won't pass the lifetime through
+fn required_attribute<'a, 'input>(inp: &roxmltree::Node<'a, 'input>, name: &'static str) -> Result<&'a str, SchemaError> {
+    match inp.attribute(name) {
+        Some(s) => Ok(s),
+        None => Err(SchemaError::MissingAttribute(name))
     }
 }
