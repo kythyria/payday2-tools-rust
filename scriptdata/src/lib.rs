@@ -146,7 +146,10 @@ pub enum SchemaError {
     DuplicateKey(OwnedKey),
 
     #[error("Duplicate id {0:?}")]
-    DuplicateId(Rc<str>)
+    DuplicateId(Rc<str>),
+
+    #[error("Reference to {0:?} has children")]
+    RefHasChildren(Rc<str>)
 }
 impl<T> From<SchemaError> for Result<T, SchemaError> {
     fn from(src: SchemaError) -> Self {

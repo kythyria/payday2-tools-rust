@@ -34,6 +34,9 @@
 //! numbers or strings, and will ignore any numeric keys which are outside
 //! the array-like range or aren't an integer. If a table has `_meta` then
 //! its name actually overrides the key.
+//! 
+//! This thingy parses in two passes. The first pass turns XML into a [`reference_tree`],
+//! the second manifests the ambiguity implied by the above.
 
 // See https://github.com/kythyria/payday2-tools-rust/blob/9bed431c83d00884f918e534ba9ed918773a2503/src/formats/scriptdata/custom_xml.rs
 // for the old implementation.
@@ -42,137 +45,11 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::str::FromStr;
 
+use ego_tree::NodeId;
 use roxmltree::{Document as RoxDocument, Node as RoxNode};
-use crate::document::{DocumentRef, DocumentBuilder, InteriorTableWriter};
+use crate::document::DocumentRef;
 use crate::reference_tree as rt;
 use crate::{Key, RoxmlNodeExt, Scalar, SchemaError};
-
-pub fn load<'a>(doc: &'a RoxDocument<'a>) -> Result<DocumentRef, SchemaError> {
-
-    match doc.root().tag_name().name() {
-        "value_node" => {
-            match doc.root().required_attribute("value")? {
-                "nil" => Ok(crate::document::DocumentBuilder::new().empty_document()),
-                s => {
-                    let sca = parse_scalar(s)?;
-                    Ok(crate::document::DocumentBuilder::new().scalar_document(sca))
-                }
-            }
-        },
-        _ => {
-            let mut loader = Loader::default();
-
-            let mut tree = ego_tree::Tree::<rt::Data::<&str>>::new(rt::Data {
-                key: Key::Index(0),
-                value: rt::Value::Table(rt::TableHeader {
-                    id: None,
-                    meta: None
-                })
-            });
-
-           
-            loader.load_table_node(doc.root(), tree.root_mut())?;
-
-            todo!();
-        }
-    }
-}
-
-#[derive(Default)]
-struct Loader<'s> {
-    used_ids: HashSet::<&'s str>,
-    pending_ambiguities: HashMap<ego_tree::NodeId, (ego_tree::NodeId, &'s str)>
-}
-impl<'a> Loader<'a> {
-    fn load_table_node<'input>(&mut self, node: RoxNode<'a, 'input>, mut tree: ego_tree::NodeMut<rt::Data<&'a str>>) -> Result<(), SchemaError> {
-        let mut seen_scalars = HashSet::<&str>::default();
-        let mut refs_to_add = HashMap::<&str, ego_tree::NodeId>::default();
-
-        let mut id = None;
-        let mut meta = None;
-        let mut refid = None;
-
-        for att in node.attributes() {
-            if seen_scalars.contains(att.name()) {
-                return Err(SchemaError::DuplicateKey(att.name().into()))
-            }
-            match att.name() {
-                "_id" => {
-                    id = Some(att.value());
-                    if !self.used_ids.insert(att.value()) {
-                        return Err(SchemaError::DuplicateId(att.value().into()))
-                    }
-                },
-                "_meta" => meta = Some(att.value()),
-                "_ref" => refid = Some(att.value()),
-                k => {
-                    if !seen_scalars.insert(k) {
-                        return Err(SchemaError::DuplicateKey(k.into()));
-                    }
-                    tree.append(rt::Data {
-                        key: Key::String(k),
-                        value: rt::Value::Scalar(parse_scalar(att.value())?)
-                    });
-                    
-                }
-            }
-        }
-
-        match &mut tree.value().value {
-            rt::Value::Table(tab) => {
-                tab.id = id.map(|i| Rc::from(i));
-                tab.meta = meta.map(|i| Rc::from(i));
-            }
-            _ => panic!()
-        }
-
-        let mut current_index = 1;
-        
-        for cn in node.children() {
-            if cn.has_tag_name("value_node") {
-                let valstr = cn.required_attribute("value")?;
-                let val = parse_scalar(valstr)?;
-                tree.append(rt::Data{
-                    key: Key::Index(current_index),
-                    value: rt::Value::Scalar(val)
-                });
-                current_index += 1;
-            }
-            else if let Some(rs) = cn.attribute("_ref") {
-                tree.append(rt::Data {
-                    key: Key::Index(current_index),
-                    value: rt::Value::Ref(rs.into())
-                });
-                current_index += 1;
-            }
-            else if cn.has_tag_name("table") {
-                let tn = tree.append(rt::Data {
-                    key: Key::Index(current_index),
-                    value: rt::Value::Table(rt::TableHeader {
-                        id: None,
-                        meta: node.attribute("_meta").map(Rc::from)
-                    })
-                });
-                self.load_table_node(cn, tn)?;
-                current_index += 1;
-            }
-            else {
-                let tn = tree.append(rt::Data {
-                    key: Key::Index(current_index),
-                    value: rt::Value::Table(rt::TableHeader {
-                        id: None,
-                        meta: Some(node.tag_name().name().into())
-                    })
-                });
-                seen_scalars.insert(node.tag_name().name());
-                refs_to_add.insert(node.tag_name().name(), tn.id());
-                current_index += 1;
-            }
-        }
-
-        Ok(())
-    }
-}
 
 fn parse_scalar(input: &str) -> Result<Scalar<Rc<str>>, SchemaError> {
     if input == "true" { return Ok(Scalar::Bool(true)) }
@@ -201,4 +78,135 @@ fn parse_scalar(input: &str) -> Result<Scalar<Rc<str>>, SchemaError> {
 
     Ok(Scalar::String(input.into()))
 
+}
+
+pub fn load<'a>(doc: &'a RoxDocument<'a>) -> Result<DocumentRef, SchemaError> {
+    if doc.root().has_tag_name("value_node") {
+        if let Some("nil") = doc.root().attribute("value") {
+            return Ok(crate::document::DocumentBuilder::new().empty_document())
+        }
+    }
+
+    let mut tree = rt::empty_tree();
+    let mut fixups = Vec::<(NodeId, NodeId)>::default();
+
+    load_node(doc.root(), &mut tree.root_mut(), Key::Index(0), &mut fixups)?;
+
+    // At this point, everything should be done except for dict-like table-valued
+    // entries. So to save on refactoring we just make up some refs at a waste of
+    // allocations. Slow, but I really question your need for high performance in
+    // any scenario where this gets invoked.
+
+    let mut seen_refs = HashSet::<Rc<str>>::default();
+    for n in tree.nodes() {
+        match &n.value().value {
+            rt::Value::Scalar(_) => {},
+            rt::Value::Table(t) => {
+                t.id.as_ref().map(|i| seen_refs.insert(i.clone()));
+            },
+            rt::Value::Ref(rs) => {
+                seen_refs.insert(rs.clone());
+            },
+        }
+    }
+
+    let mut id_counter = 0;
+    for (src, dest) in fixups {
+        let id = if let rt::Data{value: rt::Value::Table(dh), ..} = tree.get_mut(dest).unwrap().value() {
+            if dh.id.is_none() {
+                loop {
+                    let candidate = format!("id_fixup_{}", id_counter);
+                    id_counter += 1;
+                    if !seen_refs.contains(candidate.as_str()) {
+                        dh.id = Some(candidate.into());
+                        break;
+                    }
+                }
+            }
+            dh.id.as_ref().unwrap().clone()
+        }
+        else {
+            panic!("Fixup didn't point to a table")
+        };
+
+        tree.get_mut(src).unwrap().value().value = rt::Value::Ref(id)
+    }
+
+    rt::to_document(tree.root().first_child().unwrap())
+}
+
+fn load_node<'t>(elem: RoxNode, parent: &mut rt::NodeMut<'t>, key: Key<Rc<str>>, fixups: &mut Vec<(NodeId, NodeId)>) -> Result<NodeId, SchemaError> {
+    if elem.tag_name().name() == "value_node" {
+        let valstr = elem.required_attribute("value")?;
+        let val = parse_scalar(valstr)?;
+        let node = parent.append(rt::Data {
+            key,
+            value: val.into()
+        });
+        return Ok(node.id());
+    }
+
+    if let Some(refid) = elem.attribute("_ref") {
+        if elem.has_children() {
+            return Err(SchemaError::RefHasChildren(refid.into()))
+        }
+
+        let node = parent.append(rt::Data {
+            key,
+            value: rt::Value::Ref(refid.into())
+        });
+        return Ok(node.id());
+    }
+
+    let id = elem.attribute("_id").map(Rc::<str>::from);
+    let meta = match (elem.tag_name().name(), elem.attribute("_meta")) {
+        ("table", None) => None,
+        (m, None) => Some(Rc::from(m)),
+        (_, Some(m)) => Some(Rc::from(m)),
+    };
+
+    let mut node = parent.append(rt::Data{
+        key,
+        value: rt::Value::Table(rt::TableHeader {
+            id, meta
+        })
+    });
+
+    for attr in elem.attributes() {
+        match attr.name() {
+            "_id" | "_meta" | "_ref" => {},
+            name => {
+                let val = parse_scalar(attr.value())?;
+                node.append(rt::Data {
+                    key: Key::String(name.into()),
+                    value: val.into()
+                });
+            }
+        }
+    }
+
+    let mut keyed_nodes = HashMap::<&str, ego_tree::NodeId>::default();
+    let mut curr_index = 1;
+    for child in elem.children() {
+        let cid = load_node(child, &mut node, Key::Index(curr_index), fixups)?;
+        curr_index += 1;
+        
+        let element_name = child.tag_name().name();
+        if !child.has_tag_name("value_node") && !child.has_tag_name("table") {
+            if elem.has_attribute(element_name) {
+                return Err(SchemaError::DuplicateKey(element_name.into()));
+            }
+            keyed_nodes.insert(element_name, cid);
+        }
+    }
+
+    for (key, target) in keyed_nodes {
+        let n = node.append(rt::Data {
+            key: key.into(),
+            value: rt::Value::Ref("".into())
+        });
+        fixups.push((n.id(), target));
+    }
+
+    Ok(node.id())
 }

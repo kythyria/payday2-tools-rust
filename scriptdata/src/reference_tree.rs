@@ -1,4 +1,3 @@
-use std::borrow::{Borrow};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
@@ -8,8 +7,13 @@ use crate::document::{DocumentBuilder, DocumentRef, InteriorTableWriter, TableRe
 
 #[derive(EnumFromData, Debug, Clone)]
 pub enum Value {
+    /// Simple scalar value
     Scalar(Scalar<Rc<str>>),
+
+    /// Table
     Table(TableHeader),
+
+    /// Diamond reference created by `_ref` attributes and the like.
     Ref(Rc<str>)
 }
 
@@ -25,12 +29,26 @@ pub struct Data<S> {
     pub value: Value
 }
 
-pub type Tree<'s> = ego_tree::Tree<Data<Rc<str>>>;
+pub type Tree = ego_tree::Tree<Data<Rc<str>>>;
 pub type Node<'t> = ego_tree::NodeRef<'t, Data<Rc<str>>>;
 pub type NodeMut<'t> = ego_tree::NodeMut<'t, Data<Rc<str>>>;
 
-pub fn to_document(tree: Tree) -> Result<DocumentRef, SchemaError> {
-    let root = tree.root();
+/// Create an "empty" tree with a placeholder root node.
+///
+/// This spurious root node is akin to `[0] = {}` and avoids having to special case
+/// things which would be nicely recursive if you could have an empty document with
+/// orphaned nodes in, then select one to be the root.
+pub fn empty_tree() -> Tree {
+    Tree::new(Data {
+        key: Key::Index(0),
+        value: TableHeader {
+            id: None,
+            meta: None
+        }.into()
+    })
+}
+
+pub fn to_document(root: Node) -> Result<DocumentRef, SchemaError> {
     match &root.value().value {
         Value::Scalar(item) => Ok(DocumentBuilder::new().scalar_document(item.clone())),
         Value::Ref(_) => panic!("RefTree construction didn't reject a root Ref before it got here."),

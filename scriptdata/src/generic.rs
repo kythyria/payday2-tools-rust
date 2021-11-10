@@ -43,7 +43,7 @@ pub fn load<'a>(doc: &'a RoxDocument<'a>) -> Result<DocumentRef, SchemaError> {
             tree
         }
     };
-    rt::to_document(reftree)
+    rt::to_document(reftree.root())
 }
 
 fn load_value<'a, 'input>(node: &RoxNode<'a, 'input>) -> Result<rt::Value, SchemaError> {
