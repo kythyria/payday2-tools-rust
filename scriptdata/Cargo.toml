@@ -12,6 +12,9 @@ vek = "0.15.1"
 xmlparser = "0.13.3"
 xmlwriter = "0.1.0"
 either = "1.6.1"
+logos = "0.12.0"
+pest = "2.1.3"
+pest_derive = "2.1.0"
 
 pd2tools-macros = { path = '../macros' }
 ego-tree = "0.6.2"

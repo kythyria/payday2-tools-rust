@@ -1,0 +1,67 @@
+WHITESPACE = _{ NEWLINE | " " | "\t" }
+COMMENT = _{
+    "--" ~ (long_comment | line_comment )
+}
+line_comment = @{ (!NEWLINE ~ ANY)* ~ NEWLINE }
+long_comment = @{ 
+    "[" ~ PUSH("="*) ~ "[" ~
+        ( !("]" ~ PEEK ~ "]") ~ ANY )*
+    ~ "]" ~ POP ~ "]"
+}
+
+keyword = { 
+    "do" | "and" | "else" | "break" | "elseif" | "function" |
+    "or" | "end" | "true" | "false" | "repeat" | "while"    |
+    "if" | "for" | "goto" | "local" | "return" | "not"      |
+    "in" | "nil" | "then" | "until"
+}
+
+bool = { "true" | "false" }
+
+ident = @{ !(keyword) ~ ("_" | ASCII_ALPHA ) ~ ("_" | ASCII_ALPHANUMERIC)* }
+
+number = @{ ("-"|"+")? ~ ASCII_DIGIT+ ~ ( "." ~ ASCII_DIGIT* )? ~ (("e"|"E") ~("-"|"+")? ~ ASCII_DIGIT+)? }
+integer = @{ ASCII_DIGIT+ }
+
+long_string = ${
+    "[" ~ PUSH("="*) ~ "["
+    ~ long_string_interior
+    ~ "]" ~ POP ~ "]"
+}
+
+long_string_interior = ${
+    (
+        !("]" ~ PEEK ~ "]") ~ ANY
+    )*
+}
+
+short_string = ${ PUSH("\'" | "\"") ~ (
+        short_string_escape | short_string_plain
+    )* ~ POP
+}
+short_string_plain = ${ (!("\\"|PEEK) ~ ANY)++ }
+short_string_escape = _{
+    "\\" ~ (string_esc_c | string_esc_hex | string_esc_dec | string_esc_unicode)
+}
+string_esc_c = ${ "a"|"b"|"f"|"n"|"r"|"t"|"v"|"\\"|"\""|"\'" }
+string_esc_hex = ${ "x" ~ HEX_DIGIT{2} }
+string_esc_dec = ${ ASCII_DIGIT{1,3} }
+string_esc_unicode = ${ "u{" ~ HEX_DIGIT{1,6} ~ "}" }
+
+table = {
+    "{" ~ "}" |
+    "{" ~ table_entry ~ (fieldsep ~ table_entry )* ~ fieldsep? ~ "}"
+}
+fieldsep = _{","|";"}
+table_entry = { ident_keyed | value_keyed | value }
+ident_keyed = { ident ~ "=" ~ value }
+value_keyed = { "[" ~ (long_string | short_string | integer) ~ "]" ~ "=" ~ value }
+
+call = { ident ~ (args | table) }
+args = {
+    "(" ~ ")" |
+    "(" ~ value ~ ("," ~ value)* ~ ")"
+}
+
+value = { bool | number | long_string | short_string | table | call }
+document = { "return" ~ value }
