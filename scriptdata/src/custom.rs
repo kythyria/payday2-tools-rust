@@ -47,8 +47,9 @@ use std::str::FromStr;
 
 use ego_tree::NodeId;
 use roxmltree::{Document as RoxDocument, Node as RoxNode};
+use xmlwriter::XmlWriter;
 use crate::document::DocumentRef;
-use crate::reference_tree as rt;
+use crate::reference_tree::{self as rt, TableHeader};
 use crate::{Key, RoxmlNodeExt, Scalar, SchemaError};
 
 fn parse_scalar(input: &str) -> Result<Scalar<Rc<str>>, SchemaError> {
@@ -97,18 +98,7 @@ pub fn load<'a>(doc: &'a RoxDocument<'a>) -> Result<DocumentRef, SchemaError> {
     // allocations. Slow, but I really question your need for high performance in
     // any scenario where this gets invoked.
 
-    let mut seen_refs = HashSet::<Rc<str>>::default();
-    for n in tree.nodes() {
-        match &n.value().value {
-            rt::Value::Scalar(_) => {},
-            rt::Value::Table(t) => {
-                t.id.as_ref().map(|i| seen_refs.insert(i.clone()));
-            },
-            rt::Value::Ref(rs) => {
-                seen_refs.insert(rs.clone());
-            },
-        }
-    }
+    let seen_refs = collect_ids(tree.root());
 
     let mut id_counter = 0;
     for (src, dest) in fixups {
@@ -141,7 +131,7 @@ fn load_node<'t>(elem: RoxNode, parent: &mut rt::NodeMut<'t>, key: Key<Rc<str>>,
         let val = parse_scalar(valstr)?;
         let node = parent.append(rt::Data {
             key,
-            value: val.into()
+            value: rt::Value::Scalar(val)
         });
         return Ok(node.id());
     }
@@ -179,7 +169,7 @@ fn load_node<'t>(elem: RoxNode, parent: &mut rt::NodeMut<'t>, key: Key<Rc<str>>,
                 let val = parse_scalar(attr.value())?;
                 node.append(rt::Data {
                     key: Key::String(name.into()),
-                    value: val.into()
+                    value: rt::Value::Scalar(val)
                 });
             }
         }
@@ -209,4 +199,126 @@ fn load_node<'t>(elem: RoxNode, parent: &mut rt::NodeMut<'t>, key: Key<Rc<str>>,
     }
 
     Ok(node.id())
+}
+
+pub fn dump(doc: DocumentRef) -> String {
+    let tree = match rt::from_document(doc) {
+        Some(t) => t,
+        None => return String::from("<value_node value=\"nil\"/>")
+    };
+
+    let mut xw = XmlWriter::new(xmlwriter::Options::default());
+    let dumped_nodes = rt_node_to_dumpnode(tree.root(), &mut xw);
+    dumped_nodes.write(&mut xw);
+
+    xw.end_document()
+}
+
+struct DumpTable {
+    name: Rc<str>,
+    attributes: Vec<(Rc<str>, Scalar<Rc<str>>)>,
+    children: Vec<DumpTable>
+}
+impl DumpTable {
+    fn write(&self, xw: &mut XmlWriter) {
+        macro_rules! wa {
+            ($k:ident, $fmt:literal, $($fa:expr),*) => {{
+                xw.write_attribute_fmt($k, format_args!($fmt, $($fa),*))
+            }}
+        }
+
+        xw.start_element(&self.name);
+        for (k, v) in &self.attributes {
+            match v {
+                Scalar::Bool(v) => wa!(k, "{}", v),
+                Scalar::Number(v) => wa!(k, "{}", v),
+                Scalar::IdString(v) => wa!(k, "@ID{:>016x}@", v),
+                Scalar::String(v) => wa!(k, "{}", v),
+                Scalar::Vector(v) => wa!(k, "{} {} {}", v.x, v.y, v.z),
+                Scalar::Quaternion(v) => wa!(k, "{} {} {} {}", v.x, v.y, v.z, v.w),
+            };
+        }
+
+        for c in &self.children {
+            c.write(xw);
+        }
+
+        xw.end_element();
+    }
+}
+
+fn rt_node_to_dumpnode(node: rt::Node, xw: &mut XmlWriter) -> DumpTable {
+    match &node.value().value {
+        rt::Value::Scalar(s) => DumpTable {
+            name: "value_node".into(),
+            attributes: vec![("value".into(), s.clone())],
+            children: Vec::default()
+        },
+        rt::Value::Ref(r) => DumpTable {
+            name: match &node.value().key {
+                Key::Index(_) => "table".into(),
+                Key::String(s) => s.clone()
+            },
+            attributes: vec![ ("_ref".into(), Scalar::String(r.clone())) ],
+            children: Vec::default()
+        },
+        rt::Value::Table(tab) => {
+            let mut seen_keys = HashSet::<Rc<str>>::default();
+            let mut attributes = Vec::<(Rc<str>, Scalar<Rc<str>>)>::default();
+            let mut children  = Vec::<DumpTable>::default();
+
+            if let Some(id) = &tab.id {
+                attributes.push(("_id".into(), Scalar::String(id.clone())));
+            }
+
+            let mut ci: usize = 1;
+            for cn in node.children() {
+                match (&cn.value().key, &cn.value().value) {
+                    (Key::String(k), rt::Value::Scalar(v)) => {
+                        seen_keys.insert(k.clone());
+                        attributes.push((k.clone(), v.clone()));
+                    },
+                    (Key::Index(i), v) if *i == ci => {
+                        if let rt::Value::Table(TableHeader{meta: Some(mt), ..}) = &v {
+                            seen_keys.insert(mt.clone());
+                        }
+                        children.push(rt_node_to_dumpnode(cn, xw));
+                        ci += 1;
+                    },
+                    (Key::String(k), _) => {
+                        if !seen_keys.contains(k.as_ref()) {
+                            let cdn = rt_node_to_dumpnode(cn, xw);
+                            if cdn.name.as_ref() != "table" && cdn.name.as_ref() != "value_node" {
+                                seen_keys.insert(cdn.name);
+                            }
+                            children.push(rt_node_to_dumpnode(cn, xw));
+                        }
+                    },
+                    _ => {}
+                }
+            }
+
+            DumpTable {
+                name: tab.meta.as_ref().map(Clone::clone).unwrap_or_else(|| Rc::from("table")),
+                attributes, children
+            }
+        }
+    }
+}
+
+
+fn collect_ids(tree: rt::Node) -> HashSet<Rc<str>> {
+    let mut seen_refs = HashSet::<Rc<str>>::default();
+    for n in tree.descendants() {
+        match &n.value().value {
+            rt::Value::Scalar(_) => {},
+            rt::Value::Table(t) => {
+                t.id.as_ref().map(|i| seen_refs.insert(i.clone()));
+            },
+            rt::Value::Ref(rs) => {
+                seen_refs.insert(rs.clone());
+            },
+        }
+    }
+    seen_refs
 }

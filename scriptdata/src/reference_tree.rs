@@ -41,10 +41,10 @@ pub type NodeMut<'t> = ego_tree::NodeMut<'t, Data<Rc<str>>>;
 pub fn empty_tree() -> Tree {
     Tree::new(Data {
         key: Key::Index(0),
-        value: TableHeader {
+        value: Value::Table(TableHeader {
             id: None,
             meta: None
-        }.into()
+        })
     })
 }
 
@@ -120,7 +120,7 @@ pub fn from_document(doc: DocumentRef) -> Option<ego_tree::Tree<Data<Rc<str>>>> 
 
             let mut tree = ego_tree::Tree::<Data<Rc<str>>>::new(Data {
                 key: Key::Index(0),
-                value: Value::Table(thead)
+                value: thead.into()
             });
 
             state.tree_from_tableref(tref, tree.root_mut());
