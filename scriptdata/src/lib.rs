@@ -113,8 +113,11 @@ pub enum SchemaError {
     #[error("Malformed boolean")]
     InvalidBool,
 
-    #[error("Malformed number")]
-    InvalidFloat,
+    #[error("Malformed number: {0}")]
+    InvalidFloat(#[from] std::num::ParseFloatError),
+
+    #[error("Malformed integer: {0}")]
+    InvalidInt(#[from] std::num::ParseIntError),
 
     #[error("Malformed Idstring")]
     InvalidIdString,
@@ -150,7 +153,10 @@ pub enum SchemaError {
     DuplicateId(Rc<str>),
 
     #[error("Reference to {0:?} has children")]
-    RefHasChildren(Rc<str>)
+    RefHasChildren(Rc<str>),
+
+    #[error("Syntax error: {0}")]
+    SyntaxError(Box<dyn std::error::Error>)
 }
 impl<T> From<SchemaError> for Result<T, SchemaError> {
     fn from(src: SchemaError) -> Self {
@@ -162,7 +168,6 @@ impl From<DuplicateKey> for SchemaError {
         SchemaError::DuplicateKey(src.0)
     }
 }
-
 
 trait RoxmlNodeExt<'a> {
     fn assert_name(&self, name: &'static str) -> Result<(), SchemaError>;

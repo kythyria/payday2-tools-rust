@@ -55,7 +55,7 @@ fn load_value<'a, 'input>(node: &RoxNode<'a, 'input>) -> Result<rt::Value, Schem
 
         ("number", Some(ns)) => match f32::from_str(ns) {
             Ok(n) => Ok(VS(n.into())),
-            Err(_) => Err(SchemaError::InvalidFloat)
+            Err(e) => Err(SchemaError::InvalidFloat(e))
         },
 
         ("idstring", Some(ids)) => match u64::from_str_radix(ids, 16) {

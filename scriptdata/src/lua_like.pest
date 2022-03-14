@@ -52,16 +52,17 @@ table = {
     "{" ~ "}" |
     "{" ~ table_entry ~ (fieldsep ~ table_entry )* ~ fieldsep? ~ "}"
 }
+meta_table = { ident ~ table }
 fieldsep = _{","|";"}
 table_entry = { ident_keyed | value_keyed | value }
 ident_keyed = { ident ~ "=" ~ value }
 value_keyed = { "[" ~ (long_string | short_string | integer) ~ "]" ~ "=" ~ value }
 
-call = { ident ~ (args | table) }
-args = {
-    "(" ~ ")" |
-    "(" ~ value ~ ("," ~ value)* ~ ")"
-}
+call_id = { "id" ~ "(" ~ (long_string | short_string) ~ "," ~ (table | call_meta | meta_table) ~ ")" }
+call_ref = { "ref" ~ "(" ~ (long_string | short_string) ~ ")" }
+call_meta = { "meta" ~ "(" ~ (long_string | short_string) ~ "," ~ table ~ ")" }
+call_vector = { "Vector" ~ "(" ~ number ~ "," ~ number ~ "," ~ number ~ ")" }
+call_quaternion = { "Quaternion" ~ "(" ~ number ~ "," ~ number ~ "," ~ number ~ "," ~ number ~ ")" }
 
-value = { bool | number | long_string | short_string | table | call }
+value = { bool | number | long_string | short_string | table | meta_table | call_id | call_ref | call_meta | call_vector | call_quaternion }
 document = { "return" ~ value }
