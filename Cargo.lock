@@ -142,9 +142,9 @@ dependencies = [
 
 [[package]]
 name = "chumsky"
-version = "0.6.0"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75efcada9a5471698704a9518888b76c7f363a086357f86671d7c84d54671eb1"
+checksum = "8d02796e4586c6c41aeb68eae9bfb4558a522c35f1430c14b40136c3706e09e4"
 dependencies = [
  "ahash",
 ]
@@ -853,6 +853,7 @@ name = "scriptdata"
 version = "0.1.0"
 dependencies = [
  "chumsky",
+ "diesel_hash",
  "ego-tree",
  "either",
  "logos",
