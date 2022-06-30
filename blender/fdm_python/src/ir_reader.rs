@@ -331,9 +331,12 @@ impl<'s, 'hi, 'py> IrReader<'s, 'hi, 'py> {
                 }
                 
                 for i in 0..uv_sources.len() {
-                    mesh.loop_uv_layers[i].1.push(uv_sources[i][v0_i].into_tuple());
-                    mesh.loop_uv_layers[i].1.push(uv_sources[i][v1_i].into_tuple());
-                    mesh.loop_uv_layers[i].1.push(uv_sources[i][v2_i].into_tuple());
+                    let (ax, ay) = uv_sources[i][v0_i].into_tuple();
+                    let (bx, by) = uv_sources[i][v1_i].into_tuple();
+                    let (cx, cy) = uv_sources[i][v2_i].into_tuple();
+                    mesh.loop_uv_layers[i].1.push((ax, ay * -1.0));
+                    mesh.loop_uv_layers[i].1.push((bx, by * -1.0));
+                    mesh.loop_uv_layers[i].1.push((cx, cy * -1.0));
                 }
 
                 if mesh.has_normals {
