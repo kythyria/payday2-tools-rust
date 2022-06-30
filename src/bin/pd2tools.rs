@@ -224,6 +224,10 @@ fn do_scan(hashlist_filename: &Option<String>, asset_dir: &Path, outname: &str) 
     hashlist_scan::do_scan(&db, &mut outfile).unwrap();
 }
 
+fn do_convert2(input_filename: &str, input_type: Option<ConvertType>, output_filename: &str, output_type: ConvertType, events: bool) {
+    
+}
+
 fn do_convert(input_filename: &str, input_type: Option<ConvertType>, output_filename: &str, output_type: ConvertType, events: bool) {
     let in_data: Vec<u8> = match input_filename {
         "-" => {

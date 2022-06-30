@@ -170,7 +170,7 @@ macro_rules! make_document {
     };
 
     ($( ($tag:literal, $variantname:ident, $typename:ident) )+) => {
-        #[derive(Copy, Clone, Eq, PartialEq, EnumTryFrom, Parse, Debug)]
+        #[derive(Copy, Clone, Eq, PartialEq, EnumTryFrom, Parse, Debug, PartialOrd, Ord)]
         pub enum SectionType {
             $(
                 $variantname = $tag,

@@ -626,6 +626,7 @@ dependencies = [
  "pd2tools-macros",
  "rayon",
  "roxmltree",
+ "scriptdata",
  "steam",
  "structopt",
  "thiserror",
