@@ -38,18 +38,59 @@ struct UnparsedSection<'a> {
     bytes: &'a [u8]
 }
 
-#[derive(Debug, EnumTryFrom)]
-#[repr(u32)]
-enum TypeId {
-    Node = 0,
-    Anim = 3,
+macro_rules! make_chunks {
+    ($($name:ident = $tag:literal),+) => {
+        #[derive(Debug, EnumTryFrom)]
+        #[repr(u32)]
+        pub enum ChunkId {
+            $($name = $tag),+
+        }
+
+        pub enum Chunk {
+            $($name($name)),+
+        }
+
+        impl std::fmt::Debug for Chunk {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                match self {
+                    $(Self::$name(d) => <$name as std::fmt::Debug>::fmt(d, f)),+
+                }
+            }
+        }
+    }
+}
+
+make_chunks! {
+    SceneInfo1 = 3,
+    SceneInfo2 = 12,
+    SceneInfo3 = 20,
+
     Material = 4,
+    //MaterialsXml = 11,
+
+    Node = 0,
     Geometry = 5,
-    Anim2 = 12,
-    Anim3 = 20,
     Light = 10,
-    UnknownType11 = 11, // this seems to be a single counted block.
-    UnknownType21 = 21 // mentioned next to a log message about "beats and triggers"
+    //Camera = 19,
+    
+    KeyEvents = 21
+    
+    //PositionController = 1,
+    //RotationController = 2,
+    //LookatController = 6,
+    //ColorController = 7,
+    //AttenuationController = 8,
+    //MultiplierController = 9,
+    //HotspotController = 13,
+    //FalloffController = 14,
+    //FovController = 15,
+    //FarClipController = 16,
+    //NearClipController = 17,
+    //TargetDistanceController = 18,
+    //IkChainController = 22,
+    //IkChainTargetController = 23,
+    //CompositePositionController = 24,
+    //CompositeRotationController = 25
 }
 
 
@@ -88,24 +129,39 @@ impl std::fmt::Debug for UnparsedBytes {
 }
 
 #[derive(Debug, Parse)]
-struct Anim3 {
+pub struct SceneInfo1 {
+    start_time: f64,
+    end_time: f64,
+}
+
+#[derive(Debug, Parse)]
+pub struct SceneInfo2 {
     start_time: f64,
     end_time: f64,
 
     author_tag: String,
-    source: String,
+    source_filename: String,
+}
+
+#[derive(Debug, Parse)]
+pub struct SceneInfo3 {
+    start_time: f64,
+    end_time: f64,
+
+    author_tag: String,
+    source_filename: String,
     scene_type: String,
 }
 
 #[derive(Debug, Parse)]
-struct Material {
+pub struct Material {
     id: u32,
     name: String,
     parent_id: u32
 }
 
 #[derive(Debug, Parse)]
-struct Node {
+pub struct Node {
     id: u32,
     name: String,
 
@@ -116,7 +172,7 @@ struct Node {
 }
 
 #[derive(Debug, Parse)]
-struct Geometry {
+pub struct Geometry {
     node_id: u32,
 
     /// ID of mesh material
@@ -128,7 +184,7 @@ struct Geometry {
 }
 
 #[derive(Debug)]
-enum GeometryChannel {
+pub enum GeometryChannel {
     Position(u32, Vec<Vec3<f64>>),
     Normal  (u32, Vec<Vec3<f64>>),
     Binormal(u32, Vec<Vec3<f64>>),
@@ -175,7 +231,7 @@ impl Parse for GeometryChannel {
 }
 
 #[derive(Debug, Parse)]
-struct GeometryFace {
+pub struct GeometryFace {
     material_id: u32,
     unknown1: u32,
 
@@ -183,7 +239,7 @@ struct GeometryFace {
 }
 
 #[derive(Debug, Parse)]
-struct GeometryFaceloop {
+pub struct GeometryFaceloop {
     channel: u32,
     a: u32,
     b: u32,
@@ -192,7 +248,7 @@ struct GeometryFaceloop {
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, EnumTryFrom, Parse)]
 #[repr(u32)]
-enum LightType {
+pub enum LightType {
     Spot = 0,
     Directional = 1,
     Omni = 2
@@ -200,13 +256,13 @@ enum LightType {
 
 #[derive(Debug, PartialEq, Clone, Copy, EnumTryFrom, Parse)]
 #[repr(u32)]
-enum SpotlightShape {
+pub enum SpotlightShape {
     Rectangular = 0,
     Circular = 1
 }
 
 #[derive(Debug, Parse)]
-struct Light {
+pub struct Light {
     node_id: u32,
     lamp_type: LightType,
     color: Rgb<f64>,
@@ -225,19 +281,19 @@ struct Light {
 }
 
 /// "Beats and triggers" block.
-struct Unknown21 {
-    unknown_1: u32, // probably a count of unknown_2
-    unknown_2: Vec<Unknown21Item>
+#[derive(Debug)]
+pub struct KeyEvents {
+    events: Vec<KeyEvent>
 }
 
-#[derive(Parse)]
-struct Unknown21Item {
-    unknown_1: u32,
-    unknown_2: String,
-    unknown_3: f64,
-    unknown_4: u32,    // The maya2017 exporter always writes 0xFFFFFFFF,
-    unknown_5: String, // Exporter always writes "beat" or "trigger" here
-    unknown_6: u32     // Exporter always writes 0
+#[derive(Parse,Debug)]
+pub struct KeyEvent {
+    id: u32,
+    name: String,
+    timestamp: f64,
+    node_id: u32,    // The maya2017 exporter always writes 0xFFFFFFFF,
+    event_type: String, // Exporter always writes "beat" or "trigger" here
+    parameter_count: u32     // Exporter always writes 0
 }
 
 fn split_to_sections<'a>(src: &'a [u8]) -> Result<Vec<UnparsedSection<'a>>, ParseError> {
@@ -286,13 +342,13 @@ pub fn print_sections(filename: &Path) {
     };
 
     for sec in data {
-        let r#type = TypeId::try_from(sec.type_code);
+        let r#type = ChunkId::try_from(sec.type_code);
         match r#type {
-            Ok(TypeId::Node) => println!("{:6} {:6} {:?}", sec.offset, sec.length, Node::parse(sec.bytes)),
-            Ok(TypeId::Material) => println!("{:6} {:6} {:?}", sec.offset, sec.length, Material::parse(sec.bytes)),
-            Ok(TypeId::Geometry) => println!("{:6} {:6} {:?}", sec.offset, sec.length, Geometry::parse(sec.bytes)),
-            Ok(TypeId::Light) => println!("{:6} {:6} {:?}", sec.offset, sec.length, Light::parse(sec.bytes)),
-            Ok(TypeId::Anim3) => println!("{:6} {:6} {:?}", sec.offset, sec.length, Anim3::parse(sec.bytes)),
+            Ok(ChunkId::Node) => println!("{:6} {:6} {:?}", sec.offset, sec.length, Node::parse(sec.bytes)),
+            Ok(ChunkId::Material) => println!("{:6} {:6} {:?}", sec.offset, sec.length, Material::parse(sec.bytes)),
+            Ok(ChunkId::Geometry) => println!("{:6} {:6} {:?}", sec.offset, sec.length, Geometry::parse(sec.bytes)),
+            Ok(ChunkId::Light) => println!("{:6} {:6} {:?}", sec.offset, sec.length, Light::parse(sec.bytes)),
+            Ok(ChunkId::SceneInfo3) => println!("{:6} {:6} {:?}", sec.offset, sec.length, SceneInfo3::parse(sec.bytes)),
             _ => {
                 println!("{:6} {:6} {:4} {:}", sec.offset, sec.length, sec.type_code, AsHex(sec.bytes))
             }
