@@ -14,7 +14,7 @@ use thiserror::Error;
 use crate::hashindex::Hash as Idstring;
 use crate::util::AsHex;
 use crate::util::parse_helpers;
-use crate::util::parse_helpers::{ Parse, WireFormat, CountedVec, CountedUtfString };
+use crate::util::parse_helpers::{ Parse, WireFormat, CountedVec, CountedString, NullTerminatedString };
 use crate::util::Subslice;
 use pd2tools_macros::{EnumTryFrom, Parse};
 
@@ -273,9 +273,11 @@ pub struct AuthorSection {
     name: Idstring,
 
     /// Email address of the author. In Overkill/LGL's tools, settable in the exporter settings.
+    #[parse_as(NullTerminatedString)]
     author_email: String,
 
     /// Absolute path of the original file.
+    #[parse_as(NullTerminatedString)]
     source_filename: String,
     unknown_2: u32
 }
@@ -796,6 +798,6 @@ pub struct LookAtConstrRotationControllerSection {
 pub struct ModelToolHashSection {
     version: u16,
 
-    #[parse_as(CountedVec<u32, String, CountedUtfString<u16>>)]
+    #[parse_as(CountedVec<u32, String, CountedString<u16>>)]
     strings: Vec<String>
 }

@@ -57,6 +57,19 @@ macro_rules! make_chunks {
                 }
             }
         }
+        
+        impl<'a> UnparsedSection<'a> {
+            fn try_into_chunk(&self) -> IResult<&'a [u8], Chunk> {
+                let r#type = ChunkId::try_from(self.type_code);
+                match r#type {
+                    $(Ok(ChunkId::$name) => {
+                        let (remain, output) =  $name::parse(self.bytes)?;
+                        Ok((remain, Chunk::$name(output)))
+                    }),+
+                    Err(_) => Err(nom::Err::Failure(nom::error::Error::new(self.bytes, nom::error::ErrorKind::OneOf)))
+                }
+            }
+        }
     }
 }
 
@@ -281,7 +294,7 @@ pub struct Light {
 }
 
 /// "Beats and triggers" block.
-#[derive(Debug)]
+#[derive(Debug, Parse)]
 pub struct KeyEvents {
     events: Vec<KeyEvent>
 }
@@ -342,17 +355,10 @@ pub fn print_sections(filename: &Path) {
     };
 
     for sec in data {
-        let r#type = ChunkId::try_from(sec.type_code);
-        match r#type {
-            Ok(ChunkId::Node) => println!("{:6} {:6} {:?}", sec.offset, sec.length, Node::parse(sec.bytes)),
-            Ok(ChunkId::Material) => println!("{:6} {:6} {:?}", sec.offset, sec.length, Material::parse(sec.bytes)),
-            Ok(ChunkId::Geometry) => println!("{:6} {:6} {:?}", sec.offset, sec.length, Geometry::parse(sec.bytes)),
-            Ok(ChunkId::Light) => println!("{:6} {:6} {:?}", sec.offset, sec.length, Light::parse(sec.bytes)),
-            Ok(ChunkId::SceneInfo3) => println!("{:6} {:6} {:?}", sec.offset, sec.length, SceneInfo3::parse(sec.bytes)),
-            _ => {
-                println!("{:6} {:6} {:4} {:}", sec.offset, sec.length, sec.type_code, AsHex(sec.bytes))
-            }
+        print!("{:6} {:6} ", sec.offset, sec.length);
+        match sec.try_into_chunk() {
+            Ok(chunk) => println!("{:?}", chunk),
+            Err(e) => println!("{:4} {:?} {:}", sec.type_code, e, AsHex(sec.bytes))
         }
-        
     }
 }

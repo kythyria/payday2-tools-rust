@@ -107,15 +107,10 @@ impl<T: Parse + Default> Parse for vek::Mat4<T> {
 
 impl Parse for String {
     fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], Self> {
-        let ts = terminated(take_until("\0"), tag(b"\0"));
-        let mut tstr = map(ts, |v| {
-            String::from_utf8_lossy(v).into_owned()
-        });
-        tstr(input)
+        CountedString::<u32>::parse_into(input)
     }
     fn serialize<O: Write>(&self, output: &mut O) -> IoResult<()> {
-        output.write_all(self.as_bytes())?;
-        output.write_all(b"\0")
+        CountedString::<u32>::serialize_from(self, output)
     }
 }
 
@@ -143,6 +138,22 @@ impl<T: Parse> Parse for Vec<T> {
     }
 }
 
+pub struct NullTerminatedString;
+impl WireFormat<String> for NullTerminatedString {
+    fn parse_into<'a>(input: &'a [u8]) -> IResult<&'a [u8], String> {
+        let ts = terminated(take_until("\0"), tag(b"\0"));
+        let mut tstr = map(ts, |v| {
+            String::from_utf8_lossy(v).into_owned()
+        });
+        tstr(input)
+    }
+
+    fn serialize_from<O: Write>(data: &String, output: &mut O) -> IoResult<()> {
+        output.write_all(data.as_bytes())?;
+        output.write_all(b"\0")
+    }
+}
+
 pub struct CountedVec<C, I, IF=I>(PhantomData<(C, I, IF)>);
 impl<C, I, IF> WireFormat<Vec<I>> for CountedVec<C, I, IF>
 where
@@ -165,8 +176,8 @@ where
     }
 }
 
-pub struct CountedUtfString<C>(PhantomData<C>);
-impl<C> WireFormat<String> for CountedUtfString<C>
+pub struct CountedString<C>(PhantomData<C>);
+impl<C> WireFormat<String> for CountedString<C>
 where
     C: Parse + nom:: ToUsize,
     usize: TryInto<C>
