@@ -3,6 +3,7 @@ pub mod read_helpers;
 pub mod rc_cell;
 pub mod parse_helpers;
 pub mod subslice;
+pub mod binaryreader;
 
 pub use subslice::Subslice;
 
