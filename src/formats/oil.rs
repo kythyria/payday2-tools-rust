@@ -25,11 +25,13 @@ use nom::sequence::tuple;
 
 use vek::{Rgb, Vec2, Vec3};
 
+use crate::util::binaryreader::*;
+
 use crate::util::AsHex;
 use crate::util::read_helpers::{TryFromIndexedLE, TryFromBytesError};
 use crate::util::parse_helpers;
 use crate::util::parse_helpers::Parse;
-use pd2tools_macros::{EnumTryFrom, Parse};
+use pd2tools_macros::{EnumTryFrom, Parse, ItemReader};
 
 struct UnparsedSection<'a> {
     type_code: u32,
@@ -59,15 +61,16 @@ macro_rules! make_chunks {
         }
         
         impl<'a> UnparsedSection<'a> {
-            fn try_into_chunk(&self) -> IResult<&'a [u8], Chunk> {
-                let r#type = ChunkId::try_from(self.type_code);
-                match r#type {
-                    $(Ok(ChunkId::$name) => {
-                        let (remain, output) =  $name::parse(self.bytes)?;
-                        Ok((remain, Chunk::$name(output)))
+            fn try_into_chunk(&self) -> (&'a [u8], Result<Chunk, ReadError>) {
+
+                let mut reader = self.bytes;
+                let res = match self.type_code {
+                    $($tag => {
+                        reader.read_item_as::<$name>().map(Chunk::$name)
                     }),+
-                    Err(_) => Err(nom::Err::Failure(nom::error::Error::new(self.bytes, nom::error::ErrorKind::OneOf)))
-                }
+                    d => Err(ReadError::BadDiscriminant("ChunkId", d as u128))
+                };
+                (reader, res)
             }
         }
     }
@@ -141,13 +144,13 @@ impl std::fmt::Debug for UnparsedBytes {
     }
 }
 
-#[derive(Debug, Parse)]
+#[derive(Debug, Parse, ItemReader)]
 pub struct SceneInfo1 {
     start_time: f64,
     end_time: f64,
 }
 
-#[derive(Debug, Parse)]
+#[derive(Debug, Parse, ItemReader)]
 pub struct SceneInfo2 {
     start_time: f64,
     end_time: f64,
@@ -156,7 +159,7 @@ pub struct SceneInfo2 {
     source_filename: String,
 }
 
-#[derive(Debug, Parse)]
+#[derive(Debug, Parse, ItemReader)]
 pub struct SceneInfo3 {
     start_time: f64,
     end_time: f64,
@@ -166,19 +169,19 @@ pub struct SceneInfo3 {
     scene_type: String,
 }
 
-#[derive(Debug, Parse)]
+#[derive(Debug, Parse, ItemReader)]
 pub struct Material {
     id: u32,
     name: String,
     parent_id: u32
 }
 
-#[derive(Debug, Parse)]
+#[derive(Debug, Parse, ItemReader)]
 pub struct MaterialsXml {
     xml: String
 }
 
-#[derive(Debug, Parse)]
+#[derive(Debug, Parse, ItemReader)]
 pub struct Node {
     id: u32,
     name: String,
@@ -189,7 +192,7 @@ pub struct Node {
     parent_id: u32
 }
 
-#[derive(Debug, Parse)]
+#[derive(Debug, Parse, ItemReader)]
 pub struct Geometry {
     node_id: u32,
 
@@ -201,14 +204,14 @@ pub struct Geometry {
     faces: Vec<GeometryFace>
 }
 
-#[derive(Debug)]
+#[derive(Debug, ItemReader)]
 pub enum GeometryChannel {
-    Position(u32, Vec<Vec3<f64>>),
-    Normal  (u32, Vec<Vec3<f64>>),
-    Binormal(u32, Vec<Vec3<f64>>),
-    Tangent (u32, Vec<Vec3<f64>>),
-    TexCoord(u32, Vec<Vec2<f64>>),
-    Colour  (u32, Vec<Rgb<f64>>)
+    #[tag(0)] Position(u32, Vec<Vec3<f64>>),
+    #[tag(1)] TexCoord(u32, Vec<Vec2<f64>>),
+    #[tag(2)] Normal  (u32, Vec<Vec3<f64>>),
+    #[tag(3)] Binormal(u32, Vec<Vec3<f64>>),
+    #[tag(4)] Tangent (u32, Vec<Vec3<f64>>),
+    #[tag(5)] Colour  (u32, Vec<Rgb<f64>>)
 }
 impl Parse for GeometryChannel {
     fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], Self> {
@@ -248,7 +251,7 @@ impl Parse for GeometryChannel {
     }
 }
 
-#[derive(Debug, Parse)]
+#[derive(Debug, Parse, ItemReader)]
 pub struct GeometryFace {
     material_id: u32,
     unknown1: u32,
@@ -256,7 +259,7 @@ pub struct GeometryFace {
     loops: Vec<GeometryFaceloop>
 }
 
-#[derive(Debug, Parse)]
+#[derive(Debug, Parse, ItemReader)]
 pub struct GeometryFaceloop {
     channel: u32,
     a: u32,
@@ -264,7 +267,7 @@ pub struct GeometryFaceloop {
     c: u32
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, EnumTryFrom, Parse)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, EnumTryFrom, Parse, ItemReader)]
 #[repr(u32)]
 pub enum LightType {
     Spot = 0,
@@ -272,14 +275,14 @@ pub enum LightType {
     Omni = 2
 }
 
-#[derive(Debug, PartialEq, Clone, Copy, EnumTryFrom, Parse)]
+#[derive(Debug, PartialEq, Clone, Copy, EnumTryFrom, Parse, ItemReader)]
 #[repr(u32)]
 pub enum SpotlightShape {
     Rectangular = 0,
     Circular = 1
 }
 
-#[derive(Debug, Parse)]
+#[derive(Debug, Parse, ItemReader)]
 pub struct Light {
     node_id: u32,
     lamp_type: LightType,
@@ -299,12 +302,12 @@ pub struct Light {
 }
 
 /// "Beats and triggers" block.
-#[derive(Debug, Parse)]
+#[derive(Debug, Parse, ItemReader)]
 pub struct KeyEvents {
     events: Vec<KeyEvent>
 }
 
-#[derive(Parse,Debug)]
+#[derive(Parse,Debug, ItemReader)]
 pub struct KeyEvent {
     id: u32,
     name: String,
@@ -361,9 +364,10 @@ pub fn print_sections(filename: &Path) {
 
     for sec in data {
         print!("{:6} {:6} ", sec.offset, sec.length);
-        match sec.try_into_chunk() {
-            Ok(chunk) => println!("{:?}", chunk),
-            Err(e) => println!("{:4} {:?} {:}", sec.type_code, e, AsHex(sec.bytes))
+        let (remain, res) = sec.try_into_chunk();
+        match res {
+            Ok(chunk) => println!("{:?} {:}", chunk, AsHex(remain)),
+            Err(e) => println!("{:4} {:?} {:}", sec.type_code, e, sec.length - remain.len())
         }
     }
 }

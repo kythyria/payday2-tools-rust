@@ -111,12 +111,12 @@ fn rw_enum(item: &syn::DeriveInput, enumer: &syn::DataEnum) -> TokenStream {
         read_arms.push(quote!{
             #disc_value => {
                 #(#reader_statements);*;
-                #item_name::#variant_name#structor_body
+                Ok(#item_name::#variant_name#structor_body)
             }
         });
         write_arms.push(quote!{
             #item_name::#variant_name#structor_body => {
-                stream.write_item_as::<#disc_ty>(#disc_value)?
+                stream.write_item_as::<#disc_ty>(&#disc_value)?;
                 #(#writer_statements);*;
             }
         })
@@ -124,21 +124,22 @@ fn rw_enum(item: &syn::DeriveInput, enumer: &syn::DataEnum) -> TokenStream {
     
     quote! {
         impl ItemReader for #item_name {
-            type Error = ();
-            type Output = Self;
+            type Error = ReadError;
+            type Item = Self;
 
-            fn read_from_stream<R: Read>(stream: &mut R) -> Result<Self::Item, Self::Error> {
+            fn read_from_stream<R: ReadExt>(stream: &mut R) -> Result<Self::Item, Self::Error> {
                 let discriminant = stream.read_item_as::<#disc_ty>()?;
                 match discriminant {
                     #(#read_arms),*,
-                    o => BadDiscriminant(o)?
+                    o => return Err(ReadError::BadDiscriminant(std::any::type_name::<#item_name>(), o as u128))
                 }
             }
 
-            fn write_to_stream<W: Write>(stream: &mut W, item: &Self::Item) -> Result<(), IoError> {
+            fn write_to_stream<W: WriteExt>(stream: &mut W, item: &Self::Item) -> Result<(), Self::Error> {
                 match item {
                     #(#write_arms),*
                 }
+                Ok(())
             }
         }
     }
@@ -154,16 +155,18 @@ fn rw_struct(name: &Ident, struc: &syn::DataStruct) -> TokenStream {
 
     quote! {
         impl ItemReader for #name {
-            type Error = ();
-            type Output = Self;
+            type Error = ReadError;
+            type Item = Self;
 
-            fn read_from_stream<R: Read>(stream: &mut R) -> Result<Self::Item, Self::Error> {
+            fn read_from_stream<R: ReadExt>(stream: &mut R) -> Result<Self::Item, Self::Error> {
                 #(#reader_statements);*;
-                Self#structor_body
+                Ok(Self#structor_body)
             }
 
-            fn write_to_stream<W: Write>(stream: &mut W, item: &Self::Item) -> Result<(), ::std::io::Error> {
+            fn write_to_stream<W: WriteExt>(stream: &mut W, item: &Self::Item) -> Result<(), Self::Error> {
+                let Self#structor_body = item;
                 #(#writer_statements);*;
+                Ok(())
             }
         }
     }
@@ -186,13 +189,13 @@ fn fields_rw(stream: TokenStream, item: TokenStream, fields: &syn::Fields) -> Re
     struct FieldInfo {
         skip_before: Option<LitInt>,
         wire_type: syn::Type,
-        name: Option<Ident>,
+        name: syn::Member,
         local_name: Ident
     }
 
     let mut field_infos = Vec::<FieldInfo>::with_capacity(field_list.len());
     for (idx, field) in field_list.iter().enumerate() {
-        let wire_type = match parse_attribute(&field.attrs, "parse_as") {
+        let wire_type = match parse_attribute(&field.attrs, "read_as") {
             Ok(Some(s)) => s,
             Ok(None) => field.ty.clone(),
             Err(e) => return Err(e.into_compile_error())
@@ -202,9 +205,12 @@ fn fields_rw(stream: TokenStream, item: TokenStream, fields: &syn::Fields) -> Re
             Err(e) => return Err(e.into_compile_error())
         };
         let local_name = Ident::new(&format!("v_{}", idx), Span::call_site());
+        let name = match &field.ident {
+            Some(n) => syn::Member::Named(n.clone()),
+            None => syn::Member::Unnamed(syn::Index{ index:idx as u32, span: Span::call_site() })
+        };
         field_infos.push(FieldInfo{
-            skip_before, wire_type, local_name,
-            name: field.ident.clone()
+            skip_before, wire_type, local_name, name
         });
     }
 
@@ -220,12 +226,13 @@ fn fields_rw(stream: TokenStream, item: TokenStream, fields: &syn::Fields) -> Re
             writer_statements.push(quote!{ let p = [0u8; #s]; #stream.write_all(&p)? });
         }
 
-        reader_statements.push(quote!{ let #local_name = #stream.read_item_as::<wire_type>()? });
-        writer_statements.push(quote!{ #stream.write_item_as::<#wire_type>(&#item.#name)? });
+        reader_statements.push(quote!{ let #local_name = #stream.read_item_as::<#wire_type>()? });
+        writer_statements.push(quote!{ #stream.write_item_as::<#wire_type>(&#local_name)? });
 
-        match name {
-            Some(n) => structor_parts.push(quote!{ #n: #local_name }),
-            None => structor_parts.push(quote!{ #local_name })
+        match fields {
+            syn::Fields::Named(_) => structor_parts.push(quote!{ #name: #local_name }),
+            syn::Fields::Unnamed(_) => structor_parts.push(quote!{ #local_name }),
+            syn::Fields::Unit => (),
         }
     }
 

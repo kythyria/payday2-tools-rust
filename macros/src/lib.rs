@@ -272,7 +272,7 @@ pub fn derive_enum_from_data(item: proc_macro::TokenStream) -> proc_macro::Token
     TokenStream::from(quote!{ #(#trees)* }).into()
 }
 
-#[proc_macro_derive(ItemReader, attributes(parse_as, skip_before, tag))]
+#[proc_macro_derive(ItemReader, attributes(read_as, skip_before, tag))]
 pub fn derive_itemreader(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let item = syn::parse_macro_input!(item as syn::DeriveInput);
     binaryreader::derive_itemreader(item).into()
