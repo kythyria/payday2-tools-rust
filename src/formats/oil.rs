@@ -79,7 +79,7 @@ make_chunks! {
     SceneInfo3 = 20,
 
     Material = 4,
-    //MaterialsXml = 11,
+    MaterialsXml = 11,
 
     Node = 0,
     Geometry = 5,
@@ -171,6 +171,11 @@ pub struct Material {
     id: u32,
     name: String,
     parent_id: u32
+}
+
+#[derive(Debug, Parse)]
+pub struct MaterialsXml {
+    xml: String
 }
 
 #[derive(Debug, Parse)]
