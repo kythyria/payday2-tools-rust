@@ -79,7 +79,7 @@ make_chunks! {
     Node = 0,
     Geometry = 5,
     Light = 10,
-    //Camera = 19,
+    Camera = 19,
     
     KeyEvents = 21
     
@@ -184,25 +184,125 @@ pub struct Node {
     parent_id: u32
 }
 
-#[derive(Debug, ItemReader)]
+// Can't derive ItemReader, we have to pass the vertex count in to GeometrySkin.
+#[derive(Default, Debug, Clone)]
 pub struct Geometry {
     node_id: u32,
 
     /// ID of mesh material
     /// 0xFFFFFFFF == none
     material_id: u32,
-    unknown1: u16,
+    casts_shadows: u8,
+    receives_shadows: u8,
     channels: Vec<GeometryChannel>,
-    faces: Vec<GeometryFace>
+    faces: Vec<GeometryFace>,
+    skin: Option<GeometrySkin>,
+    override_bounding_box: Option<BoundingBox>,
+}
+impl ItemReader for Geometry {
+    type Error = ReadError;
+    type Item = Geometry;
+
+    fn read_from_stream<R: ReadExt>(stream: &mut R) -> Result<Self::Item, Self::Error> {
+        let mut out = Geometry::default();
+        out.node_id = stream.read_item()?;
+        out.material_id = stream.read_item()?;
+        out.casts_shadows = stream.read_item()?;
+        out.receives_shadows = stream.read_item()?;
+        out.channels = stream.read_item()?;
+        out.faces = stream.read_item()?;
+
+        let has_skin: bool = stream.read_item()?;
+        if has_skin {
+            let vert_count = out.channels.iter()
+                .find_map(|i| match i { 
+                    GeometryChannel::Position(_, data) => Some(data.len()), _ => None
+                });
+            if let Some(vert_count) = vert_count {
+                out.skin = Some(GeometrySkin::read_from_stream(stream, vert_count)?);
+            }
+            else {
+                return Err(ReadError::Schema("Skins are only valid on meshes that have vertices"))
+            }
+        }
+
+        let has_bbox: bool = stream.read_item()?;
+        if has_bbox {
+            out.override_bounding_box = Some(stream.read_item()?);
+        }
+
+        Ok(out)
+    }
+
+    fn write_to_stream<W: WriteExt>(stream: &mut W, item: &Self::Item) -> Result<(), Self::Error> {
+        stream.write_item(&item.node_id)?;
+        stream.write_item(&item.material_id)?;
+        stream.write_item(&item.casts_shadows)?;
+        stream.write_item(&item.receives_shadows)?;
+        stream.write_item(&item.channels)?;
+        stream.write_item(&item.faces)?;
+        if let Some(skin) = &item.skin {
+            stream.write_item(&true)?;
+            GeometrySkin::write_to_stream(stream, &skin)?;
+        }
+        else {
+            stream.write_item(&false)?;
+        }
+        if let Some(override_bounding_box) = item.override_bounding_box {
+            stream.write_item(&true)?;
+            stream.write_item(&override_bounding_box)?;
+        }
+        else {
+            stream.write_item(&false)?;
+        }
+        Ok(())
+    }
 }
 
+// Can't derive ItemReader for this, it depends on passing in the vertex count.
+#[derive(Debug, Clone)]
 pub struct GeometrySkin {
     root_node_id: u32,
     postmul_transform: vek::Mat4<f64>,
+    bones: Vec<SkinBoneEntry>,
+    weights_per_vertex: u32,
     weights: Vec<VertexWeight>,
 
     /// List of lists of bone IDs.
     bonesets: Vec<Vec<u32>>
+}
+impl GeometrySkin {
+    fn read_from_stream<R: ReadExt>(stream: &mut R, vertex_count: usize) -> Result<Self, ReadError> {
+        let root_node_id = stream.read_item()?;
+        let postmul_transform = stream.read_item()?;
+        let bones = stream.read_item()?;
+        let weights_per_vertex = stream.read_item()?;
+        let weight_count = (weights_per_vertex as usize) * vertex_count;
+        let mut weights = Vec::with_capacity(weight_count);
+        for _ in 0..weight_count {
+            weights.push(stream.read_item()?);
+        }
+        let bonesets = stream.read_item()?;
+        Ok(GeometrySkin{ root_node_id, postmul_transform, bones, weights_per_vertex, weights, bonesets })
+    }
+
+    fn write_to_stream<W: WriteExt>(stream: &mut W, item: &Self) -> Result<(), ReadError> {
+        stream.write_item(&item.root_node_id)?;
+        stream.write_item(&item.postmul_transform)?;
+        stream.write_item(&item.bones)?;
+        stream.write_item(&item.weights_per_vertex)?;
+        for w in &item.weights {
+            stream.write_item(w)?;
+        }
+        stream.write_item(&item.bonesets)?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, ItemReader)]
+pub struct SkinBoneEntry {
+    bone_node_id: u32,
+    premul_transform: vek::Mat4<f64>
 }
 
 #[derive(Debug, Clone, Copy, ItemReader)]
@@ -217,7 +317,7 @@ pub struct BoundingBox {
     max: Vec3<f64>
 }
 
-#[derive(Debug, ItemReader)]
+#[derive(Debug, Clone, ItemReader)]
 pub enum GeometryChannel {
     #[tag(0)] Position(u32, Vec<Vec3<f64>>),
     #[tag(1)] TexCoord(u32, Vec<Vec2<f64>>),
@@ -227,7 +327,7 @@ pub enum GeometryChannel {
     #[tag(5)] Colour  (u32, Vec<Rgb<f64>>)
 }
 
-#[derive(Debug, ItemReader)]
+#[derive(Debug, Clone, ItemReader)]
 pub struct GeometryFace {
     material_id: u32,
     unknown1: u32,
@@ -235,7 +335,7 @@ pub struct GeometryFace {
     loops: Vec<GeometryFaceloop>
 }
 
-#[derive(Debug, ItemReader)]
+#[derive(Debug, Clone, Copy, ItemReader)]
 pub struct GeometryFaceloop {
     channel: u32,
     a: u32,
@@ -275,6 +375,17 @@ pub struct Light {
     shape: SpotlightShape,
     target: u32,
     on: bool
+}
+
+#[derive(Debug, PartialEq, Clone, Copy, ItemReader,)]
+pub struct Camera {
+    node_id: u32,
+    fov: f64,
+    far_clip: f64,
+    near_clip: f64,
+    target_id: u32,
+    target_distance: f64,
+    aspect_ratio: f64
 }
 
 /// "Beats and triggers" block.

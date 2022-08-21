@@ -17,6 +17,9 @@ pub enum ReadError {
     #[error("Unrecognised discriminant {1} in type {0}")]
     BadDiscriminant(&'static str, u128),
 
+    #[error("Format constraint violation: {0}")]
+    Schema(&'static str),
+
     #[error("IO error: {0}")]
     Io(#[from] IoError)
 }
