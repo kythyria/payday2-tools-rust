@@ -15,14 +15,7 @@
 //! }
 //! ```
 
-use std::{convert::TryFrom, path::Path};
-
-use nom::IResult;
-use nom::combinator::map;
-use nom::multi::length_count;
-use nom::number::complete::le_u32;
-use nom::sequence::tuple;
-
+use std::{path::Path};
 use vek::{Rgb, Vec2, Vec3};
 
 use crate::util::binaryreader::*;
@@ -30,8 +23,7 @@ use crate::util::binaryreader::*;
 use crate::util::AsHex;
 use crate::util::read_helpers::{TryFromIndexedLE, TryFromBytesError};
 use crate::util::parse_helpers;
-use crate::util::parse_helpers::Parse;
-use pd2tools_macros::{EnumTryFrom, Parse, ItemReader};
+use pd2tools_macros::{EnumTryFrom, ItemReader};
 
 struct UnparsedSection<'a> {
     type_code: u32,
@@ -144,13 +136,13 @@ impl std::fmt::Debug for UnparsedBytes {
     }
 }
 
-#[derive(Debug, Parse, ItemReader)]
+#[derive(Debug, ItemReader)]
 pub struct SceneInfo1 {
     start_time: f64,
     end_time: f64,
 }
 
-#[derive(Debug, Parse, ItemReader)]
+#[derive(Debug, ItemReader)]
 pub struct SceneInfo2 {
     start_time: f64,
     end_time: f64,
@@ -159,7 +151,7 @@ pub struct SceneInfo2 {
     source_filename: String,
 }
 
-#[derive(Debug, Parse, ItemReader)]
+#[derive(Debug, ItemReader)]
 pub struct SceneInfo3 {
     start_time: f64,
     end_time: f64,
@@ -169,19 +161,19 @@ pub struct SceneInfo3 {
     scene_type: String,
 }
 
-#[derive(Debug, Parse, ItemReader)]
+#[derive(Debug, ItemReader)]
 pub struct Material {
     id: u32,
     name: String,
     parent_id: u32
 }
 
-#[derive(Debug, Parse, ItemReader)]
+#[derive(Debug, ItemReader)]
 pub struct MaterialsXml {
     xml: String
 }
 
-#[derive(Debug, Parse, ItemReader)]
+#[derive(Debug, ItemReader)]
 pub struct Node {
     id: u32,
     name: String,
@@ -192,7 +184,7 @@ pub struct Node {
     parent_id: u32
 }
 
-#[derive(Debug, Parse, ItemReader)]
+#[derive(Debug, ItemReader)]
 pub struct Geometry {
     node_id: u32,
 
@@ -204,6 +196,27 @@ pub struct Geometry {
     faces: Vec<GeometryFace>
 }
 
+pub struct GeometrySkin {
+    root_node_id: u32,
+    postmul_transform: vek::Mat4<f64>,
+    weights: Vec<VertexWeight>,
+
+    /// List of lists of bone IDs.
+    bonesets: Vec<Vec<u32>>
+}
+
+#[derive(Debug, Clone, Copy, ItemReader)]
+pub struct VertexWeight {
+    bone_id: u32,
+    weight: f64
+}
+
+#[derive(Debug, Clone, Copy, ItemReader)]
+pub struct BoundingBox {
+    min: Vec3<f64>,
+    max: Vec3<f64>
+}
+
 #[derive(Debug, ItemReader)]
 pub enum GeometryChannel {
     #[tag(0)] Position(u32, Vec<Vec3<f64>>),
@@ -213,45 +226,8 @@ pub enum GeometryChannel {
     #[tag(4)] Tangent (u32, Vec<Vec3<f64>>),
     #[tag(5)] Colour  (u32, Vec<Rgb<f64>>)
 }
-impl Parse for GeometryChannel {
-    fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], Self> {
-        let (input, (kind, layer)) = tuple((le_u32, le_u32))(input)?;
-        let col3d = Rgb::<f64>::parse;
-        let vec3d = Vec3::<f64>::parse;
-        let vec2d = Vec2::<f64>::parse;
-        match kind {
-            0x00000000 => map(length_count(le_u32, vec3d), |v| GeometryChannel::Position(layer, v))(input),
-            0x00000001 => map(length_count(le_u32, vec2d), |v| GeometryChannel::TexCoord(layer, v))(input),
-            0x00000002 => map(length_count(le_u32, vec3d), |v| GeometryChannel::Normal(layer, v))(input),
-            0x00000003 => map(length_count(le_u32, vec3d), |v| GeometryChannel::Binormal(layer, v))(input),
-            0x00000004 => map(length_count(le_u32, vec3d), |v| GeometryChannel::Tangent(layer, v))(input),
-            0x00000005 => map(length_count(le_u32, col3d), |v| GeometryChannel::Colour(layer, v))(input),
-            _ => {
-                println!("Unknown geometry kind {:016x}", kind);
-                Err(nom::Err::Failure(nom::error::Error::new(input, nom::error::ErrorKind::OneOf)))
-            }
-        }
-    }
 
-    fn serialize<O: std::io::Write>(&self, output: &mut O) -> std::io::Result<()> {
-        fn write_variant<T: Parse, O: std::io::Write>(output: &mut O, discriminant: u32, layer: &u32, data: &T) -> std::io::Result<()> {
-            discriminant.serialize(output)?;
-            layer.serialize(output)?;
-            data.serialize(output)
-        }
-
-        match self {
-            GeometryChannel::Position(layer, data) => write_variant(output, 0, layer, data),
-            GeometryChannel::TexCoord(layer, data) => write_variant(output, 1, layer, data),
-            GeometryChannel::Normal(layer, data) => write_variant(output, 2, layer, data),
-            GeometryChannel::Binormal(layer, data) => write_variant(output, 3, layer, data),
-            GeometryChannel::Tangent(layer, data) => write_variant(output, 4, layer, data),
-            GeometryChannel::Colour(layer, data) => write_variant(output, 5, layer, data)
-        }
-    }
-}
-
-#[derive(Debug, Parse, ItemReader)]
+#[derive(Debug, ItemReader)]
 pub struct GeometryFace {
     material_id: u32,
     unknown1: u32,
@@ -259,7 +235,7 @@ pub struct GeometryFace {
     loops: Vec<GeometryFaceloop>
 }
 
-#[derive(Debug, Parse, ItemReader)]
+#[derive(Debug, ItemReader)]
 pub struct GeometryFaceloop {
     channel: u32,
     a: u32,
@@ -267,7 +243,7 @@ pub struct GeometryFaceloop {
     c: u32
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, EnumTryFrom, Parse, ItemReader)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, EnumTryFrom, ItemReader)]
 #[repr(u32)]
 pub enum LightType {
     Spot = 0,
@@ -275,14 +251,14 @@ pub enum LightType {
     Omni = 2
 }
 
-#[derive(Debug, PartialEq, Clone, Copy, EnumTryFrom, Parse, ItemReader)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, EnumTryFrom, ItemReader)]
 #[repr(u32)]
 pub enum SpotlightShape {
     Rectangular = 0,
     Circular = 1
 }
 
-#[derive(Debug, Parse, ItemReader)]
+#[derive(Debug, ItemReader)]
 pub struct Light {
     node_id: u32,
     lamp_type: LightType,
@@ -302,12 +278,12 @@ pub struct Light {
 }
 
 /// "Beats and triggers" block.
-#[derive(Debug, Parse, ItemReader)]
+#[derive(Debug, ItemReader)]
 pub struct KeyEvents {
     events: Vec<KeyEvent>
 }
 
-#[derive(Parse,Debug, ItemReader)]
+#[derive(Debug, ItemReader)]
 pub struct KeyEvent {
     id: u32,
     name: String,
