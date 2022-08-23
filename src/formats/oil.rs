@@ -14,6 +14,8 @@
 //!     data: [u8]
 //! }
 //! ```
+pub mod document;
+
 
 use std::{path::Path};
 use vek::{Rgb, Vec2, Vec3};
@@ -138,66 +140,66 @@ impl std::fmt::Debug for UnparsedBytes {
 
 #[derive(Debug, ItemReader)]
 pub struct SceneInfo1 {
-    start_time: f64,
-    end_time: f64,
+    pub start_time: f64,
+    pub end_time: f64,
 }
 
 #[derive(Debug, ItemReader)]
 pub struct SceneInfo2 {
-    start_time: f64,
-    end_time: f64,
+    pub start_time: f64,
+    pub end_time: f64,
 
-    author_tag: String,
-    source_filename: String,
+    pub author_tag: String,
+    pub source_filename: String,
 }
 
 #[derive(Debug, ItemReader)]
 pub struct SceneInfo3 {
-    start_time: f64,
-    end_time: f64,
+    pub start_time: f64,
+    pub end_time: f64,
 
-    author_tag: String,
-    source_filename: String,
-    scene_type: String,
+    pub author_tag: String,
+    pub source_filename: String,
+    pub scene_type: String,
 }
 
 #[derive(Debug, ItemReader)]
 pub struct Material {
-    id: u32,
-    name: String,
-    parent_id: u32
+    pub id: u32,
+    pub name: String,
+    pub parent_id: u32
 }
 
 #[derive(Debug, ItemReader)]
 pub struct MaterialsXml {
-    xml: String
+    pub xml: String
 }
 
 #[derive(Debug, ItemReader)]
 pub struct Node {
-    id: u32,
-    name: String,
+    pub id: u32,
+    pub name: String,
 
-    transform: vek::Mat4<f64>,
-    pivot_transform: vek::Mat4<f64>,
+    pub transform: vek::Mat4<f64>,
+    pub pivot_transform: vek::Mat4<f64>,
 
-    parent_id: u32
+    pub parent_id: u32
 }
 
 // Can't derive ItemReader, we have to pass the vertex count in to GeometrySkin.
 #[derive(Default, Debug, Clone)]
 pub struct Geometry {
-    node_id: u32,
+    pub node_id: u32,
 
     /// ID of mesh material
     /// 0xFFFFFFFF == none
-    material_id: u32,
-    casts_shadows: u8,
-    receives_shadows: u8,
-    channels: Vec<GeometryChannel>,
-    faces: Vec<GeometryFace>,
-    skin: Option<GeometrySkin>,
-    override_bounding_box: Option<BoundingBox>,
+    pub material_id: u32,
+    pub casts_shadows: u8,
+    pub receives_shadows: u8,
+    pub channels: Vec<GeometryChannel>,
+    pub faces: Vec<GeometryFace>,
+    pub skin: Option<GeometrySkin>,
+    pub override_bounding_box: Option<BoundingBox>,
 }
 impl ItemReader for Geometry {
     type Error = ReadError;
@@ -262,14 +264,14 @@ impl ItemReader for Geometry {
 // Can't derive ItemReader for this, it depends on passing in the vertex count.
 #[derive(Debug, Clone)]
 pub struct GeometrySkin {
-    root_node_id: u32,
-    postmul_transform: vek::Mat4<f64>,
-    bones: Vec<SkinBoneEntry>,
-    weights_per_vertex: u32,
-    weights: Vec<VertexWeight>,
+    pub root_node_id: u32,
+    pub postmul_transform: vek::Mat4<f64>,
+    pub bones: Vec<SkinBoneEntry>,
+    pub weights_per_vertex: u32,
+    pub weights: Vec<VertexWeight>,
 
     /// List of lists of bone IDs.
-    bonesets: Vec<Vec<u32>>
+    pub bonesets: Vec<Vec<u32>>
 }
 impl GeometrySkin {
     fn read_from_stream<R: ReadExt>(stream: &mut R, vertex_count: usize) -> Result<Self, ReadError> {
@@ -301,20 +303,20 @@ impl GeometrySkin {
 
 #[derive(Debug, Clone, Copy, ItemReader)]
 pub struct SkinBoneEntry {
-    bone_node_id: u32,
-    premul_transform: vek::Mat4<f64>
+    pub bone_node_id: u32,
+    pub premul_transform: vek::Mat4<f64>
 }
 
 #[derive(Debug, Clone, Copy, ItemReader)]
 pub struct VertexWeight {
-    bone_id: u32,
-    weight: f64
+    pub bone_id: u32,
+    pub weight: f64
 }
 
 #[derive(Debug, Clone, Copy, ItemReader)]
 pub struct BoundingBox {
-    min: Vec3<f64>,
-    max: Vec3<f64>
+    pub min: Vec3<f64>,
+    pub max: Vec3<f64>
 }
 
 #[derive(Debug, Clone, ItemReader)]
@@ -329,18 +331,18 @@ pub enum GeometryChannel {
 
 #[derive(Debug, Clone, ItemReader)]
 pub struct GeometryFace {
-    material_id: u32,
-    unknown1: u32,
+    pub material_id: u32,
+    pub unknown1: u32,
 
-    loops: Vec<GeometryFaceloop>
+    pub loops: Vec<GeometryFaceloop>
 }
 
 #[derive(Debug, Clone, Copy, ItemReader)]
 pub struct GeometryFaceloop {
-    channel: u32,
-    a: u32,
-    b: u32,
-    c: u32
+    pub channel: u32,
+    pub a: u32,
+    pub b: u32,
+    pub c: u32
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, EnumTryFrom, ItemReader)]
@@ -360,48 +362,48 @@ pub enum SpotlightShape {
 
 #[derive(Debug, ItemReader)]
 pub struct Light {
-    node_id: u32,
-    lamp_type: LightType,
-    color: Rgb<f64>,
-    multiplier: f64,
-    attenuation_end: f64,
-    attenuation_start: f64,
-    unknown_2: f64,
-    unknown_3: f64,
-    falloff: f64,
-    hotspot: f64,
-    aspect_ratio: f64,
-    overshoot: bool,
-    shape: SpotlightShape,
-    target: u32,
-    on: bool
+    pub node_id: u32,
+    pub lamp_type: LightType,
+    pub color: Rgb<f64>,
+    pub multiplier: f64,
+    pub far_attenuation_end: f64,
+    pub far_attenuation_start: f64,
+    pub near_attenuation_end: f64,
+    pub near_attenuation_start: f64,
+    pub falloff: f64,
+    pub hotspot: f64,
+    pub aspect_ratio: f64,
+    pub overshoot: bool,
+    pub shape: SpotlightShape,
+    pub target_id: u32,
+    pub on: bool
 }
 
 #[derive(Debug, PartialEq, Clone, Copy, ItemReader,)]
 pub struct Camera {
-    node_id: u32,
-    fov: f64,
-    far_clip: f64,
-    near_clip: f64,
-    target_id: u32,
-    target_distance: f64,
-    aspect_ratio: f64
+    pub node_id: u32,
+    pub fov: f64,
+    pub far_clip: f64,
+    pub near_clip: f64,
+    pub target_id: u32,
+    pub target_distance: f64,
+    pub aspect_ratio: f64
 }
 
 /// "Beats and triggers" block.
 #[derive(Debug, ItemReader)]
 pub struct KeyEvents {
-    events: Vec<KeyEvent>
+    pub events: Vec<KeyEvent>
 }
 
 #[derive(Debug, ItemReader)]
 pub struct KeyEvent {
-    id: u32,
-    name: String,
-    timestamp: f64,
-    node_id: u32,    // The maya2017 exporter always writes 0xFFFFFFFF,
-    event_type: String, // Exporter always writes "beat" or "trigger" here
-    parameter_count: u32     // Exporter always writes 0
+    pub id: u32,
+    pub name: String,
+    pub timestamp: f64,
+    pub node_id: u32,    // The maya2017 exporter always writes 0xFFFFFFFF,
+    pub event_type: String, // Exporter always writes "beat" or "trigger" here
+    pub parameter_count: u32     // Exporter always writes 0
 }
 
 fn split_to_sections<'a>(src: &'a [u8]) -> Result<Vec<UnparsedSection<'a>>, ParseError> {
