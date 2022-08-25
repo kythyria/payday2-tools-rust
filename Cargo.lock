@@ -368,26 +368,9 @@ dependencies = [
 
 [[package]]
 name = "indoc"
-version = "0.3.6"
+version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47741a8bc60fb26eb8d6e0238bbb26d8575ff623fdc97b1a2c00c050b9684ed8"
-dependencies = [
- "indoc-impl",
- "proc-macro-hack",
-]
-
-[[package]]
-name = "indoc-impl"
-version = "0.3.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce046d161f000fffde5f432a0d034d0341dc152643b2598ed5bfce44c4f3a8f0"
-dependencies = [
- "proc-macro-hack",
- "proc-macro2",
- "quote",
- "syn",
- "unindent",
-]
+checksum = "adab1eaa3408fb7f0c777a73e7465fd5656136fc93b670eb6df3c88c2c1344e3"
 
 [[package]]
 name = "instant"
@@ -479,9 +462,9 @@ checksum = "0ee1c47aaa256ecabcaea351eae4a9b01ef39ed810004e298d2511ed284b1525"
 
 [[package]]
 name = "memoffset"
-version = "0.6.1"
+version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "157b4208e3059a8f9e78d559edc658e13df41410cb3ae03979c83130067fdd87"
+checksum = "5aa361d4faea93603064a027415f07bd8e1d5c88c9fbf68bf56a285428fd79ce"
 dependencies = [
  "autocfg",
 ]
@@ -529,6 +512,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "once_cell"
+version = "1.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "074864da206b4973b84eb91683020dbefd6a8c3f0f38e054d93954e891935e4e"
+
+[[package]]
 name = "opaque-debug"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -557,25 +546,6 @@ dependencies = [
  "redox_syscall",
  "smallvec",
  "winapi",
-]
-
-[[package]]
-name = "paste"
-version = "0.1.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45ca20c77d80be666aef2b45486da86238fabe33e38306bd3118fe4af33fa880"
-dependencies = [
- "paste-impl",
- "proc-macro-hack",
-]
-
-[[package]]
-name = "paste-impl"
-version = "0.1.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d95a7db200b97ef370c8e6de0088252f7e0dfff7d047a28528e47456c0fc98b6"
-dependencies = [
- "proc-macro-hack",
 ]
 
 [[package]]
@@ -627,6 +597,7 @@ dependencies = [
  "rayon",
  "roxmltree",
  "scriptdata",
+ "slotmap",
  "steam",
  "structopt",
  "thiserror",
@@ -719,23 +690,48 @@ dependencies = [
 
 [[package]]
 name = "pyo3"
-version = "0.13.2"
-source = "git+https://github.com/PyO3/pyo3?branch=main#7b72dd7a8ae237b0715885e36fc7bbc28704acec"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68746a80543d80e9676e348d94e50d45cc25f19237dddfa2b61f2f02fc67670e"
 dependencies = [
  "cfg-if",
  "indoc",
  "libc",
+ "memoffset",
  "parking_lot",
- "paste",
+ "pyo3-build-config",
+ "pyo3-ffi",
  "pyo3-macros",
  "unindent",
 ]
 
 [[package]]
-name = "pyo3-macros"
-version = "0.13.2"
-source = "git+https://github.com/PyO3/pyo3?branch=main#7b72dd7a8ae237b0715885e36fc7bbc28704acec"
+name = "pyo3-build-config"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0a35ea0dde58f923bcd30f0f9a64e79033cd51e176c32bd50efccbbe7f289b25"
 dependencies = [
+ "once_cell",
+ "target-lexicon",
+]
+
+[[package]]
+name = "pyo3-ffi"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "79d0d60ae1b65b927c019352e16b94ff27cedee79916f017215dab3afe2a5cb3"
+dependencies = [
+ "libc",
+ "pyo3-build-config",
+]
+
+[[package]]
+name = "pyo3-macros"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9161973e2e1c245ddae80fe1a140df45197adf45da68a88832b6094acccf5343"
+dependencies = [
+ "proc-macro2",
  "pyo3-macros-backend",
  "quote",
  "syn",
@@ -743,8 +739,9 @@ dependencies = [
 
 [[package]]
 name = "pyo3-macros-backend"
-version = "0.13.2"
-source = "git+https://github.com/PyO3/pyo3?branch=main#7b72dd7a8ae237b0715885e36fc7bbc28704acec"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fedb3744eda135dbb40587ddf3e49b36b71903bad5b391c19b4862928c3cf424"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -916,6 +913,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "slotmap"
+version = "1.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1e08e261d0e8f5c43123b7adf3e4ca1690d655377ac93a03b2c9d3e98de1342"
+dependencies = [
+ "version_check",
+]
+
+[[package]]
 name = "smallvec"
 version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -983,6 +989,12 @@ name = "tap"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
+
+[[package]]
+name = "target-lexicon"
+version = "0.12.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c02424087780c9b71cc96799eaeddff35af2bc513278cda5c99fc1f5d026d3c1"
 
 [[package]]
 name = "textwrap"

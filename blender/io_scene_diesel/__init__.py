@@ -6,7 +6,7 @@ from bpy.props import (StringProperty,
                         EnumProperty,
                         IntProperty,
                         CollectionProperty)
-from bpy_extras.io_utils import ImportHelper
+from bpy_extras.io_utils import ImportHelper, ExportHelper
 from bpy.types import Operator
 from mathutils import *
 from datetime import datetime
@@ -193,15 +193,45 @@ class ImportDieselModel(bpy.types.Operator, ImportHelper):
         import_ir_from_file(addon_prefs.hashlist_path, self.filepath, units_per_cm, fps)
         return {'FINISHED'}
 
+class ExportOilModel(bpy.types.Operator, ExportHelper):
+    """Write to an Overkill OIL file"""
+    bl_idname = "export.overkill_oil"
+    bl_label = "Export OIL model"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    filename_ext = ".oil"
+    filter_glob: StringProperty(
+        default="*.oil",
+        options={'HIDDEN'},
+        maxlen=1024
+    )
+
+    def execute(self, context):
+        metres_per_unit = context.scene.unit_settings.scale_length
+        cm_per_unit = metres_per_unit * 100
+        units_per_cm = 1/cm_per_unit
+
+        fps = context.scene.render.fps / context.scene.render.fps_base
+
+        pd2tools_fdm.export_oil(self.filepath, units_per_cm, fps, bpy.context.active_object)
+        return {'FINISHED'}
+
 def menu_func_import(self, context):
     self.layout.operator(ImportDieselModel.bl_idname, text="Diesel Model (.model)")
+
+def menu_func_export(self, context):
+    self.layout.operator(ExportOilModel.bl_idname, text="Overkill OIL Model (.oil)")
 
 def register():
     bpy.utils.register_class(Pd2toolsPreferences)
     bpy.utils.register_class(ImportDieselModel)
+    bpy.utils.register_class(ExportOilModel)
+    bpy.types.TOPBAR_MT_file_export.append(menu_func_export)
     bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
 
 def unregister():
     bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
+    bpy.types.TOPBAR_MT_file_export.remove(menu_func_export)
+    bpy.utils.unregister_class(ExportOilModel)
     bpy.utils.unregister_class(ImportDieselModel)
     bpy.utils.unregister_class(Pd2toolsPreferences)

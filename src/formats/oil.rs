@@ -17,31 +17,32 @@
 pub mod document;
 
 
-use std::{path::Path};
+use std::convert::TryInto;
+use std::{path::Path, io::Write};
 use vek::{Rgb, Vec2, Vec3};
 
 use crate::util::binaryreader::*;
 
 use crate::util::AsHex;
-use crate::util::read_helpers::{TryFromIndexedLE, TryFromBytesError};
+use crate::util::read_helpers::{TryFromBytesError};
 use crate::util::parse_helpers;
-use pd2tools_macros::{EnumTryFrom, ItemReader};
+use pd2tools_macros::{EnumTryFrom, ItemReader, EnumFromData};
 
 struct UnparsedSection<'a> {
     type_code: u32,
     length: usize,
-    offset: usize,
     bytes: &'a [u8]
 }
 
 macro_rules! make_chunks {
     ($($name:ident = $tag:literal),+) => {
-        #[derive(Debug, EnumTryFrom)]
+        #[derive(Debug, EnumTryFrom, ItemReader)]
         #[repr(u32)]
         pub enum ChunkId {
             $($name = $tag),+
         }
 
+        #[derive(EnumFromData)]
         pub enum Chunk {
             $($name($name)),+
         }
@@ -51,6 +52,21 @@ macro_rules! make_chunks {
                 match self {
                     $(Self::$name(d) => <$name as std::fmt::Debug>::fmt(d, f)),+
                 }
+            }
+        }
+
+        impl Chunk {
+            pub fn tag(&self) -> ChunkId {
+                match self {
+                    $( Self::$name(_) => ChunkId::$name ),*
+                }
+            }
+
+            pub fn write_data<W: Write>(&self, writer: &mut W) -> std::io::Result<()> {
+                match self {
+                    $( Self::$name(c) => writer.write_item(c)? ),*
+                }
+                Ok(())
             }
         }
         
@@ -153,7 +169,7 @@ pub struct SceneInfo2 {
     pub source_filename: String,
 }
 
-#[derive(Debug, ItemReader)]
+#[derive(Debug, Default, ItemReader)]
 pub struct SceneInfo3 {
     pub start_time: f64,
     pub end_time: f64,
@@ -406,35 +422,29 @@ pub struct KeyEvent {
     pub parameter_count: u32     // Exporter always writes 0
 }
 
-fn split_to_sections<'a>(src: &'a [u8]) -> Result<Vec<UnparsedSection<'a>>, ParseError> {
+fn split_to_sections<'a>(mut src: &'a [u8]) -> Result<Vec<UnparsedSection<'a>>, ReadError> {
     let mut out = Vec::<UnparsedSection>::new();
 
-    if src[0..4] != *b"FORM" {
-        return Err(ParseError::NoMagic)
+    let magic: [u8; 4] = src.read_item()?;
+    if magic != *b"FORM" {
+        return Err(ReadError::Schema("No magic number"));
     }
 
-    let total_size = match u32::try_from_le(src, 4) {
-        Ok(v) => v as usize,
-        Err(_) => return Err(ParseError::UnexpectedEof)
-    };
+    let total_size = src.read_item_as::<u32>()?;
 
-    let mut curr_offset: usize = 8;
-    while curr_offset - 8 < total_size {
-        let type_code = u32::try_from_le(src, curr_offset)?;
-        let length = u32::try_from_le(src, curr_offset + 4)? as usize;
-        let body_offset = curr_offset + 8;
-        if body_offset + length > src.len() {
-            return Err(ParseError::UnexpectedEof);
+    while src.len() > 8 {
+        let type_code: u32 = src.read_item()?;
+        let length: usize = src.read_item_as::<u32>()?.try_into().unwrap();
+        if length > src.len() { 
+            return Err(ReadError::ItemTooLong(length as usize))
         }
-
+        let (chunk_body, remaining) = src.split_at(length);
         out.push(UnparsedSection {
             type_code,
             length,
-            offset: body_offset,
-            bytes: &src[body_offset..(body_offset + length)]
+            bytes: chunk_body
         });
-
-        curr_offset += length + 8;
+        src = remaining;
     }
 
     Ok(out)
@@ -451,12 +461,37 @@ pub fn print_sections(filename: &Path) {
         Ok(v) => v
     };
 
+    let mut offset = 8;
     for sec in data {
-        print!("{:6} {:6} ", sec.offset, sec.length);
+        print!("{:6} {:6} ", offset, sec.length);
+        offset += sec.length;
         let (remain, res) = sec.try_into_chunk();
         match res {
             Ok(chunk) => println!("{:?} {:}", chunk, AsHex(remain)),
             Err(e) => println!("{:4} {:?} {:}", sec.type_code, e, sec.length - remain.len())
         }
     }
+}
+
+pub fn chunks_to_bytes(chunks: &[Chunk]) -> std::io::Result<Vec<u8>> {
+    let mut buf = Vec::<u8>::with_capacity(8*1024*1024);
+    buf.write(b"FORM")?;
+    buf.write_item(&0xFFFFFFFFu32)?; // This will be the length later;
+
+    for chunk in chunks{
+        buf.write_item(&chunk.tag())?;
+
+        let len_pos = buf.len();
+        buf.write_item(&0xFFFFFFFFu32)?;
+
+        let start_pos = buf.len();
+        chunk.write_data(&mut buf)?;
+        let length: u32 = (buf.len() - start_pos).try_into().unwrap();
+
+        (&mut buf[len_pos..]).write_item(&length)?;
+    }
+    let len: u32 = buf.len().try_into().unwrap();
+    buf.write_item(&len)?;
+    (&mut buf[4..8]).write_item(&len)?;
+    Ok(buf)
 }

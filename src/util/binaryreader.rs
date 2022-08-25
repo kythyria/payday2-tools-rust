@@ -20,12 +20,23 @@ pub enum ReadError {
     #[error("Format constraint violation: {0}")]
     Schema(&'static str),
 
+    #[error("Item claims to be {0} bytes long")]
+    ItemTooLong(usize),
+
     #[error("IO error: {0}")]
     Io(#[from] IoError)
 }
 impl From<std::string::FromUtf8Error> for ReadError {
     fn from(e: std::string::FromUtf8Error) -> Self {
         Self::BadUtf8(e.utf8_error().valid_up_to())
+    }
+}
+impl From<ReadError> for IoError {
+    fn from(re: ReadError) -> Self {
+        match re {
+            ReadError::Io(e) => e,
+            _ => IoError::new(std::io::ErrorKind::Other, re)
+        }
     }
 }
 

@@ -29,6 +29,7 @@ vek = "0.15.1"
 num-traits = "0.2.14"
 git-version = "0.3.5"
 thiserror = "1.0.30"
+slotmap = "1.0.6"
 pd2tools-macros = { path = './macros' }
 diesel_hash = { path = './diesel_hash' }
 steam = { path = "./steam" }

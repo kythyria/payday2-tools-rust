@@ -9,10 +9,10 @@ name="pd2tools_fdm"
 crate_type = ["cdylib"]
 
 [dependencies.pyo3]
-#version = "0.13.2"
-git = "https://github.com/PyO3/pyo3"
-branch = "main"
-features = ["extension-module", "abi3-py36"]
+version = "0.17.0"
+#git = "https://github.com/PyO3/pyo3"
+#branch = "main"
+features = ["extension-module", "abi3-py37"]
 
 [dependencies]
 pd2tools-rust = { path = "../.." }

@@ -11,7 +11,7 @@
 //! rather substantial performance issue for meshes.
 
 use pyo3::prelude::*;
-use pyo3::{PyGCProtocol, PyTraverseError, PyVisit};
+use pyo3::{PyTraverseError, PyVisit};
 
 #[pyclass]
 pub struct Armature { }
@@ -40,8 +40,8 @@ pub struct Object {
     // It makes 0 sense for this to be *here* but this is what blender does.
     #[pyo3(get, set)] pub weight_names: Vec<String>
 }
-#[pyproto]
-impl PyGCProtocol for Object {
+#[pymethods]
+impl Object {
     fn __traverse__(&self, visit: PyVisit) -> Result<(), PyTraverseError> {
         if let Some(parent) = &self.parent {
             visit.call(parent)?;
@@ -61,9 +61,7 @@ impl PyGCProtocol for Object {
         self.data = None;
         self.parent = None;
     }
-}
-#[pymethods]
-impl Object {
+
     #[getter]
     pub fn get_data_type(&self) -> &str { "OBJECT" }
 }
@@ -72,8 +70,8 @@ impl Object {
 pub struct Light {
     #[pyo3(get, set)] pub animations: Vec<Py<Animation>>,
 }
-#[pyproto]
-impl PyGCProtocol for Light {
+#[pymethods]
+impl Light {
     fn __traverse__(&self, visit: PyVisit) -> Result<(), PyTraverseError> {
         for a in &self.animations {
             visit.call(a)?;
@@ -83,9 +81,7 @@ impl PyGCProtocol for Light {
     fn __clear__(&mut self) {
         self.animations = Vec::with_capacity(0);
     }
-}
-#[pymethods]
-impl Light {
+
     #[getter]
     pub fn get_data_type(&self) -> &str { "LIGHT" }
 }
