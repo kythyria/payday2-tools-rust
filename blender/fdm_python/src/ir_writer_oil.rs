@@ -1,9 +1,13 @@
 
-use std::{collections::{HashMap, HashSet}, io::Write, convert::TryInto};
+use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
-use pyo3::{IntoPy, Python, Py, PyErr, PyObject, PyAny, types::PyModule, intern, PyResult};
+use pyo3::{Python, PyAny, intern, PyResult};
+use itertools::Itertools;
 
 use pd2tools_rust::formats::oil;
+use crate::PyEnv;
+use crate::mesh::Mesh;
 
 struct GatheredObject<'py> {
     object: &'py PyAny,
@@ -11,35 +15,24 @@ struct GatheredObject<'py> {
     matrix: vek::Mat4<f32>,
     name: String,
     children: Vec<GatheredObject<'py>>,
+    data: GatheredData<'py>
 }
 
 #[derive(Clone, Copy)]
-pub struct PyEnv<'py> {
-    pub python: Python<'py>,
-    id_fn: &'py PyAny,
-}
-impl<'py> PyEnv<'py> {
-    pub fn new(python: Python<'py>) -> PyEnv<'py> {
-        let builtins = python.import("builtins").unwrap();
-        PyEnv {
-            python,
-            id_fn: builtins.getattr("id").unwrap()
-        }
-    }
-    pub fn id(&self, pyobj: &'py PyAny) -> u64 {
-        self.id_fn.call1( (pyobj,) ).unwrap().extract::<u64>().unwrap()
-    }
+enum GatheredData<'py> {
+    None,
+    Mesh(&'py PyAny),
+    Camera(&'py PyAny),
+    Light(&'py PyAny),
 }
 
 fn gather_object_tree<'py>(env: PyEnv<'py>, object: &'py PyAny) -> GatheredObject<'py> {
-    eprintln!("[gather_object_tree] entry");
     let name = object.getattr(intern!{env.python, "name"}).unwrap();
-    eprintln!("[gather_object_tree] extract name");
     let name = name.extract().unwrap();
-    eprintln!("[gather_object_tree] name: {}", name);
 
     let matrix = object.getattr(intern!{env.python,"matrix_local"}).unwrap();
     let matrix = matrix_to_vek(matrix);
+
     let children: Vec<GatheredObject> = object
         .getattr(intern!{env.python,"children"})
         .unwrap()
@@ -49,12 +42,27 @@ fn gather_object_tree<'py>(env: PyEnv<'py>, object: &'py PyAny) -> GatheredObjec
         .map(|i| gather_object_tree(env, i))
         .collect();
 
+    // If this is an armature, we have to worry about bone-parented and skinned children.
+    // Children whose parent_type is BONE are parented to a bone.
+    // Children whose parent type is OBJECT but have an Armature Deform modifier are skinned.
+    // Children whose parent_type is ARMATURE just act like that.
+
+    let data_type = object.getattr(intern!{env.python, "type"}).unwrap();
+    let data_type: &str = data_type.extract().unwrap();
+    let data = match data_type {
+        "MESH" => GatheredData::Mesh(object.getattr(intern!{env.python, "data"}).unwrap()),
+        "LIGHT" => GatheredData::Light(object.getattr(intern!{env.python, "data"}).unwrap()),
+        "CAMERA" => GatheredData::Camera(object.getattr(intern!{env.python, "data"}).unwrap()),
+        _ => GatheredData::None
+    };
+
     GatheredObject {
         object,
         py_id: env.id(object),
         matrix,
         name,
         children,
+        data
     }
 }
 
@@ -77,29 +85,33 @@ struct FlatObject<'py> {
     name: String,
     chunk_id: u32,
     parent_chunk_id: u32,
+    blender_data: GatheredData<'py>,
+    data: FlatData<'py>
 }
 
+enum FlatData<'py> {
+    None,
+    Mesh(Mesh<'py>),
+    Light(FlatLight),
+    Camera(FlatCamera)
+}
+
+struct FlatLight;
+struct FlatCamera;
+
+#[derive(Default)]
 struct FlattenedScene<'py> {
     next_chunkid: u32,
 
     nodes: Vec<FlatObject<'py>>,
     nodes_by_pyid: HashMap<u64, usize>,
-    materials: Vec<(u32, String)>,
-    material_groups: Vec<Vec<usize>>
-}
-impl<'py> Default for FlattenedScene<'py> {
-    fn default() -> Self {
-        FlattenedScene {
-            next_chunkid: 1,
-            nodes: Default::default(),
-            nodes_by_pyid: Default::default(),
-            materials: Default::default(),
-            material_groups: Default::default()
-        }
-    }
+    materials: Vec<Rc<str>>
 }
 impl<'py> FlattenedScene<'py> {
-    fn new() -> Self { Default::default() }
+    fn new() -> Self { FlattenedScene {
+        next_chunkid: 1,
+        ..Default::default()
+    } }
     fn add_object_tree(&mut self, obj: &'py GatheredObject, parent_chunk: u32) {
         let chunk_id = self.next_chunkid;
         self.next_chunkid += 1;
@@ -108,13 +120,39 @@ impl<'py> FlattenedScene<'py> {
             matrix: obj.matrix,
             name: obj.name.clone(),
             chunk_id,
-            parent_chunk_id: parent_chunk
+            parent_chunk_id: parent_chunk,
+            blender_data: obj.data,
+            data: FlatData::None
         });
         self.nodes_by_pyid.insert(obj.py_id, self.nodes.len() -1);
         for child in &obj.children {
             self.add_object_tree(child, chunk_id)
         }
     }
+
+    fn populate_object_data(&mut self, env: PyEnv<'py>) {
+        let mut mats = HashSet::<Rc<str>>::new();
+
+        for obj in self.nodes.iter_mut() {
+            obj.data = match obj.blender_data {
+                GatheredData::None => FlatData::None,
+                GatheredData::Mesh(d) => {
+                    let mesh  = Mesh::from_bpy_object(&env, obj.object, d);
+                    mats.extend(mesh.material_names.iter().map(|i| Rc::from(*i)));
+                    FlatData::Mesh(mesh)
+                },
+                GatheredData::Camera(_) => FlatData::Camera(FlatCamera),
+                GatheredData::Light(_) => FlatData::Light(FlatLight)
+            }
+        }
+
+        self.materials = mats.into_iter().collect();
+        self.materials.sort();
+    }
+}
+
+fn mesh_to_oil_geometry(me: &Mesh, material_list: &[Rc<str>]) -> oil::Geometry() {
+    todo!()
 }
 
 fn flat_scene_to_oilchunks(scene: &FlattenedScene, chunks: &mut Vec<oil::Chunk>) {
@@ -125,13 +163,26 @@ fn flat_scene_to_oilchunks(scene: &FlattenedScene, chunks: &mut Vec<oil::Chunk>)
             transform: fo.matrix.as_(),
             pivot_transform: vek::Mat4::identity(),
             parent_id: fo.parent_chunk_id,
-        }.into())
+        }.into());
+
+        match &fo.data {
+            FlatData::None => (),
+            FlatData::Mesh(m) => chunks.push(mesh_to_oil_geometry(m, &scene.materials).into()),
+            FlatData::Light(_) => todo!(),
+            FlatData::Camera(_) => todo!(),
+        }
+    }
+
+    for mat in (&scene.materials).into_iter().enumerate() {
+        chunks.push(oil::Material {
+            id: scene.next_chunkid,
+            name: todo!(),
+            parent_id: todo!(),
+        }.into());
     }
 }
 
 pub fn export(env: PyEnv, output_path: &str, units_per_cm: f32, framerate: f32, object: &PyAny) -> PyResult<()> {
-    let mut id_counter = 1;
-
     let object_tree = gather_object_tree(env, object);
     let mut flat_scene = FlattenedScene::new();
     flat_scene.add_object_tree(&object_tree, 0xFFFFFFFF);

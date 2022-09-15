@@ -22,7 +22,7 @@ pub struct Animation {
     #[pyo3(get, set)] pub fcurve: Vec<(f32, f32)>
 }
 
-#[pyclass(gc)]
+#[pyclass]
 pub struct Object {
     #[pyo3(get, set)] pub name: String,
     #[pyo3(get, set)] pub parent: Option<Py<Object>>,

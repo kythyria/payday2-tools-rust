@@ -1,8 +1,7 @@
 mod py_ir;
 mod ir_reader_fdm;
-mod ir_reader_oil;
 mod ir_writer_oil;
-mod bpy;
+mod mesh;
 
 use pyo3::prelude::*;
 
@@ -52,7 +51,7 @@ fn pd2tools_fdm(_py: Python, m: &PyModule) -> PyResult<()> {
 
     #[pyfunction]
     fn export_oil(py: Python, output_path: &str, units_per_cm: f32, framerate: f32, object: &PyAny) -> PyResult<()> {
-        let env = ir_writer_oil::PyEnv::new(py);
+        let env = PyEnv::new(py);
         ir_writer_oil::export(env, output_path, units_per_cm, framerate, object)
     }
 
@@ -62,4 +61,23 @@ fn pd2tools_fdm(_py: Python, m: &PyModule) -> PyResult<()> {
 
     Ok(())
     
+}
+
+#[derive(Clone, Copy)]
+pub struct PyEnv<'py> {
+    pub python: Python<'py>,
+    id_fn: &'py PyAny,
+}
+
+impl<'py> PyEnv<'py> {
+    pub fn new(python: Python<'py>) -> PyEnv<'py> {
+        let builtins = python.import("builtins").unwrap();
+        PyEnv {
+            python,
+            id_fn: builtins.getattr("id").unwrap()
+        }
+    }
+    pub fn id(&self, pyobj: &'py PyAny) -> u64 {
+        self.id_fn.call1( (pyobj,) ).unwrap().extract::<u64>().unwrap()
+    }
 }

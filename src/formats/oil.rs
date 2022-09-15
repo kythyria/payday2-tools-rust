@@ -210,8 +210,8 @@ pub struct Geometry {
     /// ID of mesh material
     /// 0xFFFFFFFF == none
     pub material_id: u32,
-    pub casts_shadows: u8,
-    pub receives_shadows: u8,
+    pub casts_shadows: bool,
+    pub receives_shadows: bool,
     pub channels: Vec<GeometryChannel>,
     pub faces: Vec<GeometryFace>,
     pub skin: Option<GeometrySkin>,
@@ -430,7 +430,7 @@ fn split_to_sections<'a>(mut src: &'a [u8]) -> Result<Vec<UnparsedSection<'a>>, 
         return Err(ReadError::Schema("No magic number"));
     }
 
-    let total_size = src.read_item_as::<u32>()?;
+    let _total_size = src.read_item_as::<u32>()?;
 
     while src.len() > 8 {
         let type_code: u32 = src.read_item()?;
