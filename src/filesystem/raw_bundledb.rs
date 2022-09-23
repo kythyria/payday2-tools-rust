@@ -1,7 +1,7 @@
 use std::cmp::min;
 use std::convert::TryInto;
 use std::fs;
-use std::os::windows::fs::FileExt;
+use std::io::{prelude::*, SeekFrom};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
@@ -164,7 +164,8 @@ impl FsReadHandle for RawFileHandle {
 
         let capped_buf = &mut buf[0..(amount_to_read)];
 
-        let res = backing.seek_read(capped_buf, read_from as u64);
+        let res = backing.seek(SeekFrom::Start(read_from as u64))
+            .and_then(|_| backing.read(capped_buf));
         return res.map_err(|e| {
             match e.raw_os_error(){
                 Some(error) => FsError::OsError(error),

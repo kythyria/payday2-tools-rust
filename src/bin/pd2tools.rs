@@ -113,7 +113,7 @@ fn main() {
     match opt.command {
         Command::Hash{ to_hash } => {
             for s in to_hash {
-                let h = diesel_hash::hash_str(&s);
+                let h = diesel_hash::hash_nonconst::hash_str(&s);
                 println!("{0:>016x} {0:>20} {1:?}", h, s)
             }
         },

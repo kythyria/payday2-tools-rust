@@ -23,7 +23,7 @@ pub fn steam_directory() -> Result<String, Error> {
 
 #[cfg(not(windows))]
 pub fn steam_directory() -> Result<String, Error> {
-    Error::SteamLookupUnimplemented
+    Err(Error::SteamLookupUnimplemented)
 }
 
 #[derive(Error, Debug)]
@@ -37,7 +37,7 @@ pub enum Error {
 
     #[cfg(not(windows))]
     #[error("How did you even get here, the Registry is a Windows thing: {0:?}")]
-    SteamRegistryLookupFailed(Box<dyn Error>),
+    SteamRegistryLookupFailed(std::convert::Infallible),
 
     #[error("Steam's path missing or too mangled to turn to string")]
     BadSteamPath,
