@@ -1,6 +1,6 @@
 use std::{fs::File, iter::FromIterator, path::Path};
 use std::io;
-use std::os::windows::fs::FileExt;
+use std::io::{prelude::*, SeekFrom};
 use std::rc::Rc;
 use fnv::FnvHashSet;
 
@@ -71,13 +71,14 @@ fn do_scan_pass(to_read: Vec<(&Path, Vec<ReadItem>)>) -> io::Result<FnvHashSet<R
     let mut found = FnvHashSet::<Rc<str>>::default();
 
     for (path, items) in to_read {
-        let bundle = File::open(path)?;
+        let mut bundle = File::open(path)?;
         for item in items {
             //seek_read does not fill up to capacity, only to len
             //so we have to manually resize and fill with 0.
             let mut bytes = Vec::<u8>::new();
             bytes.resize(item.length, 0);
-            bundle.seek_read(&mut bytes, item.offset as u64)?;
+            bundle.seek(SeekFrom::Start(item.offset as u64))?;
+            bundle.read(&mut bytes)?;
             let scanned = do_scan_buffer(&bytes, item);
             match scanned {
                 Err(e) => eprintln!("Failed reading {} byte file \"{}\": {}", bytes.len(), item.key, e),
