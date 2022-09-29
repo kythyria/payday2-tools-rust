@@ -2,6 +2,7 @@ mod py_ir;
 mod ir_reader_fdm;
 mod ir_writer_oil;
 mod mesh;
+mod mesh2;
 
 use pyo3::prelude::*;
 
