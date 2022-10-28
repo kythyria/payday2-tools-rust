@@ -7,7 +7,7 @@ use itertools::Itertools;
 
 use pd2tools_rust::formats::oil;
 use crate::PyEnv;
-use crate::mesh::Mesh;
+use crate::mesh2::{ Mesh, ExportFlag as MeshExportFlag };
 
 struct GatheredObject<'py> {
     object: &'py PyAny,
@@ -67,7 +67,6 @@ fn gather_object_tree<'py>(env: PyEnv<'py>, object: &'py PyAny) -> GatheredObjec
 }
 
 fn matrix_to_vek(bmat: &PyAny) -> vek::Mat4<f32> {
-    eprintln!("m2v");
     let mut floats = [[0f32; 4]; 4];
     for c in 0..4 {
         let col = bmat.get_item(c).unwrap();
@@ -86,12 +85,12 @@ struct FlatObject<'py> {
     chunk_id: u32,
     parent_chunk_id: u32,
     blender_data: GatheredData<'py>,
-    data: FlatData<'py>
+    data: FlatData
 }
 
-enum FlatData<'py> {
+enum FlatData {
     None,
-    Mesh(Mesh<'py>),
+    Mesh(Mesh),
     Light(FlatLight),
     Camera(FlatCamera)
 }
@@ -137,7 +136,10 @@ impl<'py> FlattenedScene<'py> {
             obj.data = match obj.blender_data {
                 GatheredData::None => FlatData::None,
                 GatheredData::Mesh(d) => {
-                    let mesh  = Mesh::from_bpy_object(&env, obj.object, d);
+                    use MeshExportFlag::*;
+                    let mesh  = Mesh::from_bpy_object(&env, obj.object, d,
+                        Normals | Tangents | TexCoords | Colors | Weights
+                    );
                     mats.extend(mesh.material_names.iter().map(|i| Rc::from(*i)));
                     FlatData::Mesh(mesh)
                 },
@@ -151,11 +153,59 @@ impl<'py> FlattenedScene<'py> {
     }
 }
 
-fn mesh_to_oil_geometry(me: &Mesh, material_list: &[Rc<str>]) -> oil::Geometry() {
-    todo!()
+fn mesh_to_oil_geometry(node_id: u32, me: &Mesh, material_id_base: u32, material_list: &[Rc<str>]) -> oil::Geometry {
+    let og = oil::Geometry {
+        node_id,
+        material_id: 0xFFFFFFFFu32,
+        casts_shadows: true,
+        receives_shadows: true,
+        channels: Vec::with_capacity(5),
+        faces: Vec::with_capacity(me.triangles.len()),
+        skin: None,
+        override_bounding_box: None,
+    };
+
+    // TODO: Do we care about duplication? Is this horrifyingly slow?
+    // TODO: Does the OIL->FDM step *care* about if there are unused things?
+
+    og.channels.push(oil::GeometryChannel::Position(0, me.vertices.iter().map(|i|{
+        i.map(|c| c.into())
+    }).collect()));
+
+    let mut tc_list = me.faceloop_uvs.iter().collect::<Vec<_>>();
+    tc_list.sort_by(|i,j| i.0.cmp(j.0));
+
+    for (idx, (name, tc)) in tc_list.into_iter().enumerate() {
+        let data = tc.iter().map(|i| i.map(|j| j.into())).collect();
+        og.channels.push(oil::GeometryChannel::TexCoord(idx as u32, data))
+    }
+
+    let mut vc_list = me.faceloop_colors.iter().collect::<Vec<_>>();
+    vc_list.sort_by(|i,j| i.0.cmp(j.0));
+
+    for (idx, (name, vc)) in vc_list.into_iter().enumerate() {
+        let data = vc.iter().map(|i| i.map(|j| j.into())).collect();
+        og.channels.push(oil::GeometryChannel::Colour(idx as u32, data))
+    }
+
+    match me.faceloop_normals {
+        crate::mesh2::TangentSpace::None => (),
+        crate::mesh2::TangentSpace::Normals(normals) => {
+            let data = normals.iter().map(|i| i.map(|j| j.into())).collect();
+            og.channels.push(oil::GeometryChannel::Normal(0, data))
+        },
+        crate::mesh2::TangentSpace::Tangents(tangents) => {
+            let tans = 
+        },
+    }
+    og.channels.push()
+
+    og
 }
 
-fn flat_scene_to_oilchunks(scene: &FlattenedScene, chunks: &mut Vec<oil::Chunk>) {
+fn flat_scene_to_oilchunks(scene: &FlattenedScene, chunks: &mut Vec<oil::Chunk>) {  
+    let material_id_base = scene.next_chunkid;
+
     for fo in &scene.nodes {
         chunks.push(oil::Node {
             id: fo.chunk_id,
@@ -167,17 +217,20 @@ fn flat_scene_to_oilchunks(scene: &FlattenedScene, chunks: &mut Vec<oil::Chunk>)
 
         match &fo.data {
             FlatData::None => (),
-            FlatData::Mesh(m) => chunks.push(mesh_to_oil_geometry(m, &scene.materials).into()),
+            FlatData::Mesh(m) => {
+                let ch = mesh_to_oil_geometry(fo.chunk_id, m, material_id_base, &scene.materials);
+                chunks.push(ch.into())
+            },
             FlatData::Light(_) => todo!(),
             FlatData::Camera(_) => todo!(),
         }
     }
 
-    for mat in (&scene.materials).into_iter().enumerate() {
+    for (idx, mat) in (&scene.materials).into_iter().enumerate() {
         chunks.push(oil::Material {
-            id: scene.next_chunkid,
-            name: todo!(),
-            parent_id: todo!(),
+            id: material_id_base + (idx as u32),
+            name: String::from(mat.as_ref()),
+            parent_id: 0xFFFFFFFFu32,
         }.into());
     }
 }
