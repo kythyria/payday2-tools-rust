@@ -65,7 +65,7 @@ pub enum TangentSpace {
 pub struct Tangent {
     pub normal: Vec3f,
     pub tangent: Vec3f,
-    pub bitangent: f32
+    pub bitangent: Vec3f
 }
 
 #[derive(Clone, Copy)]
@@ -125,7 +125,7 @@ impl VertexGroups {
         let mut out = Self::with_capacity(vlen, 3);
         for bv in bpy_verts.iter().unwrap() {
             let bv = bv.unwrap();
-            let groups = get!(env, data, 'iter "groups")
+            let groups = get!(env, bv, 'iter "groups")
                 .map(|grp| Weight {
                     group: get!(env, grp, 'attr "group"),
                     weight: get!(env, grp, 'attr "weight"),
@@ -148,6 +148,46 @@ fn vek4f_from_tuple(inp: (f32, f32, f32, f32)) -> Vec4f {
     inp.into()
 }
 
+fn vek2f_from_bpy_vec(env: &PyEnv, data: &PyAny) -> Vec2f{
+    let tuple = data.call_method0(intern!(env.python, "to_tuple")).unwrap().extract().unwrap();
+    vek2f_from_tuple(tuple)
+}
+
+fn vek3f_from_bpy_vec(env: &PyEnv, data: &PyAny) -> Vec3f{
+    let tuple = data.call_method0(intern!(env.python, "to_tuple")).unwrap().extract().unwrap();
+    vek3f_from_tuple(tuple)
+}
+
+fn vek4f_from_bpy_vec(env: &PyEnv, data: &PyAny) -> Vec4f{
+    let tuple = data.call_method0(intern!(env.python, "to_tuple")).unwrap().extract().unwrap();
+    vek4f_from_tuple(tuple)
+}
+
+fn vek3f_from_bpy_array(data: &PyAny) -> Vec3f {
+    let x = data.get_item(0).unwrap().extract().unwrap();
+    let y = data.get_item(1).unwrap().extract().unwrap();
+    let z = data.get_item(2).unwrap().extract().unwrap();
+    Vec3f::from([x, y, z])
+}
+
+fn vek4f_from_bpy_array(data: &PyAny) -> Vec4f {
+    let x = data.get_item(0).unwrap().extract().unwrap();
+    let y = data.get_item(1).unwrap().extract().unwrap();
+    let z = data.get_item(2).unwrap().extract().unwrap();
+    let w = data.get_item(3).unwrap().extract().unwrap();
+    Vec4f::from([x, y, z, w])
+}
+
+fn array_from_bpy_array<T, const N: usize>(data: &PyAny) -> [T; N]
+where T: Default + Copy + for<'a> pyo3::FromPyObject<'a>
+{
+    let mut out = [T::default(); N];
+    for i in 0..N {
+        out[i] = data.get_item(i).unwrap().extract().unwrap();
+    }
+    return out;
+}
+
 #[enumflags2::bitflags]
 #[derive(Copy, Clone, Debug, PartialEq)]
 #[repr(u32)]
@@ -163,12 +203,12 @@ type ExportFlags = enumflags2::BitFlags<ExportFlag>;
 impl Mesh {
     pub fn from_bpy_mesh(env: &PyEnv, data: &PyAny, flags: ExportFlags) -> Mesh {
         let vertices = get!(env, data, 'iter "vertices")
-            .map(|vtx| vek3f_from_tuple(get!(env, vtx, 'attr "co")))
+            .map(|vtx| vek3f_from_bpy_vec(env, get!(env, vtx, 'attr "co")))
             .collect();
 
-        let edges = get!(env, data, 'iter "edges")
-            .map(|ed| get!(env, ed, 'attr "vertices"))
-            .collect();
+        //let edges = get!(env, data, 'iter "edges")
+        //    .map(|ed| get!(env, ed, 'attr "vertices"))
+        //    .collect();
 
         let faceloops = get!(env, data, 'iter "loops")
             .map(|lp| Faceloop {
@@ -190,8 +230,8 @@ impl Mesh {
         data.call_method0(intern!{env.python, "calc_loop_triangles"}).unwrap();
         let triangles = get!(env, data, 'iter "loop_triangles")
             .map(|tri| Triangle {
-                loops: get!(env, tri, 'attr "loops"),
-                polygon: get!(env, tri, 'attr "polygon"),
+                loops: array_from_bpy_array(get!(env, tri, 'attr "loops")),
+                polygon: get!(env, tri, 'attr "polygon_index"),
             })
             .collect();
 
@@ -210,16 +250,16 @@ impl Mesh {
             data.call_method0(intern!{env.python, "calc_tangents"}).unwrap();
             TangentSpace::Tangents(get!(env, data, 'iter "loops")
                 .map(|lp| Tangent {
-                    normal: vek3f_from_tuple(get!(env, lp, 'attr "normal")),
-                    tangent: vek3f_from_tuple(get!(env, lp, 'attr "tangent")),
-                    bitangent: get!(env, lp, 'attr "bitangent")
+                    normal: vek3f_from_bpy_vec(env, get!(env, lp, 'attr "normal")),
+                    tangent: vek3f_from_bpy_vec(env, get!(env, lp, 'attr "tangent")),
+                    bitangent: vek3f_from_bpy_vec(env, get!(env, lp, 'attr "bitangent"))
                 })
                 .collect()
             )
         }
         else if flags.contains(ExportFlag::Normals) {
             TangentSpace::Normals(get!(env, data, 'iter "loops")
-                .map(|lp| vek3f_from_tuple(get!(env, lp, 'attr "normal")))
+                .map(|lp| vek3f_from_bpy_vec(env, get!(env, lp, 'attr "normal")))
                 .collect()
             )
         }
@@ -232,7 +272,7 @@ impl Mesh {
                 .map(|vc|{
                     let name: String = get!(env, vc, 'attr "name");
                     let cols: Vec<Vec4f> = get!(env, vc, 'iter "data")
-                        .map(|i| vek4f_from_tuple(get!(env, i, 'attr "color")))
+                        .map(|i| vek4f_from_bpy_array(get!(env, i, 'attr "color")))
                         .collect();
                     (name, cols)
                 })
@@ -247,7 +287,7 @@ impl Mesh {
                 .map(|uvl| {
                     let name: String = get!(env, uvl, 'attr "name");
                     let uvs: Vec<Vec2f> = get!(env, uvl, 'iter "data")
-                        .map(|uv| vek2f_from_tuple(get!(env, uv, 'attr "uv")))
+                        .map(|uv| vek2f_from_bpy_vec(env, get!(env, uv, 'attr "uv")))
                         .collect();
                     (name, uvs)
                 })
@@ -263,7 +303,7 @@ impl Mesh {
 
         Mesh {
             vertices,
-            edges,
+            edges: Vec::new(),
             faceloops,
             polygons,
             triangles,

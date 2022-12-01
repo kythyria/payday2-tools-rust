@@ -348,7 +348,7 @@ pub enum GeometryChannel {
 #[derive(Debug, Clone, ItemReader)]
 pub struct GeometryFace {
     pub material_id: u32,
-    pub unknown1: u32,
+    pub smoothing_group: u32,
 
     pub loops: Vec<GeometryFaceloop>
 }

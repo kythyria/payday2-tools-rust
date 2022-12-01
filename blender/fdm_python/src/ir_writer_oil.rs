@@ -1,9 +1,9 @@
 
 use std::collections::{HashMap, HashSet};
+use std::convert::TryInto;
 use std::rc::Rc;
 
-use pyo3::{Python, PyAny, intern, PyResult};
-use itertools::Itertools;
+use pyo3::{PyAny, intern, PyResult};
 
 use pd2tools_rust::formats::oil;
 use crate::PyEnv;
@@ -140,7 +140,7 @@ impl<'py> FlattenedScene<'py> {
                     let mesh  = Mesh::from_bpy_object(&env, obj.object, d,
                         Normals | Tangents | TexCoords | Colors | Weights
                     );
-                    mats.extend(mesh.material_names.iter().map(|i| Rc::from(*i)));
+                    mats.extend(mesh.material_names.iter().map(|i| Rc::from(i.as_str())));
                     FlatData::Mesh(mesh)
                 },
                 GatheredData::Camera(_) => FlatData::Camera(FlatCamera),
@@ -154,7 +154,7 @@ impl<'py> FlattenedScene<'py> {
 }
 
 fn mesh_to_oil_geometry(node_id: u32, me: &Mesh, material_id_base: u32, material_list: &[Rc<str>]) -> oil::Geometry {
-    let og = oil::Geometry {
+    let mut og = oil::Geometry {
         node_id,
         material_id: 0xFFFFFFFFu32,
         casts_shadows: true,
@@ -172,10 +172,10 @@ fn mesh_to_oil_geometry(node_id: u32, me: &Mesh, material_id_base: u32, material
         i.map(|c| c.into())
     }).collect()));
 
-    let mut tc_list = me.faceloop_uvs.iter().collect::<Vec<_>>();
-    tc_list.sort_by(|i,j| i.0.cmp(j.0));
+    let mut uv_list = me.faceloop_uvs.iter().collect::<Vec<_>>();
+    uv_list.sort_by(|i,j| i.0.cmp(j.0));
 
-    for (idx, (name, tc)) in tc_list.into_iter().enumerate() {
+    for (idx, (_name, tc)) in uv_list.into_iter().enumerate() {
         let data = tc.iter().map(|i| i.map(|j| j.into())).collect();
         og.channels.push(oil::GeometryChannel::TexCoord(idx as u32, data))
     }
@@ -183,22 +183,123 @@ fn mesh_to_oil_geometry(node_id: u32, me: &Mesh, material_id_base: u32, material
     let mut vc_list = me.faceloop_colors.iter().collect::<Vec<_>>();
     vc_list.sort_by(|i,j| i.0.cmp(j.0));
 
-    for (idx, (name, vc)) in vc_list.into_iter().enumerate() {
-        let data = vc.iter().map(|i| i.map(|j| j.into())).collect();
+    for (idx, (_name, vc)) in vc_list.iter().enumerate() {
+        let data = vc.iter().map(|i| {
+            let v: vek::Vec4<f64> = i.map(|j| j.into());
+            let c = vek::Rgba::from(v);
+            c.rgb()
+        }).collect();
         og.channels.push(oil::GeometryChannel::Colour(idx as u32, data))
     }
 
-    match me.faceloop_normals {
+    match &me.faceloop_normals {
         crate::mesh2::TangentSpace::None => (),
         crate::mesh2::TangentSpace::Normals(normals) => {
             let data = normals.iter().map(|i| i.map(|j| j.into())).collect();
-            og.channels.push(oil::GeometryChannel::Normal(0, data))
+            og.channels.push(oil::GeometryChannel::Normal(0, data));
         },
         crate::mesh2::TangentSpace::Tangents(tangents) => {
-            let tans = 
+            let norms = tangents.iter().map(|i| i.normal)
+                .map(|i| i.map(|j| <f32 as Into<f64>>::into(j)))
+                .collect::<Vec<_>>();
+            let tangs = tangents.iter().map(|i| i.tangent)
+                .map(|i| i.map(|j| <f32 as Into<f64>>::into(j)))
+                .collect::<Vec<_>>();
+            let binorms = tangents.iter().map(|i| i.bitangent)
+                .map(|i| i.map(|j| <f32 as Into<f64>>::into(j)))
+                .collect::<Vec<_>>();
+
+            og.channels.push(oil::GeometryChannel::Normal(0, norms));
+            og.channels.push(oil::GeometryChannel::Tangent(0, tangs));
+            og.channels.push(oil::GeometryChannel::Binormal(0, binorms));
         },
+    };
+
+    let material_mapping: Vec<u32> = me.material_names.iter()
+        .map(|m| material_list.iter()
+            .enumerate()
+            .find(|i| i.1.as_ref() == m.as_str())
+            .unwrap()
+            .0
+            .try_into()
+            .unwrap()
+        ).map(|i: u32| i + material_id_base)
+        .collect();
+
+    for tri in &me.triangles {
+        let local_mat_id = me.polygons[tri.polygon].material;
+        let mut loops = Vec::with_capacity(5);
+        let mut channel = 0;
+
+        loops.push(oil::GeometryFaceloop {
+            channel,
+            a: me.faceloops[tri.loops[0]].vertex as u32,
+            b: me.faceloops[tri.loops[1]].vertex as u32,
+            c: me.faceloops[tri.loops[2]].vertex as u32
+        });
+
+        for _ in 0..me.faceloop_uvs.len() {
+            channel += 1;
+            loops.push(oil::GeometryFaceloop {
+                channel,
+                a: tri.loops[0] as u32,
+                b: tri.loops[1] as u32,
+                c: tri.loops[2] as u32
+            })
+        }
+
+        for _ in 0..me.faceloop_colors.len() {
+            channel += 1;
+            loops.push(oil::GeometryFaceloop {
+                channel,
+                a: tri.loops[0] as u32,
+                b: tri.loops[1] as u32,
+                c: tri.loops[2] as u32
+            })
+        }
+
+        match &me.faceloop_normals {
+            crate::mesh2::TangentSpace::None => (),
+            crate::mesh2::TangentSpace::Normals(_) => {
+                channel += 1;
+                loops.push(oil::GeometryFaceloop {
+                    channel,
+                    a: tri.loops[0] as u32,
+                    b: tri.loops[1] as u32,
+                    c: tri.loops[2] as u32
+                });
+            },
+            crate::mesh2::TangentSpace::Tangents(_) => {
+                channel += 1;
+                loops.push(oil::GeometryFaceloop {
+                    channel,
+                    a: tri.loops[0] as u32,
+                    b: tri.loops[1] as u32,
+                    c: tri.loops[2] as u32
+                });
+                channel += 1;
+                loops.push(oil::GeometryFaceloop {
+                    channel,
+                    a: tri.loops[0] as u32,
+                    b: tri.loops[1] as u32,
+                    c: tri.loops[2] as u32
+                });
+                channel += 1;
+                loops.push(oil::GeometryFaceloop {
+                    channel,
+                    a: tri.loops[0] as u32,
+                    b: tri.loops[1] as u32,
+                    c: tri.loops[2] as u32
+                });
+            }
+        }
+
+        og.faces.push(oil::GeometryFace {
+            material_id: material_mapping[local_mat_id],
+            smoothing_group: 0, // TODO: Does Blender *have* smoothing groups and do we care?
+            loops,
+        });
     }
-    og.channels.push()
 
     og
 }
@@ -239,6 +340,7 @@ pub fn export(env: PyEnv, output_path: &str, units_per_cm: f32, framerate: f32, 
     let object_tree = gather_object_tree(env, object);
     let mut flat_scene = FlattenedScene::new();
     flat_scene.add_object_tree(&object_tree, 0xFFFFFFFF);
+    flat_scene.populate_object_data(env);
     
     let mut chunks = vec! [
         oil::SceneInfo3 {
