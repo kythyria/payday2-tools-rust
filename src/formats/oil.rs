@@ -4,8 +4,9 @@
 //! ```rs
 //! struct Oil {
 //!     magic: b"FORM",
-//!     total_size: u32,
-//!     nodes: [Node]
+//!     total_size_of_chunks: u32,
+//!     nodes: [Node],
+//!     count_of_preceding_bytes: u32
 //! }
 //! 
 //! struct Node {
@@ -14,6 +15,9 @@
 //!     data: [u8]
 //! }
 //! ```
+//! 
+//! Note that `total_size_of_chunks` is thus the size of the file minus 12, and
+//! `count_of_preceding bytes` is the size of the file minus four.
 pub mod document;
 
 
@@ -492,6 +496,6 @@ pub fn chunks_to_bytes(chunks: &[Chunk]) -> std::io::Result<Vec<u8>> {
     }
     let len: u32 = buf.len().try_into().unwrap();
     buf.write_item(&len)?;
-    (&mut buf[4..8]).write_item(&len)?;
+    (&mut buf[4..8]).write_item(&(len-8))?;
     Ok(buf)
 }
