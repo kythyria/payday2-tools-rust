@@ -81,7 +81,7 @@ fn matrix_to_vek(bmat: &PyAny) -> vek::Mat4<f32> {
 struct MaterialCollector {
     next_id: u32,
     collected: Vec<oil::Material>,
-    solo_mats: HashMap<String, u32> 
+    solo_mats: HashMap<Rc<str>, u32> 
 }
 impl MaterialCollector {
     fn append_material(&mut self, name: String, parent_id: u32) -> u32 {
@@ -93,16 +93,24 @@ impl MaterialCollector {
 
     /// Take a mesh's material names, and return the ID of the mesh-wide material along with
     /// the mapping from mesh-local material index to material ID.
-    fn collect_and_map(&mut self, names: &[String]) -> (u32, Vec<u32>) {
+    fn collect_and_map(&mut self, names: &[Option<Rc<str>>]) -> (u32, Vec<u32>) {
         let mut mapping = Vec::new();
 
-        if names.len() == 1 {
-            if let Some(id) = self.solo_mats.get(&names[0]) {
+        if names.len() == 0 {
+            return (0xFFFFFFFFu32, vec![0xFFFFFFFFu32]);
+        }
+        else if names.len() == 1 {
+            if names[0].is_none() {
+                return (0xFFFFFFFFu32, vec![0xFFFFFFFFu32]);
+            }
+            
+            let name = names[0].clone().unwrap();
+            if let Some(id) = self.solo_mats.get(&name) {
                 return (*id, vec![*id]);
             }
             else {
-                let id = self.append_material(names[0].clone(), 0xFFFFFFFFu32);
-                self.solo_mats.insert(names[0].clone(), id);
+                let id = self.append_material(name.to_string(), 0xFFFFFFFFu32);
+                self.solo_mats.insert(name, id);
                 return (id, vec![id]);
             }
         }
@@ -110,11 +118,16 @@ impl MaterialCollector {
         let parent_id = self.append_material("MultiMaterial".into(), 0xFFFFFFFFu32);
         let mut mats = HashMap::<&str, u32>::new();
         for n in names {
-            let id = match mats.entry(n) {
-                Entry::Occupied(o) => *o.get(),
-                Entry::Vacant(v) => *v.insert(self.append_material(n.clone(), parent_id))
-            };
-            mapping.push(id);
+            if let Some(n) = n {
+                let id = match mats.entry(n.as_ref()) {
+                    Entry::Occupied(o) => *o.get(),
+                    Entry::Vacant(v) => *v.insert(self.append_material(n.to_string(), parent_id))
+                };
+                mapping.push(id);
+            }
+            else {
+                mapping.push(0xFFFFFFFFu32);
+            }
         }
 
         (parent_id, mapping)
@@ -146,8 +159,7 @@ struct FlattenedScene<'py> {
     next_chunkid: u32,
 
     nodes: Vec<FlatObject<'py>>,
-    nodes_by_pyid: HashMap<u64, usize>,
-    materials: Vec<Rc<str>>
+    nodes_by_pyid: HashMap<u64, usize>
 }
 impl<'py> FlattenedScene<'py> {
     fn new() -> Self { FlattenedScene {
@@ -173,8 +185,6 @@ impl<'py> FlattenedScene<'py> {
     }
 
     fn populate_object_data(&mut self, env: PyEnv<'py>) {
-        let mut mats = HashSet::<Rc<str>>::new();
-
         for obj in self.nodes.iter_mut() {
             obj.data = match obj.blender_data {
                 GatheredData::None => FlatData::None,
@@ -183,16 +193,12 @@ impl<'py> FlattenedScene<'py> {
                     let mesh  = Mesh::from_bpy_object(&env, obj.object, d,
                         Normals | Tangents | TexCoords | Colors | Weights
                     );
-                    mats.extend(mesh.material_names.iter().map(|i| Rc::from(i.as_str())));
                     FlatData::Mesh(mesh)
                 },
                 GatheredData::Camera(_) => FlatData::Camera(FlatCamera),
                 GatheredData::Light(_) => FlatData::Light(FlatLight)
             }
         }
-
-        self.materials = mats.into_iter().collect();
-        self.materials.sort();
     }
 }
 

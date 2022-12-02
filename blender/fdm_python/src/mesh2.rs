@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::rc::Rc;
 use pyo3::{prelude::*, intern};
 use crate::PyEnv;
 
@@ -32,7 +33,7 @@ pub struct Mesh {
     pub faceloop_colors: HashMap<String, Vec<Vec4f>>,
     pub faceloop_uvs: HashMap<String, Vec<Vec2f>>,
 
-    pub material_names: Vec<String>,
+    pub material_names: Vec<Option<Rc<str>>>,
 }
 
 pub struct Faceloop {
@@ -298,7 +299,11 @@ impl Mesh {
         };
 
         let material_names = get!(env, data, 'iter "materials")
-            .map(|mat| get!(env, mat, 'attr "name"))
+            .map(|mat| {
+                if mat.is_none() { return None }
+                let st: String = get!(env, mat, 'attr "name");
+                Some(Rc::from(st))
+            })
             .collect();
 
         Mesh {
@@ -321,7 +326,12 @@ impl Mesh {
         mesh.material_names.clear();
         mesh.material_names.extend(
             get!(env, object, 'iter "material_slots")
-            .map(|mat| get!(env, mat, 'attr "name"))
+            .map(|ms| get!(env, ms, 'attr "material"))
+            .map(|mat: &PyAny| {
+                if mat.is_none() { return None }
+                let st: String = get!(env, mat, 'attr "name");
+                Some(Rc::from(st))
+            })
         );
 
         mesh.vertex_groups.names = get!(env, object, 'iter "vertex_groups")
