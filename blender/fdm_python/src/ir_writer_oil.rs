@@ -1,5 +1,5 @@
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, hash_map::Entry, HashSet};
 use std::convert::TryInto;
 use std::rc::Rc;
 
@@ -78,6 +78,49 @@ fn matrix_to_vek(bmat: &PyAny) -> vek::Mat4<f32> {
     vek::Mat4::from_col_arrays(floats)
 }
 
+struct MaterialCollector {
+    next_id: u32,
+    collected: Vec<oil::Material>,
+    solo_mats: HashMap<String, u32> 
+}
+impl MaterialCollector {
+    fn append_material(&mut self, name: String, parent_id: u32) -> u32 {
+        let id = self.next_id;
+        self.next_id += 1;
+        self.collected.push(oil::Material { id, name, parent_id });
+        id
+    }
+
+    /// Take a mesh's material names, and return the ID of the mesh-wide material along with
+    /// the mapping from mesh-local material index to material ID.
+    fn collect_and_map(&mut self, names: &[String]) -> (u32, Vec<u32>) {
+        let mut mapping = Vec::new();
+
+        if names.len() == 1 {
+            if let Some(id) = self.solo_mats.get(&names[0]) {
+                return (*id, vec![*id]);
+            }
+            else {
+                let id = self.append_material(names[0].clone(), 0xFFFFFFFFu32);
+                self.solo_mats.insert(names[0].clone(), id);
+                return (id, vec![id]);
+            }
+        }
+
+        let parent_id = self.append_material("MultiMaterial".into(), 0xFFFFFFFFu32);
+        let mut mats = HashMap::<&str, u32>::new();
+        for n in names {
+            let id = match mats.entry(n) {
+                Entry::Occupied(o) => *o.get(),
+                Entry::Vacant(v) => *v.insert(self.append_material(n.clone(), parent_id))
+            };
+            mapping.push(id);
+        }
+
+        (parent_id, mapping)
+    }
+}
+
 struct FlatObject<'py> {
     object: &'py PyAny,
     matrix: vek::Mat4<f32>,
@@ -153,7 +196,7 @@ impl<'py> FlattenedScene<'py> {
     }
 }
 
-fn mesh_to_oil_geometry(node_id: u32, me: &Mesh, material_id_base: u32, material_list: &[Rc<str>]) -> oil::Geometry {
+fn mesh_to_oil_geometry(node_id: u32, me: &Mesh, material_id_base: u32, materials: &mut MaterialCollector) -> oil::Geometry {
     let mut og = oil::Geometry {
         node_id,
         material_id: 0xFFFFFFFFu32,
@@ -215,16 +258,8 @@ fn mesh_to_oil_geometry(node_id: u32, me: &Mesh, material_id_base: u32, material
         },
     };
 
-    let material_mapping: Vec<u32> = me.material_names.iter()
-        .map(|m| material_list.iter()
-            .enumerate()
-            .find(|i| i.1.as_ref() == m.as_str())
-            .unwrap()
-            .0
-            .try_into()
-            .unwrap()
-        ).map(|i: u32| i + material_id_base)
-        .collect();
+    let (root_material, material_mapping) = materials.collect_and_map(&me.material_names);
+    og.material_id = root_material;
 
     for tri in &me.triangles {
         let local_mat_id = me.polygons[tri.polygon].material;
@@ -305,8 +340,12 @@ fn mesh_to_oil_geometry(node_id: u32, me: &Mesh, material_id_base: u32, material
 }
 
 fn flat_scene_to_oilchunks(scene: &FlattenedScene, chunks: &mut Vec<oil::Chunk>) {  
-    let material_id_base = scene.next_chunkid;
-
+    let mut mat_collector = MaterialCollector {
+        next_id: scene.next_chunkid,
+        collected: Default::default(),
+        solo_mats: Default::default()
+    };
+    
     for fo in &scene.nodes {
         chunks.push(oil::Node {
             id: fo.chunk_id,
@@ -319,7 +358,7 @@ fn flat_scene_to_oilchunks(scene: &FlattenedScene, chunks: &mut Vec<oil::Chunk>)
         match &fo.data {
             FlatData::None => (),
             FlatData::Mesh(m) => {
-                let ch = mesh_to_oil_geometry(fo.chunk_id, m, material_id_base, &scene.materials);
+                let ch = mesh_to_oil_geometry(fo.chunk_id, m, 0, &mut mat_collector);
                 chunks.push(ch.into())
             },
             FlatData::Light(_) => todo!(),
@@ -327,13 +366,7 @@ fn flat_scene_to_oilchunks(scene: &FlattenedScene, chunks: &mut Vec<oil::Chunk>)
         }
     }
 
-    for (idx, mat) in (&scene.materials).into_iter().enumerate() {
-        chunks.push(oil::Material {
-            id: material_id_base + (idx as u32),
-            name: String::from(mat.as_ref()),
-            parent_id: 0xFFFFFFFFu32,
-        }.into());
-    }
+    chunks.extend(mat_collector.collected.drain(..).map(|i| i.into()));
 }
 
 pub fn export(env: PyEnv, output_path: &str, units_per_cm: f32, framerate: f32, object: &PyAny) -> PyResult<()> {
