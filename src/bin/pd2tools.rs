@@ -8,6 +8,8 @@ use structopt::StructOpt;
 
 use pd2tools_rust::*;
 use pd2tools_rust::util::LIB_VERSION;
+use pd2tools_rust::diesel_hash;
+use pd2tools_rust::hashindex;
 
 arg_enum! {
     #[derive(Debug, Clone, Copy, Ord, Eq, PartialOrd, PartialEq, Hash)]

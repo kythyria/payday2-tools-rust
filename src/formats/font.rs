@@ -22,7 +22,7 @@ pub struct Kerning {
     char_2: char,
     unknown_1: u8,
     unknown_2: u8,
-    unknown_3: u8
+    unknown_3: u8,
     unknown_4: u8
 }
 

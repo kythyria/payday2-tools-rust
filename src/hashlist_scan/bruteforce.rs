@@ -4,8 +4,8 @@ use fnv::FnvHashSet;
 use rayon::prelude::*;
 
 use crate::bundles::database::Database;
-use diesel_hash::hash_nonconst::hash_str as dhash;
-use diesel_hash::hash::{EMPTY, MATERIAL_CONFIG, TEXTURE, UNIT};
+use crate::diesel_hash::hash_nonconst::hash_str as dhash;
+use crate::diesel_hash::hash::{EMPTY, MATERIAL_CONFIG, TEXTURE, UNIT};
 
 use std::iter::FromIterator;
 

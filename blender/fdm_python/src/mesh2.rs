@@ -145,48 +145,26 @@ fn vek3f_from_tuple(inp: (f32, f32, f32)) -> Vec3f {
     inp.into()
 }
 
-fn vek4f_from_tuple(inp: (f32, f32, f32, f32)) -> Vec4f {
-    inp.into()
-}
-
-fn vek2f_from_bpy_vec(env: &PyEnv, data: &PyAny) -> Vec2f{
+fn vek2f_from_bpy_vec(env: &PyEnv, data: &PyAny) -> Vec2f {
     let tuple = data.call_method0(intern!(env.python, "to_tuple")).unwrap().extract().unwrap();
     vek2f_from_tuple(tuple)
 }
 
-fn vek3f_from_bpy_vec(env: &PyEnv, data: &PyAny) -> Vec3f{
+fn vek3f_from_bpy_vec(env: &PyEnv, data: &PyAny) -> Vec3f {
     let tuple = data.call_method0(intern!(env.python, "to_tuple")).unwrap().extract().unwrap();
     vek3f_from_tuple(tuple)
 }
 
-fn vek4f_from_bpy_vec(env: &PyEnv, data: &PyAny) -> Vec4f{
-    let tuple = data.call_method0(intern!(env.python, "to_tuple")).unwrap().extract().unwrap();
-    vek4f_from_tuple(tuple)
-}
-
-fn vek3f_from_bpy_array(data: &PyAny) -> Vec3f {
-    let x = data.get_item(0).unwrap().extract().unwrap();
-    let y = data.get_item(1).unwrap().extract().unwrap();
-    let z = data.get_item(2).unwrap().extract().unwrap();
-    Vec3f::from([x, y, z])
-}
-
-fn vek4f_from_bpy_array(data: &PyAny) -> Vec4f {
-    let x = data.get_item(0).unwrap().extract().unwrap();
-    let y = data.get_item(1).unwrap().extract().unwrap();
-    let z = data.get_item(2).unwrap().extract().unwrap();
-    let w = data.get_item(3).unwrap().extract().unwrap();
-    Vec4f::from([x, y, z, w])
-}
-
-fn array_from_bpy_array<T, const N: usize>(data: &PyAny) -> [T; N]
-where T: Default + Copy + for<'a> pyo3::FromPyObject<'a>
+fn from_bpy_array<const N:usize,T,E>(data: &PyAny) -> T
+where
+    T: From<[E; N]>,
+    E: Default + Copy + for<'a> FromPyObject<'a>
 {
-    let mut out = [T::default(); N];
+    let mut a: [E; N] = [E::default(); N];
     for i in 0..N {
-        out[i] = data.get_item(i).unwrap().extract().unwrap();
+        a[i] = data.get_item(i).unwrap().extract().unwrap();
     }
-    return out;
+    T::from(a)
 }
 
 #[enumflags2::bitflags]
@@ -231,7 +209,7 @@ impl Mesh {
         data.call_method0(intern!{env.python, "calc_loop_triangles"}).unwrap();
         let triangles = get!(env, data, 'iter "loop_triangles")
             .map(|tri| Triangle {
-                loops: array_from_bpy_array(get!(env, tri, 'attr "loops")),
+                loops: from_bpy_array(get!(env, tri, 'attr "loops")),
                 polygon: get!(env, tri, 'attr "polygon_index"),
             })
             .collect();
@@ -273,7 +251,7 @@ impl Mesh {
                 .map(|vc|{
                     let name: String = get!(env, vc, 'attr "name");
                     let cols: Vec<Vec4f> = get!(env, vc, 'iter "data")
-                        .map(|i| vek4f_from_bpy_array(get!(env, i, 'attr "color")))
+                        .map(|i| from_bpy_array(get!(env, i, 'attr "color")))
                         .collect();
                     (name, cols)
                 })
