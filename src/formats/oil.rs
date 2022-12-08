@@ -18,8 +18,6 @@
 //! 
 //! Note that `total_size_of_chunks` is thus the size of the file minus 12, and
 //! `count_of_preceding bytes` is the size of the file minus four.
-pub mod document;
-
 
 use std::convert::TryInto;
 use std::{path::Path, io::Write};
