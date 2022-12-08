@@ -31,12 +31,11 @@ git-version = "0.3.5"
 thiserror = "1.0.30"
 
 pd2tools-macros = { path = './macros' }
-diesel_hash = { path = './diesel_hash' }
 steam = { path = "./steam" }
 scriptdata = { path = "./scriptdata" }
 
 [workspace]
-members = [ "xmlparser", "blender/fdm_python", "macros", "diesel_hash", "bundlefs", "steam", "scriptdata" ]
+members = [ "xmlparser", "blender/fdm_python", "macros", "bundlefs", "steam", "scriptdata" ]
 
 [patch.crates-io]
 xmlparser = { path = 'xmlparser' }

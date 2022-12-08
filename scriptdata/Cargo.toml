@@ -19,4 +19,3 @@ chumsky = "0.8.0"
 ego-tree = "0.6.2"
 
 pd2tools-macros = { path = '../macros' }
-diesel_hash = { path = '../diesel_hash' }

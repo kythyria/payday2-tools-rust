@@ -7,8 +7,8 @@ pub mod bundles;
 pub mod formats;
 pub mod hashlist_scan;
 pub mod filesystem;
+pub mod diesel_hash;
 
-pub use diesel_hash;
 pub use diesel_hash::hashlist as hashindex;
 
 use std::fs;
