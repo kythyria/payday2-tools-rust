@@ -1,4 +1,6 @@
-use std::{io::{Read, Write, Error as IoError}, marker::PhantomData, convert::TryInto, any::type_name};
+use std::{io::{Read, Write, Error as IoError, BufRead}, marker::PhantomData, convert::TryInto, any::type_name};
+
+use pd2tools_macros::tuple_itemreaders;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ReadError {
@@ -40,7 +42,7 @@ impl From<ReadError> for IoError {
     }
 }
 
-/// Defines how to read/write a `T` from/to a stream. TODO: bytemuck integration.
+/// Defines how to read/write a `Item` from/to a stream. TODO: bytemuck integration.
 pub trait ItemReader {
     type Error;
     type Item;
@@ -50,7 +52,7 @@ pub trait ItemReader {
 }
 
 /// Extend a `Read` to be able to read objects, not just bytes.
-pub trait ReadExt: Read {
+pub trait ReadExt: Read + BufRead {
     fn read_item<I: ItemReader<Item=I>>(&mut self) -> Result<I, I::Error>;
     fn read_item_as<P: ItemReader>(&mut self) -> Result<P::Item, P::Error>;
 }
@@ -62,7 +64,7 @@ pub trait WriteExt: Write {
 
 // https://discord.com/channels/273534239310479360/1009669096704573511
 
-impl<T: Read> ReadExt for T {
+impl<T: Read + BufRead> ReadExt for T {
     fn read_item<I: ItemReader<Item=I>>(&mut self) -> Result<I, I::Error> {
         I::read_from_stream(self)
     }
@@ -85,7 +87,7 @@ impl<T: Write> WriteExt for T {
 macro_rules! numeric_itemreaders {
     ($($ty:ty),*) => { $(
         impl ItemReader for $ty {
-            type Error = IoError;
+            type Error = ReadError;
             type Item = Self;
         
             fn read_from_stream<R: ReadExt>(stream: &mut R) -> Result<Self::Item, Self::Error> {
@@ -93,32 +95,52 @@ macro_rules! numeric_itemreaders {
                 stream.read_exact(&mut buf)?;
                 Ok(<$ty>::from_le_bytes(buf))
             }
-            fn write_to_stream<W: WriteExt>(stream: &mut W, item: &Self::Item) -> Result<(), IoError> {
+            fn write_to_stream<W: WriteExt>(stream: &mut W, item: &Self::Item) -> Result<(), ReadError> {
                 let mut buf = <$ty>::to_le_bytes(*item);
-                stream.write_all(&mut buf)
+                Ok(stream.write_all(&mut buf)?)
             }
         }
     )*}
 }
 
 numeric_itemreaders!(u8, u16, u32, u64, u128, i8, i16, i32, i64, i128, f32, f64);
+tuple_itemreaders!(16);
 
 impl ItemReader for String {
     type Error = ReadError;
     type Item = Self;
 
     fn read_from_stream<R: ReadExt>(stream: &mut R) -> Result<Self::Item, Self::Error> {
-        let bytes = CountedVec::<u8, u32>::read_from_stream(stream)?;
+        stream.read_item_as::<CountedString<u32>>()
+    }
+
+    fn write_to_stream<W: WriteExt>(stream: &mut W, item: &Self::Item) -> Result<(), Self::Error> {
+        stream.write_item_as::<CountedString<u32>>(item)
+    }
+}
+
+pub struct CountedString<TCount>(PhantomData<TCount>);
+impl<TCount> ItemReader for CountedString<TCount>
+where
+    TCount: ItemReader<Error=ReadError>,
+    TCount::Item: TryInto<usize>,
+    usize: TryInto<TCount::Item>
+{
+    type Error = ReadError;
+    type Item = String;
+
+    fn read_from_stream<R: ReadExt>(stream: &mut R) -> Result<Self::Item, Self::Error> {
+        let bytes = CountedVec::<u8, TCount>::read_from_stream(stream)?;
         let res = String::from_utf8(bytes)?;
         Ok(res)
     }
 
     fn write_to_stream<W: WriteExt>(stream: &mut W, item: &Self::Item) -> Result<(), Self::Error> {
-        let wire_count: u32 = match item.len().try_into() {
+        let wire_count: TCount::Item = match item.len().try_into() {
             Ok(c) => c,
-            Err(_) => return Err(ReadError::TooManyItems(item.len(), type_name::<Self::Item>(), "u32"))
+            Err(_) => return Err(ReadError::TooManyItems(item.len(), type_name::<Self::Item>(), type_name::<TCount::Item>()))
         };
-        stream.write_item_as::<u32>(&wire_count)?;
+        stream.write_item_as::<TCount>(&wire_count)?;
         for i in item.as_bytes() {
             stream.write_item_as::<u8>(i)?;
         }
@@ -229,6 +251,21 @@ vek_itemreader!(Vec2, x, y);
 vek_itemreader!(Rgb, r, g, b);
 vek_itemreader!(Rgba, r, g, b, a);
 
+pub struct Bgra<T>(PhantomData<T>);
+impl<T: ItemReader<Item=T> + Default + Clone> ItemReader for Bgra<T> {
+    type Error = T::Error;
+    type Item = vek::Rgba<T>;
+
+    fn read_from_stream<R: ReadExt>(stream: &mut R) -> Result<Self::Item, Self::Error> {
+        Ok(stream.read_item::<Self::Item>()?.shuffled_bgra())
+    }
+
+    fn write_to_stream<W: WriteExt>(stream: &mut W, item: &Self::Item) -> Result<(), Self::Error> {
+        let c = item.clone().shuffled_bgra();
+        Ok(stream.write_item::<Self::Item>(&c)?)
+    }
+}
+
 impl<T: ItemReader<Item=T> + Default + Clone> ItemReader for vek::Mat4<T> {
     type Error = T::Error;
     type Item = Self;
@@ -257,6 +294,24 @@ impl ItemReader for bool {
 
     fn write_to_stream<W: WriteExt>(stream: &mut W, item: &Self::Item) -> Result<(), Self::Error> {
         stream.write_item_as::<u8>(&item.clone().into())?;
+        Ok(())
+    }
+}
+
+pub struct NullTerminatedString;
+impl ItemReader for NullTerminatedString {
+    type Error = ReadError;
+    type Item = String;
+
+    fn read_from_stream<R: ReadExt>(stream: &mut R) -> Result<Self::Item, Self::Error> {
+        let mut data = Vec::<u8>::new();
+        stream.read_until(0, &mut data)?;
+        Ok(String::from_utf8(data)?)
+    }
+
+    fn write_to_stream<W: WriteExt>(stream: &mut W, item: &Self::Item) -> Result<(), Self::Error> {
+        stream.write_all(item.as_bytes())?;
+        stream.write_all(&[0])?;
         Ok(())
     }
 }

@@ -277,3 +277,47 @@ pub fn derive_itemreader(item: proc_macro::TokenStream) -> proc_macro::TokenStre
     let item = syn::parse_macro_input!(item as syn::DeriveInput);
     binaryreader::derive_itemreader(item).into()
 }
+
+#[proc_macro]
+pub fn tuple_itemreaders(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input = syn::parse_macro_input!(item as syn::LitInt);
+
+    let count = match input.base10_parse::<usize>() {
+        Err(_) => return quote_spanned!{ input.span()=> compile_error!("Invalid number of tuples") }.into(),
+        Ok(n) => n
+    };
+
+    let mut impls = Vec::<TokenStream>::new();
+
+    for i in 1..count+1 {
+        let mut literals = Vec::<TokenStream>::new();
+        let mut params = Vec::<TokenStream>::new();
+        for i in 0..i {
+            let id = Ident::new(&format!("T{}", i), Span::call_site());
+            let lit = proc_macro2::Literal::usize_unsuffixed(i);
+            params.push(quote!{ #id });
+            literals.push(quote!{ #lit })
+        }
+        let q = quote! {
+            impl<#(#params: ItemReader<Item=#params,Error=ReadError>),*> ItemReader for (#(#params,)*) {
+                type Error = ReadError;
+                type Item = Self;
+
+                fn read_from_stream<R: ReadExt>(stream: &mut R) -> Result<Self::Item, Self::Error> {
+                    Ok((
+                        #(#params::read_from_stream(stream)?,)*
+                    ))
+                }
+
+                fn write_to_stream<W: WriteExt>(stream: &mut W, item: &Self::Item) -> Result<(), Self::Error> {
+                    #( stream.write_item_as::<#params>(&item.#literals)?; )*
+                    Ok(())
+                }
+            }
+        };
+        impls.push(q);
+    }
+
+    let i = quote!{ #(#impls)* };
+    i.into()
+}

@@ -123,11 +123,11 @@ fn rw_enum(item: &syn::DeriveInput, enumer: &syn::DataEnum) -> TokenStream {
     }
     
     quote! {
-        impl ItemReader for #item_name {
-            type Error = ReadError;
+        impl crate::util::binaryreader::ItemReader for #item_name {
+            type Error = crate::util::binaryreader::ReadError;
             type Item = Self;
 
-            fn read_from_stream<R: ReadExt>(stream: &mut R) -> Result<Self::Item, Self::Error> {
+            fn read_from_stream<R: crate::util::binaryreader::ReadExt>(stream: &mut R) -> Result<Self::Item, Self::Error> {
                 let discriminant = stream.read_item_as::<#disc_ty>()?;
                 match discriminant {
                     #(#read_arms),*,
@@ -135,7 +135,7 @@ fn rw_enum(item: &syn::DeriveInput, enumer: &syn::DataEnum) -> TokenStream {
                 }
             }
 
-            fn write_to_stream<W: WriteExt>(stream: &mut W, item: &Self::Item) -> Result<(), Self::Error> {
+            fn write_to_stream<W: crate::util::binaryreader::WriteExt>(stream: &mut W, item: &Self::Item) -> Result<(), Self::Error> {
                 match item {
                     #(#write_arms),*
                 }
@@ -154,16 +154,16 @@ fn rw_struct(name: &Ident, struc: &syn::DataStruct) -> TokenStream {
     let FieldRw { reader_statements, writer_statements, structor_body } = frw;
 
     quote! {
-        impl ItemReader for #name {
-            type Error = ReadError;
+        impl crate::util::binaryreader::ItemReader for #name {
+            type Error = crate::util::binaryreader::ReadError;
             type Item = Self;
 
-            fn read_from_stream<R: ReadExt>(stream: &mut R) -> Result<Self::Item, Self::Error> {
+            fn read_from_stream<R: crate::util::binaryreader::ReadExt>(stream: &mut R) -> Result<Self::Item, Self::Error> {
                 #(#reader_statements);*;
                 Ok(Self#structor_body)
             }
 
-            fn write_to_stream<W: WriteExt>(stream: &mut W, item: &Self::Item) -> Result<(), Self::Error> {
+            fn write_to_stream<W: crate::util::binaryreader::WriteExt>(stream: &mut W, item: &Self::Item) -> Result<(), Self::Error> {
                 let Self#structor_body = item;
                 #(#writer_statements);*;
                 Ok(())

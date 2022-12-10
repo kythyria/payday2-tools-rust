@@ -5,7 +5,7 @@ use fnv::FnvHashMap;
 
 use super::hash as diesel_hash;
 
-#[derive(Copy, Clone, Eq, Ord, PartialEq, PartialOrd, Hash)]
+#[derive(Copy, Clone, Eq, Ord, PartialEq, PartialOrd, Hash, pd2tools_macros::ItemReader)]
 pub struct Hash(pub u64);
 impl fmt::Display for Hash {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

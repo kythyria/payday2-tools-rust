@@ -299,13 +299,17 @@ impl<'s, 'hi, 'py> IrReader<'s, 'hi, 'py> {
         }
 
         for ra in &src.render_atoms {
+            dbg!(ra);
+            let faces_end = (ra.base_index + (ra.triangle_count*3)) as usize;
+            let faces_slice = &topo.faces[(ra.base_index as usize)..faces_end];
+
             let base_face = ra.base_index / 3;
             assert_eq!(base_face * 3, ra.base_index);
 
-            for i in (base_face)..(base_face + ra.triangle_count) {
-                let v0_i = topo.faces[i as usize].0 as usize;
-                let v1_i = topo.faces[i as usize].1 as usize;
-                let v2_i = topo.faces[i as usize].2 as usize;
+            for vi in faces_slice.chunks_exact(3) {
+                let v0_i = vi[0] as usize;
+                let v1_i = vi[1] as usize;
+                let v2_i = vi[2] as usize;
                 
                 let m_v0 = vertex_map[v0_i];
                 let m_v1 = vertex_map[v1_i];
