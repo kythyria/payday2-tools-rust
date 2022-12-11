@@ -226,7 +226,7 @@ fn mesh_to_oil_geometry(node_id: u32, me: &Mesh, material_id_base: u32, material
 
     for (idx, (_name, tc)) in uv_list.into_iter().enumerate() {
         let data = tc.iter().map(|i| i.map(|j| j.into())).collect();
-        og.channels.push(oil::GeometryChannel::TexCoord(idx as u32, data))
+        og.channels.push(oil::GeometryChannel::TexCoord(idx as u32 + 1, data))
     }
 
     let mut vc_list = me.faceloop_colors.iter().collect::<Vec<_>>();
@@ -238,7 +238,7 @@ fn mesh_to_oil_geometry(node_id: u32, me: &Mesh, material_id_base: u32, material
             let c = vek::Rgba::from(v);
             c.rgb()
         }).collect();
-        og.channels.push(oil::GeometryChannel::Colour(idx as u32, data))
+        og.channels.push(oil::GeometryChannel::Colour(idx as u32 + 1, data))
     }
 
     match &me.faceloop_normals {
