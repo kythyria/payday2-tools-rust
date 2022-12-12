@@ -16,6 +16,7 @@ type Rgba = vek::Rgba<u8>;
 use pd2tools_macros::Parse;
 use pd2tools_rust::hashindex::HashIndex;
 use pd2tools_rust::formats::fdm;
+use pd2tools_rust::formats::fdm::DieselContainer;
 use pd2tools_rust::util::parse_helpers::{self, Parse};
 use crate::py_ir as ir;
 
@@ -55,7 +56,7 @@ impl<T> ConvResultExt for ConvResult<T> {
     }
 }
 
-pub fn sections_to_ir<'s, 'hi, 'py>(py: Python<'py>, sections: &'s HashMap<u32, fdm::Section>, hashlist: &'hi HashIndex, units_per_cm: f32, framerate: f32) -> ConvResult<Vec<Py<ir::Object>>> {
+pub fn sections_to_ir<'s, 'hi, 'py>(py: Python<'py>, sections: &'s DieselContainer, hashlist: &'hi HashIndex, units_per_cm: f32, framerate: f32) -> ConvResult<Vec<Py<ir::Object>>> {
     let mut reader = IrReader {
         py, sections, hashlist, units_per_cm, framerate,
         objects: HashMap::new()
@@ -63,7 +64,7 @@ pub fn sections_to_ir<'s, 'hi, 'py>(py: Python<'py>, sections: &'s HashMap<u32, 
 
     let ids = sections.iter().filter_map(|(k, v)| match v {
         fdm::Section::Object3D(_) |
-        fdm::Section::Model(_) => Some(*k),
+        fdm::Section::Model(_) => Some(k),
         _ => None
     }).collect::<Vec<u32>>();
 
@@ -92,7 +93,7 @@ enum AnimItem<'a> {
 
 struct IrReader<'s, 'hi, 'py> {
     py: Python<'py>,
-    sections: &'s HashMap<u32, fdm::Section>,
+    sections: &'s DieselContainer,
     hashlist: &'hi HashIndex,
     units_per_cm: f32,
     framerate: f32,
@@ -101,7 +102,7 @@ struct IrReader<'s, 'hi, 'py> {
 
 impl<'s, 'hi, 'py> IrReader<'s, 'hi, 'py> {
     fn get_section(&self, id: u32) -> ConvResult<&fdm::Section> {
-        self.sections.get(&id).ok_or(ConversionError::MissingSection(id))
+        self.sections.get(id).ok_or(ConversionError::MissingSection(id))
     }
 
     fn get_anim_item(&self, id: u32) -> ConvResult<AnimItem> {
@@ -193,7 +194,7 @@ impl<'s, 'hi, 'py> IrReader<'s, 'hi, 'py> {
         if id == 0 {
             return Ok(None);
         }
-        match self.sections.get(&id) {
+        match self.sections.get(id) {
             Some(fdm::Section::Object3D(sec)) => {
                 let obj = self.import_object3d(id, sec).at_object_id(id)?;
 

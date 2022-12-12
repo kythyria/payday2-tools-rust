@@ -34,7 +34,7 @@ fn pd2tools_fdm(_py: Python, m: &PyModule) -> PyResult<()> {
             Ok(b) => b
         };
 
-        let sections = match fdm::parse_file0(&bytes) {
+        let sections = match fdm::parse_stream(&mut bytes.as_slice()) {
             Err(e) => {
                 let msg = format!("Failed parsing FDM: {}", e);
                 return PyResult::Err(pyo3::exceptions::PyException::new_err(msg))

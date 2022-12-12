@@ -103,9 +103,6 @@ enum Command {
     /// Parse a FDM-format model file and print all recognised information.
     Diesel {
         input: String,
-
-        #[structopt(short, long)]
-        binary: bool
     }
 }
 
@@ -157,31 +154,14 @@ fn main() {
             let path: std::path::PathBuf = input.into();
             formats::oil::print_sections(&path);
         },
-        Command::Diesel{ input, binary } => {
-            use util::binaryreader::ReadExt;
+        Command::Diesel{ input } => {
             let bytes = std::fs::read(input).unwrap();
-            let bs = pd2tools_rust::util::Subslice::from(bytes.as_ref());
             
             let fdm = formats::fdm::parse_stream(&mut bytes.as_slice()).unwrap();
-            for (id, sec) in fdm.sections() {
+            for (id, sec) in fdm.iter() {
                 println!("{} {:?}", id, sec);
             }
             return;
-            
-            let (_, sections) = formats::fdm::split_to_sections(bs).unwrap();
-            println!("Section count: {}", sections.len());
-            for ups in sections {
-                print!("Section {}: ", ups.id);
-                if binary {
-                    println!("{:8x} {:x}", ups.r#type , PrintSlice(ups.data.inner()))
-                }
-                else {
-                    match formats::fdm::parse_section(&ups) {
-                        Ok(d) => println!("{:?}", d),
-                        Err(e) => println!(" {:x}  Err({})", ups.r#type, e)
-                    }
-                }
-            }
         }
     };
 }
@@ -232,10 +212,6 @@ fn do_scan(hashlist_filename: &Option<String>, asset_dir: &Path, outname: &str) 
     let db = get_packagedb(hashlist, asset_dir).unwrap();
     let mut outfile = std::fs::OpenOptions::new().create(true).write(true).open(outname).unwrap();
     hashlist_scan::do_scan(&db, &mut outfile).unwrap();
-}
-
-fn do_convert2(input_filename: &str, input_type: Option<ConvertType>, output_filename: &str, output_type: ConvertType, events: bool) {
-    
 }
 
 fn do_convert(input_filename: &str, input_type: Option<ConvertType>, output_filename: &str, output_type: ConvertType, events: bool) {

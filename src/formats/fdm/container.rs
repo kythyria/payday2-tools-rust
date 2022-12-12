@@ -62,7 +62,7 @@ impl DieselContainer {
         Some(sec)
     }
     
-    pub fn sections(&self) -> impl Iterator<Item=(u32, &Section)> {
+    pub fn iter(&self) -> impl Iterator<Item=(u32, &Section)> {
         self.section_order.iter().map(move |id| {
             (*id, self.sections[id].as_ref())
         })
@@ -94,7 +94,7 @@ impl crate::util::binaryreader::ItemReader for DieselContainer {
     }
 
     fn write_to_stream<W: WriteExt>(stream: &mut W, item: &Self::Item) -> Result<(), Self::Error> {
-        let sections: Vec<_> = item.sections().map(|(id,sec)| {
+        let sections: Vec<_> = item.iter().map(|(id,sec)| {
             let mut v = Vec::new();
             sec.write_data(&mut v).unwrap();
             (sec.tag(), id, v)
@@ -106,6 +106,22 @@ impl crate::util::binaryreader::ItemReader for DieselContainer {
             stream.write_item(&s)?;
         }
         Ok(())
+    }
+}
+
+impl std::ops::Index<u32> for DieselContainer {
+    type Output = Section;
+
+    fn index(&self, index: u32) -> &Self::Output {
+        &self.sections[&index]
+    }
+}
+
+impl std::ops::Index<&u32> for DieselContainer {
+    type Output = Section;
+
+    fn index(&self, index: &u32) -> &Self::Output {
+        &self.sections[index]
     }
 }
 
