@@ -222,7 +222,7 @@ fn fields_rw(stream: TokenStream, item: TokenStream, fields: &syn::Fields) -> Re
         let FieldInfo { wire_type, local_name, name, skip_before } = field;
         
         if let Some(s) = skip_before {
-            reader_statements.push(quote!{ let p = [0u8; #s]; #stream.read_exact(&p)? });
+            reader_statements.push(quote!{ let mut p = [0u8; #s]; #stream.read_exact(&mut p)? });
             writer_statements.push(quote!{ let p = [0u8; #s]; #stream.write_all(&p)? });
         }
 

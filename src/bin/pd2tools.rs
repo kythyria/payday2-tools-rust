@@ -158,8 +158,16 @@ fn main() {
             formats::oil::print_sections(&path);
         },
         Command::Diesel{ input, binary } => {
+            use util::binaryreader::ReadExt;
             let bytes = std::fs::read(input).unwrap();
             let bs = pd2tools_rust::util::Subslice::from(bytes.as_ref());
+            
+            let fdm = formats::fdm::parse_stream(&mut bytes.as_slice()).unwrap();
+            for (id, sec) in fdm.sections() {
+                println!("{} {:?}", id, sec);
+            }
+            return;
+            
             let (_, sections) = formats::fdm::split_to_sections(bs).unwrap();
             println!("Section count: {}", sections.len());
             for ups in sections {

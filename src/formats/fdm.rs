@@ -1,5 +1,8 @@
 //! Final Diesel Model format used in release versions of the game.
 
+pub mod container;
+pub use container::*;
+
 use std::{convert::TryInto, marker::PhantomData};
 use std::collections::HashMap;
 
@@ -25,7 +28,7 @@ type Vec4f = vek::Vec4<f32>;
 type Mat4f = vek::Mat4<f32>;
 type Rgba = vek::Rgba<u8>;
 
-#[derive(Clone, Copy, Debug, Error)]
+#[derive(Clone, Debug, Error)]
 pub enum ParseError {
     #[error("Somehow failed to parse file or section headers at offset {0}")]
     BadHeaders(usize),
@@ -163,6 +166,22 @@ macro_rules! make_document {
         }
     };
 
+    (@read_arm $variant:expr, Unknown, $data:expr) => {
+        Ok($variant(Box::from($data)))
+    };
+    (@read_arm $variant:expr, $typename:ty, $data:expr) => {
+        {
+            Ok($variant(Box::new($data.read_item_as::<$typename>()?)))
+        }
+    };
+
+    (@write_arm $stream:expr, $s:expr, Unknown) => {
+        $stream.write_item($s)
+    };
+    (@write_arm $stream:expr, $s:expr, $typ:ty) => {
+        $stream.write_item($s.as_ref())
+    };
+
     (@debug_arm $data:expr, $f:expr, Unknown, $vn:ident) => {
         write!($f, "{} {}", stringify!($vn), AsHex(&$data))
     };
@@ -171,7 +190,7 @@ macro_rules! make_document {
     };
 
     ($( ($tag:literal, $variantname:ident, $typename:ident) )+) => {
-        #[derive(Copy, Clone, Eq, PartialEq, EnumTryFrom, Parse, Debug, PartialOrd, Ord)]
+        #[derive(Copy, Clone, Eq, PartialEq, EnumTryFrom, Parse, Debug, PartialOrd, Ord, ItemReader)]
         pub enum SectionType {
             $(
                 $variantname = $tag,
@@ -182,6 +201,19 @@ macro_rules! make_document {
             $(
                 $variantname(make_document!(@vartype $typename)),
             )+
+        }
+        impl Section {
+            pub fn tag(&self) -> SectionType {
+                match self {
+                    $( Section::$variantname(_) => SectionType::$variantname ),+
+                }
+            }
+
+            pub fn write_data(&self, stream: &mut impl WriteExt) -> Result<(), ReadError> {
+                match self {
+                    $( Section::$variantname(s) => make_document!(@write_arm stream, s, $typename), )+
+                }
+            }
         }
 
         impl std::fmt::Debug for Section {
@@ -196,6 +228,13 @@ macro_rules! make_document {
             match sec.r#type {
                 $( $tag => make_document!(@parse_arm sec, $tag, Section::$variantname, $typename ), )+
                 _ => Err(ParseError::UnknownSectionType{id: sec.id, r#type:sec.r#type, data_offset: sec.data.offset() })
+            }
+        }
+
+        pub fn read_section<'a>(sec_type: SectionType, mut data: &'a [u8]) -> Result<Section, ReadError> {
+            match sec_type {
+                $( SectionType::$variantname => make_document!(@read_arm Section::$variantname, $typename, data), )+
+                _ => Err(ReadError::Schema("Unknown section type"))
             }
         }
     }
@@ -250,7 +289,7 @@ make_document! {
     (0x7c7844fd, ModelToolHashes,                ModelToolHashSection                 )
 }
 
-pub fn parse_file<'a>(bytes: &'a [u8]) -> Result<HashMap<u32, Section>, ParseError> {
+pub fn parse_file0<'a>(bytes: &'a [u8]) -> Result<HashMap<u32, Section>, ParseError> {
     let input = Subslice::from(bytes);
     eprintln!("parse_file 1: {} {}", input.offset(), input.len());
     let sections = match split_to_sections(input) {
@@ -266,6 +305,10 @@ pub fn parse_file<'a>(bytes: &'a [u8]) -> Result<HashMap<u32, Section>, ParseErr
         result.insert(ups.id, parsed);
     }
     return Ok(result);
+}
+
+pub fn parse_stream(input: &mut impl ReadExt) -> Result<DieselContainer, ReadError> {
+    input.read_item()
 }
 
 /// Metadata about the model file. Release Diesel never, AFAIK, actually cares about this.
@@ -481,7 +524,7 @@ pub struct RenderAtom {
 }
 
 /// Light source
-#[derive(Debug, Parse)]
+#[derive(Debug, Parse, ItemReader)]
 pub struct LightSection {
     pub object: Object3dSection,
     pub unknown_1: u8,
@@ -966,7 +1009,7 @@ pub struct MaterialGroupSection {
     pub material_ids: Vec<u32>
 }
 
-#[derive(Debug, Parse)]
+#[derive(Debug, Parse, ItemReader)]
 pub struct MaterialSection {
     pub name: u64,
 

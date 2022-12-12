@@ -226,6 +226,27 @@ where
     }
 }
 
+impl<T: ItemReader<Item=T> + Default> ItemReader for Box<[T]>
+where
+    T: ItemReader<Item=T,Error=ReadError> + Default,
+    Box<[T]>: Default
+{
+    type Error = ReadError;
+    type Item = Box<[T]>;
+
+    fn read_from_stream<R: ReadExt>(stream: &mut R) -> Result<Self::Item, Self::Error> {
+        let v: Vec<T> = stream.read_item()?;
+        Ok(v.into_boxed_slice())
+    }
+
+    fn write_to_stream<W: WriteExt>(stream: &mut W, item: &Self::Item) -> Result<(), Self::Error> {
+        for i in  0..item.len() {
+            stream.write_item(&item[i])?;
+        }
+        Ok(())
+    }
+}
+
 macro_rules! vek_itemreader {
     ($vekty:ident, $($field:ident),+) => {
         impl<T: ItemReader<Item=T>> ItemReader for vek::$vekty<T> {
