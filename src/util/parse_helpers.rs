@@ -15,11 +15,6 @@ use nom::number::complete::{le_u8, le_u16, le_u32, le_u64, le_i8, le_i16, le_i32
 use nom::sequence::{tuple, terminated};
 use pd2tools_macros::gen_tuple_parsers;
 
-#[derive(Debug, Eq, PartialEq, Copy, Clone, Hash)]
-pub struct InvalidDiscriminant {
-    pub discriminant: u32
-}
-
 pub trait Parse where Self: Sized {
     fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], Self>;
     fn serialize<O: Write>(&self, output: &mut O) -> IoResult<()>;

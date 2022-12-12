@@ -3,24 +3,15 @@
 pub mod container;
 pub use container::*;
 
-use std::{convert::TryInto, marker::PhantomData};
-use std::collections::HashMap;
+use std::convert::TryInto;
 
-use nom::IResult;
-use nom::combinator::{all_consuming, map};
-use nom::multi::{length_data, length_count, count};
-use nom::number::complete::{le_u32, le_u64};
-use nom::sequence::{tuple, terminated};
 use vek::{Mat4, Vec2, Vec3, Vec4};
 use thiserror::Error;
 
 use crate::hashindex::Hash as Idstring;
 use crate::util::AsHex;
-use crate::util::parse_helpers;
-use crate::util::parse_helpers::{ Parse, WireFormat, CountedVec, CountedString, NullTerminatedString };
-use crate::util::Subslice;
 use crate::util::binaryreader::*;
-use pd2tools_macros::{EnumTryFrom, Parse, ItemReader};
+use pd2tools_macros::{EnumTryFrom, ItemReader};
 
 type Vec2f = vek::Vec2<f32>;
 type Vec3f = vek::Vec3<f32>;
@@ -49,122 +40,10 @@ pub enum ParseError {
     #[error("Unexpected EOF reading section {got} of {expected}")]
     NotEnoughSections { got: u32, expected: u32 },
 }
-impl ParseError {
-    fn nom_err<TD, TS>(self) -> IResult<TD, TS, ParseError> {
-        Err(nom::Err::Failure(self))
-    }
-}
-
-pub struct UnparsedSection<'a> {
-    pub r#type: u32,
-    pub id: u32,
-    pub data: Subslice<'a, u8>
-}
-impl<'a> UnparsedSection<'a> {
-    fn parse(input: Subslice<'a, u8>) -> IResult<Subslice<'a, u8>, UnparsedSection, ParseError> {
-        let hs = input.offset();
-        let mut parser = tuple::<_, _, (), _>((le_u32, le_u32));
-        let (input, (r#type, id)) = match parser(input) {
-            Ok(d) => d,
-            Err(_) => return ParseError::BadHeaders(hs).nom_err()
-        };
-        
-        let (input, data) = match length_data::<_, _, (), _>(le_u32)(input) {
-            Ok(d) => d,
-            Err(nom::Err::Incomplete(_)) => return ParseError::TruncatedSection { id }.nom_err(),
-            Err(_) => return ParseError::BadHeaders(hs).nom_err(),
-        };
-        
-        Ok((input, UnparsedSection {
-            r#type, id, data
-        }))
-    }
-}
-
-/// Header of a FDM file
-///
-/// No serialize because the logic to do that is surprisingly hard.
-struct Header {
-    length: u32,
-    section_count: u32,
-}
-impl Header {
-    fn parse<'a>(input: Subslice<'a, u8>) -> IResult<Subslice<'a, u8>, Header> {
-        let (mut remain, (mut section_count, length)) = tuple((le_u32, le_u32))(input)?;
-
-        if section_count == 0xFFFFFFFF {
-            let (remain_1, count_1) = le_u32(remain)?;
-            remain = remain_1;
-            section_count = count_1;
-        }
-        
-        Ok((remain, Header {
-            section_count,
-            length
-        }))
-    }
-}
-
-pub fn split_to_sections<'a>(input: Subslice<'a, u8>) -> IResult<Subslice<'a, u8>, Vec<UnparsedSection>, ParseError> {
-    let rph = match Header::parse(input) {
-        Ok(d) => d,
-        Err(_) => return ParseError::BadHeaders(0).nom_err()
-    };
-    let (input_2, header) = rph;
-
-    let mut parsed_sections = Vec::with_capacity(header.section_count as usize);
-    let mut remaining_input = input_2;
-    for i in 0..header.section_count {
-        if remaining_input.len() == 0 {
-            return ParseError::NotEnoughSections { got: i, expected:header.section_count }.nom_err()
-        }
-
-        match UnparsedSection::parse(remaining_input) {
-            Ok((ri, h)) => {
-                parsed_sections.push(h);
-                remaining_input = ri;
-            },
-            Err(e) => return Err(e)
-        };
-    }
-    return Ok((remaining_input, parsed_sections))
-}
-
-pub fn parse_section_inner<'a, T: Parse>(sec: &UnparsedSection<'a>) -> Result<Box<T>, ParseError> {
-    let ac = all_consuming(T::parse);
-    let mut boxed = map(ac, Box::from);
-    match boxed(sec.data.inner()) {
-        Ok((_, bx)) => Ok(bx),
-        Err(nom::Err::Error(e)) => {
-            Err(ParseError::BadSection {
-                id: sec.id,
-                location: sec.data.offset_of(e.input)
-            })
-        },
-        Err(nom::Err::Failure(e)) => {
-            Err(ParseError::BadSection {
-                id: sec.id,
-                location: sec.data.offset_of(e.input)
-            })
-        },
-        Err(nom::Err::Incomplete(_)) => {
-            Err(ParseError::TruncatedSection{ id: sec.id })
-        }
-    }
-}
 
 macro_rules! make_document {
     (@vartype Unknown) => { Box<[u8]> };
     (@vartype $typename:ty) => { Box<$typename> };
-
-    (@parse_arm $sec:ident, $tag:literal, $variantname:expr, Unknown) => {
-        Ok($variantname($sec.data.inner_boxed()))
-    };
-    (@parse_arm $sec:ident, $tag:literal, $variantname:expr, $typename:ident) => {
-        {
-            parse_section_inner::<$typename>($sec).map($variantname)
-        }
-    };
 
     (@read_arm $variant:expr, Unknown, $data:expr) => {
         Ok($variant(Box::from($data)))
@@ -190,7 +69,7 @@ macro_rules! make_document {
     };
 
     ($( ($tag:literal, $variantname:ident, $typename:ident) )+) => {
-        #[derive(Copy, Clone, Eq, PartialEq, EnumTryFrom, Parse, Debug, PartialOrd, Ord, ItemReader)]
+        #[derive(Copy, Clone, Eq, PartialEq, Debug, PartialOrd, Ord, EnumTryFrom, ItemReader)]
         pub enum SectionType {
             $(
                 $variantname = $tag,
@@ -224,17 +103,9 @@ macro_rules! make_document {
             }
         }
 
-        pub fn parse_section<'a>(sec: &UnparsedSection<'a>) -> Result<Section, ParseError> {
-            match sec.r#type {
-                $( $tag => make_document!(@parse_arm sec, $tag, Section::$variantname, $typename ), )+
-                _ => Err(ParseError::UnknownSectionType{id: sec.id, r#type:sec.r#type, data_offset: sec.data.offset() })
-            }
-        }
-
         pub fn read_section<'a>(sec_type: SectionType, mut data: &'a [u8]) -> Result<Section, ReadError> {
             match sec_type {
                 $( SectionType::$variantname => make_document!(@read_arm Section::$variantname, $typename, data), )+
-                _ => Err(ReadError::Schema("Unknown section type"))
             }
         }
     }
@@ -289,42 +160,22 @@ make_document! {
     (0x7c7844fd, ModelToolHashes,                ModelToolHashSection                 )
 }
 
-pub fn parse_file0<'a>(bytes: &'a [u8]) -> Result<HashMap<u32, Section>, ParseError> {
-    let input = Subslice::from(bytes);
-    eprintln!("parse_file 1: {} {}", input.offset(), input.len());
-    let sections = match split_to_sections(input) {
-        Ok((_, s)) => s,
-        Err(nom::Err::Incomplete(e)) => panic!("Somehow got an incomplete that split_to_sections didn't notice ({:?})", e),
-        Err(nom::Err::Failure(e)) => return Err(e),
-        Err(nom::Err::Error(e)) => return Err(e),
-    };
-    let mut result = HashMap::<u32, Section>::new();
-    for ups in sections {
-        eprintln!("parse_section {} {:x}", ups.id, ups.r#type);
-        let parsed = parse_section(&ups)?;
-        result.insert(ups.id, parsed);
-    }
-    return Ok(result);
-}
-
 pub fn parse_stream(input: &mut impl ReadExt) -> Result<DieselContainer, ReadError> {
     input.read_item()
 }
 
 /// Metadata about the model file. Release Diesel never, AFAIK, actually cares about this.
-#[derive(Debug, Parse, ItemReader)]
+#[derive(Debug, ItemReader)]
 pub struct AuthorSection {
     /// Very likely the "scene type" field
     name: Idstring,
 
     /// Email address of the author. In Overkill/LGL's tools, settable in the exporter settings.
-    #[parse_as(crate::util::parse_helpers::NullTerminatedString)]
-    #[read_as(crate::util::binaryreader::NullTerminatedString)]
+    #[read_as(NullTerminatedString)]
     author_email: String,
 
     /// Absolute path of the original file.
-    #[parse_as(crate::util::parse_helpers::NullTerminatedString)]
-    #[read_as(crate::util::binaryreader::NullTerminatedString)]
+    #[read_as(NullTerminatedString)]
     source_filename: String,
     unknown_2: u32
 }
@@ -333,15 +184,13 @@ pub struct AuthorSection {
 ///
 /// Blender calls this an Object, GLTF calls it a Node. Object3d on its own is an Empty node, just marking a point in
 /// space, a joint, or suchlike. It may also occur as the start of a lamp, bounds, model, or camera
-#[derive(Debug, Parse, ItemReader)]
+#[derive(Debug, ItemReader)]
 pub struct Object3dSection {
     pub name: Idstring,
 
-    #[parse_as(AnimationControllerList)]
     #[read_as(AnimationControllerList)]
     pub animation_controllers: Vec<u32>,
     
-    #[parse_as(Mat4fWithPos)]
     #[read_as(Mat4fWithPos)]
     pub transform: Mat4f,
 
@@ -349,22 +198,6 @@ pub struct Object3dSection {
 }
 
 struct AnimationControllerList;
-impl WireFormat<Vec<u32>> for AnimationControllerList {
-    fn parse_into<'a>(input: &'a [u8]) -> IResult<&'a [u8], Vec<u32>> {
-        let item = terminated(le_u32, le_u64);
-        length_count(le_u32, item)(input)
-    }
-
-    fn serialize_from<O: std::io::Write>(data: &Vec<u32>, output: &mut O) -> std::io::Result<()> {
-        let count: u32 = data.len().try_into().map_err(|_| std::io::ErrorKind::InvalidInput)?;
-        count.serialize(output)?;
-        for i in data.iter() {
-            i.serialize(output)?;
-            0u64.serialize(output)?;
-        }
-        Ok(())
-    }
-}
 impl ItemReader for AnimationControllerList {
     type Error = ReadError;
     type Item = Vec<u32>;
@@ -393,23 +226,6 @@ impl ItemReader for AnimationControllerList {
 }
 
 struct Mat4fWithPos;
-impl WireFormat<Mat4<f32>> for Mat4fWithPos {
-    fn parse_into<'a>(input: &'a [u8]) -> IResult<&'a [u8], Mat4<f32>> {
-        let (input, mut mat) = <vek::Mat4<f32> as Parse>::parse(input)?;
-        let (input, pos) = <vek::Vec3<f32> as Parse>::parse(input)?;
-        mat[(0,3)] = pos.x;
-        mat[(1,3)] = pos.y;
-        mat[(2,3)] = pos.z;
-        Ok((input, mat))
-    }
-
-    fn serialize_from<O: std::io::Write>(data: &Mat4<f32>, output: &mut O) -> std::io::Result<()> {
-        data.serialize(output)?;
-        data[(0,3)].serialize(output)?;
-        data[(1,3)].serialize(output)?;
-        data[(2,3)].serialize(output)
-    }
-}
 
 impl ItemReader for Mat4fWithPos {
     type Error = ReadError;
@@ -432,7 +248,7 @@ impl ItemReader for Mat4fWithPos {
     }
 }
 
-#[derive(Debug, Parse, ItemReader)]
+#[derive(Debug, ItemReader)]
 pub struct ModelSection {
     pub object: Object3dSection,
     pub data: ModelData
@@ -443,28 +259,6 @@ pub enum ModelData {
     #[tag(3)] BoundsOnly(Bounds),
     #[tag(6)] Mesh(MeshModel)
 }
-impl Parse for ModelData {
-    fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], Self> {
-        let (input, version) = u32::parse(input)?;
-        match version {
-            6 => map(Bounds::parse, ModelData::BoundsOnly)(input),
-            _ => map(MeshModel::parse, ModelData::Mesh)(input)
-        }
-    }
-
-    fn serialize<O: std::io::Write>(&self, output: &mut O) -> std::io::Result<()> {
-        match self {
-            ModelData::BoundsOnly(b) => {
-                (6 as u32).serialize(output)?;
-                b.serialize(output)
-            },
-            ModelData::Mesh(m) => {
-                (3 as u32).serialize(output)?;
-                m.serialize(output)
-            }
-        }
-    }
-}
 
 /// Bounding box part of a Model
 ///
@@ -474,7 +268,7 @@ impl Parse for ModelData {
 ///
 /// As part of `MeshModel`, it is used to control culling: if the bounding sphere
 /// in particular is offscreen, the model will be culled.
-#[derive(Debug, Parse, ItemReader)]
+#[derive(Debug, ItemReader)]
 pub struct Bounds {
     /// One corner of the bounding box
     pub min: Vec3f,
@@ -487,7 +281,7 @@ pub struct Bounds {
     pub unknown_13: u32
 }
 
-#[derive(Debug, Parse, ItemReader)]
+#[derive(Debug, ItemReader)]
 pub struct MeshModel {
     pub geometry_provider: u32,
     pub topology_ip: u32,
@@ -505,7 +299,7 @@ pub struct MeshModel {
 /// A single draw's worth of geometry
 ///
 /// If you get this wrong Diesel doesn't usually crash but will display nonsense.
-#[derive(Debug, Parse, ItemReader)]
+#[derive(Debug, ItemReader)]
 pub struct RenderAtom {
     /// Starting position in the Geometry (vertex buffer). AFAICT this merely defines a slice, it doesn't get added to the indices.
     pub base_vertex: u32,
@@ -524,7 +318,7 @@ pub struct RenderAtom {
 }
 
 /// Light source
-#[derive(Debug, Parse, ItemReader)]
+#[derive(Debug, ItemReader)]
 pub struct LightSection {
     pub object: Object3dSection,
     pub unknown_1: u8,
@@ -537,7 +331,7 @@ pub struct LightSection {
     pub unknown_8: f32
 }
 
-#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, EnumTryFrom, Parse, ItemReader)]
+#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, EnumTryFrom, ItemReader)]
 pub enum LightType {
     Omnidirectional = 1,
     Spot = 2
@@ -547,7 +341,7 @@ pub enum LightType {
 ///
 /// It's unclear what the exact role is: Diesel itself has two more "Geometry Provider" classes that aren't used in any
 /// file shipping with release Payday 2.
-#[derive(Debug, Parse, ItemReader)]
+#[derive(Debug, ItemReader)]
 pub struct PassthroughGPSection {
     pub geometry: u32,
     pub topology: u32
@@ -556,13 +350,13 @@ pub struct PassthroughGPSection {
 /// Indirection to index data
 ///
 /// It's unclear what the role of this is at all, there are no other *IP classes that I can see.
-#[derive(Debug, Parse, ItemReader)]
+#[derive(Debug, ItemReader)]
 pub struct TopologyIPSection {
     pub topology: u32
 }
 
 /// Index buffer
-#[derive(Debug, Parse, ItemReader)]
+#[derive(Debug, ItemReader)]
 pub struct TopologySection {
     pub unknown_1: u32,
     
@@ -570,23 +364,6 @@ pub struct TopologySection {
 
     pub unknown_2: Vec<u8>,
     pub name: Idstring
-}
-
-struct VecOf3Tuple<T>{ _d: PhantomData<T> }
-impl<T: Parse> WireFormat<Vec<(T, T, T)>> for VecOf3Tuple<T> {
-    fn parse_into<'a>(input: &'a [u8]) -> IResult<&'a [u8], Vec<(T, T, T)>> {
-        length_count(map(le_u32, |i| i/3), <(T,T,T) as Parse>::parse)(input)
-    }
-
-    fn serialize_from<O: std::io::Write>(data: &Vec<(T, T, T)>, output: &mut O) -> std::io::Result<()> {
-        let count_u = data.len()*3;
-        let count: u32 = count_u.try_into().map_err(|_| std::io::ErrorKind::InvalidInput)?;
-        count.serialize(output)?;
-        for i in data.iter() {
-            i.serialize(output)?;
-        }
-        Ok(())
-    }
 }
 
 /// Vertex attributes
@@ -625,152 +402,6 @@ pub struct GeometrySection {
 
     // Just guessing here
     pub point_size: Vec<f32>
-}
-impl parse_helpers::Parse for GeometrySection {
-    fn parse<'a>(input: &'a [u8]) -> IResult<&'a [u8], Self> {
-        let (input, vertex_count) = u32::parse(input)?;
-        let (input, descriptors) = Vec::<GeometryHeader>::parse(input)?;
-        
-        let mut input = input;
-        let mut result = GeometrySection::default();
-
-        macro_rules! match_attribute_parsers {
-            ($src:expr, $vc:ident : $($ty:ident { $parser:expr => $place:expr } ),+) => {
-                match $src {
-                    $($ty => {
-                        let (i, r) = count($parser, vertex_count as usize)(input)?;
-                        input = i; $place = r;
-                    }),+
-                }
-            }
-        }
-
-        for desc in descriptors {
-            use GeometryAttributeType::*;
-            
-            fn expand<'a, TItem, TAs>(input: &'a [u8]) -> IResult<&'a [u8], Vec4<TItem>>
-            where TAs: Parse, Vec4<TItem>: From<TAs> {
-                map(TAs::parse, Vec4::from)(input)
-            }
-
-            match desc.attribute_type {
-                BlendWeight0 => { result.weightcount_0 = desc.attribute_format },
-                BlendWeight1 => { result.weightcount_1 = desc.attribute_format },
-                _ => {}
-            }
-
-            let (idxparse, weightparse): (fn(&'a [u8])->IResult<&'a [u8], Vec4<u16>>, fn(&'a [u8])->IResult<&'a [u8], Vec4<f32>>) = match desc.attribute_format {
-                2 =>( expand::<u16, Vec2<u16>>, expand::<f32, Vec2<f32>> ),
-                3 => ( expand::<u16, Vec3<u16>>, expand::<f32, Vec3<f32>> ),
-                4 => ( expand::<u16, Vec4<u16>>, expand::<f32, Vec4<f32>> ),
-                // Really this should be an error but we need a default for the non-weight-related ones anyway.
-                _ => ( expand::<u16, Vec4<u16>>, expand::<f32, Vec4<f32>> )
-            };
-
-            match_attribute_parsers!{
-                desc.attribute_type, vertex_count:
-
-                Position { Vec3f::parse => result.position },
-                Normal { Vec3f::parse => result.normal },
-                Position1 { Vec3f::parse => result.position_1 },
-                Normal1 { Vec3f::parse => result.normal_1 },
-                Color0 { map(Rgba::parse, Rgba::shuffled_bgra) => result.color_0 },
-                Color1 { map(Rgba::parse, Rgba::shuffled_bgra) => result.color_1 },
-                TexCoord0 { Vec2f::parse => result.tex_coord_0 },
-                TexCoord1 { Vec2f::parse => result.tex_coord_1 },
-                TexCoord2 { Vec2f::parse => result.tex_coord_2 },
-                TexCoord3 { Vec2f::parse => result.tex_coord_3 },
-                TexCoord4 { Vec2f::parse => result.tex_coord_4 },
-                TexCoord5 { Vec2f::parse => result.tex_coord_5 },
-                TexCoord6 { Vec2f::parse => result.tex_coord_6 },
-                TexCoord7 { Vec2f::parse => result.tex_coord_7 },
-                Binormal { Vec3f::parse => result.binormal },
-                Tangent { Vec3f::parse => result.tangent },
-                BlendIndices0 { idxparse => result.blend_indices_0 },
-                BlendIndices1 { idxparse => result.blend_indices_1 },
-                BlendWeight0 { weightparse => result.blend_weight_0 },
-                BlendWeight1 { weightparse => result.blend_weight_1 },
-                PointSize { f32::parse => result.point_size }
-            };
-        }
-
-        let (input, name) = Idstring::parse(input)?;
-        result.name = name;
-        Ok((input, result))
-    }
-
-    fn serialize<O: std::io::Write>(&self, output: &mut O) -> std::io::Result<()> {
-        let vcount: u32 = self.position.len().try_into().unwrap();
-        vcount.serialize(output)?;
-
-        let mut headers = Vec::<GeometryHeader>::with_capacity(21);
-
-        macro_rules! attribute_writers {
-            (@item_header $attrib:ident, $format:expr, $typ:ident) => {
-                if self.$attrib.len() > 0 { headers.push(GeometryHeader { attribute_format: $format, attribute_type: GeometryAttributeType::$typ }) }
-            };
-            (@item_writer $attrib:ident, $writer:expr) => { if self.$attrib.len() > 0 { $writer(output, &self.$attrib)?; } };
-            (@item_writer $attrib:ident) => { if self.$attrib.len() > 0 { self.$attrib.serialize(output)?; } };
-            ($( $attrib:ident ($format:expr, $typ:ident $(, $writer:expr)? ); )+) => {
-                $( attribute_writers!(@item_header $attrib, $format, $typ); )+
-                $( attribute_writers!(@item_writer $attrib $(, $writer)? ); )+
-            };
-        }
-
-        fn serialize_iter<I: Parse, D: Iterator<Item=I>, O: std::io::Write>(output: &mut O, data: &mut D) -> std::io::Result<()> {
-            for i in data {
-                i.serialize(output)?;
-            }
-            Ok(())
-        }
-        fn write_4as2<O: std::io::Write>(output: &mut O, data: &Vec<Vec4f>) -> std::io::Result<()> {
-            serialize_iter(output, &mut data.iter().map(|i| Vec2f{x:i.x, y:i.y}))
-        }
-        fn write_4as3<O: std::io::Write>(output: &mut O, data: &Vec<Vec4f>) -> std::io::Result<()> {
-            serialize_iter(output, &mut data.iter().map(|i| Vec3f{x:i.x, y:i.y, z:i.z}))
-        }
-        fn write_4as4<O: std::io::Write>(output: &mut O, data: &Vec<Vec4f>) -> std::io::Result<()> {
-            serialize_iter(output, &mut data.iter().map(Vec4f::clone))
-        }
-        let weight_0_write : fn(&mut O, &Vec<Vec4f>) -> std::io::Result<()> = match self.weightcount_0 {
-            2 => write_4as2,
-            3 => write_4as3,
-            4 => write_4as4,
-            _ => todo!("Sensibly handle needing the wrong number of weights")
-        };
-        let weight_1_write : fn(&mut O, &Vec<Vec4f>) -> std::io::Result<()> = match self.weightcount_1 {
-            2 => write_4as2,
-            3 => write_4as3,
-            4 => write_4as4,
-            _ => todo!("Sensibly handle needing the wrong number of weights")
-        };
-
-        attribute_writers!{
-            position(3, Position);
-            tex_coord_0(2, TexCoord0);
-            tex_coord_1(2, TexCoord1);
-            tex_coord_2(2, TexCoord2);
-            tex_coord_3(2, TexCoord3);
-            tex_coord_4(2, TexCoord4);
-            tex_coord_5(2, TexCoord5);
-            tex_coord_6(2, TexCoord6);
-            tex_coord_7(2, TexCoord7);
-            color_0(5, Color0);
-            blend_indices_0(7, BlendIndices0);
-            blend_weight_0(self.weightcount_0, BlendWeight0, weight_0_write);
-            blend_indices_1(7, BlendIndices1);
-            blend_weight_1(self.weightcount_1, BlendWeight1, weight_1_write);
-            normal(3, Normal);
-            binormal(3, Binormal);
-            tangent(3, Tangent);
-            position_1(3, Position1);
-            color_1(5, Color1);
-            normal_1(3, Normal1);
-            point_size(1, PointSize);
-        }
-
-        self.name.serialize(output)
-    }
 }
 impl ItemReader for GeometrySection {
     type Error = ReadError;
@@ -943,13 +574,13 @@ impl ItemReader for GeometrySection {
     }
 }
 
-#[derive(Debug, Parse, ItemReader)]
+#[derive(Debug, ItemReader)]
 pub struct GeometryHeader {
     pub attribute_format: u32,
     pub attribute_type: GeometryAttributeType
 }
 impl GeometryHeader {
-    fn component_count(&self) -> u32 {
+    pub fn component_count(&self) -> u32 {
         use GeometryAttributeType::*;
         match self.attribute_type {
             Position | Normal | Position1 | Normal1 | Color0 | Color1 | Binormal | Tangent => 3,
@@ -960,12 +591,12 @@ impl GeometryHeader {
         }
     }
 
-    fn byte_count(&self) -> u32 {
+    pub fn byte_count(&self) -> u32 {
         let counts = [0, 4, 8, 12, 16, 4, 4, 8, 12];
         counts[self.attribute_format as usize]
     }
 }
-#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, EnumTryFrom, Parse, ItemReader)]
+#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, EnumTryFrom, ItemReader)]
 #[repr(u32)]
 pub enum GeometryAttributeType {
     Position = 1,
@@ -1004,12 +635,12 @@ impl Default for BlendComponentCount {
     }
 } 
 
-#[derive(Debug, Parse, ItemReader)]
+#[derive(Debug, ItemReader)]
 pub struct MaterialGroupSection {
     pub material_ids: Vec<u32>
 }
 
-#[derive(Debug, Parse, ItemReader)]
+#[derive(Debug, ItemReader)]
 pub struct MaterialSection {
     pub name: u64,
 
@@ -1017,7 +648,7 @@ pub struct MaterialSection {
     pub items: Vec<(u32, u32)>
 }
 
-#[derive(Debug, Parse, ItemReader)]
+#[derive(Debug, ItemReader)]
 pub struct AnimationDataSection {
     pub name: Idstring,
     pub unknown_2: u32,
@@ -1025,7 +656,7 @@ pub struct AnimationDataSection {
     pub keyframes: Vec<f32>
 }
 
-#[derive(Debug, Parse, ItemReader)]
+#[derive(Debug, ItemReader)]
 pub struct LinearVector3ControllerSection {
     pub name: Idstring,
     pub flags: u32,
@@ -1034,7 +665,7 @@ pub struct LinearVector3ControllerSection {
     pub keyframes: Vec<(f32, Vec3f)>
 }
 
-#[derive(Debug, Parse, ItemReader)]
+#[derive(Debug, ItemReader)]
 pub struct LinearFloatControllerSection {
     pub name: Idstring,
     pub flags: u32,
@@ -1043,7 +674,7 @@ pub struct LinearFloatControllerSection {
     pub keyframes: Vec<(f32, f32)>
 }
 
-#[derive(Debug, Parse, ItemReader)]
+#[derive(Debug, ItemReader)]
 pub struct QuatLinearRotationControllerSection {
     pub name: Idstring,
     pub flags: u32,
@@ -1052,7 +683,7 @@ pub struct QuatLinearRotationControllerSection {
     pub keyframes: Vec<(f32, Vec4f)>
 }
 
-#[derive(Debug, Parse, ItemReader)]
+#[derive(Debug, ItemReader)]
 pub struct LookAtConstrRotationControllerSection {
     pub name: Idstring,
     pub unknown_1: u32,
@@ -1061,11 +692,10 @@ pub struct LookAtConstrRotationControllerSection {
     pub section_3: u32
 }
 
-#[derive(Debug, Parse, ItemReader)]
+#[derive(Debug, ItemReader)]
 pub struct ModelToolHashSection {
     version: u16,
 
-    #[parse_as(crate::util::parse_helpers::CountedVec<u32, String, crate::util::parse_helpers::CountedString<u16>>)]
-    #[read_as(crate::util::binaryreader::CountedVec<crate::util::binaryreader::CountedString<u16>>)]
+    #[read_as(CountedVec<CountedString<u16>>)]
     strings: Vec<String>
 }

@@ -40,11 +40,11 @@ pub fn derive_enum_tryfrom(item: proc_macro::TokenStream) -> proc_macro::TokenSt
 
     let s = quote! {
         impl ::std::convert::TryFrom<u32> for #name {
-            type Error = parse_helpers::InvalidDiscriminant;
+            type Error = crate::util::InvalidDiscriminant;
             fn try_from(src: u32) -> ::std::result::Result<Self, Self::Error> {
                 match src {
                     #arms
-                    e => ::std::result::Result::Err(parse_helpers::InvalidDiscriminant { discriminant: e })
+                    e => ::std::result::Result::Err(crate::util::InvalidDiscriminant { discriminant: e })
                 }
             }
         }
