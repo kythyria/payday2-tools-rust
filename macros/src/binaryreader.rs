@@ -101,7 +101,7 @@ fn rw_enum(item: &syn::DeriveInput, enumer: &syn::DataEnum) -> TokenStream {
             Err(e) => return e.into_compile_error()
         };
 
-        let frw = match fields_rw(quote!{ stream }, quote!{item}, &variant.fields) {
+        let frw = match fields_rw(quote!{ stream }, &variant.fields) {
             Err(e) => return e,
             Ok(o) => o
         };
@@ -146,7 +146,7 @@ fn rw_enum(item: &syn::DeriveInput, enumer: &syn::DataEnum) -> TokenStream {
 }
 
 fn rw_struct(name: &Ident, struc: &syn::DataStruct) -> TokenStream {
-    let frw = match fields_rw(quote!{ stream }, quote!{item}, &struc.fields) {
+    let frw = match fields_rw(quote!{ stream }, &struc.fields) {
         Err(e) => return e,
         Ok(o) => o
     };
@@ -178,7 +178,7 @@ struct FieldRw {
     structor_body: TokenStream
 }
 
-fn fields_rw(stream: TokenStream, item: TokenStream, fields: &syn::Fields) -> Result<FieldRw, TokenStream> {
+fn fields_rw(stream: TokenStream, fields: &syn::Fields) -> Result<FieldRw, TokenStream> {
     let empty = Default::default();
     let field_list = match fields {
         syn::Fields::Named(na) => &na.named,
