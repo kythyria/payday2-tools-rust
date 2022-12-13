@@ -1,15 +1,15 @@
-use pd2tools_macros::{ItemReader, Parse};
+use pd2tools_macros::ItemReader;
+use crate::util::binaryreader;
+use crate::util::binaryreader::{ItemReader, ReadExt};
 use crate::util::read_helpers::*;
-use crate::util::parse_helpers;
-use crate::util::parse_helpers::Parse;
 
-#[derive(Parse)]
+#[derive(ItemReader)]
 pub struct LanguageEntry {
     pub hash: u64,
     pub id: u32
 }
 
-#[derive(Parse)]
+#[derive(ItemReader)]
 pub struct FileEntry {
     pub extension: u64,
     pub path: u64,
@@ -103,12 +103,16 @@ pub fn read_bundle_db(blb: &[u8]) -> BundleDbFile {
     return res;
 }
 
-fn parse_array_strided_unwrap<T: Parse>(data: &[u8], count: usize, stride: usize) -> Vec<T> {
+fn parse_array_strided_unwrap<T>(data: &[u8], count: usize, stride: usize) -> Vec<T>
+where
+    T: ItemReader<Item=T>,
+    T::Error: std::fmt::Debug
+{
     let mut dest = Vec::<T>::with_capacity(count);
     for i in 0..count {
         let offset = i*stride;
-        let slice = &data[offset..(offset+stride)];
-        let (_, entry) = <T as Parse>::parse(slice).unwrap();
+        let mut slice = &data[offset..(offset+stride)];
+        let entry = slice.read_item().unwrap();
         dest.push(entry);
     }
     return dest;

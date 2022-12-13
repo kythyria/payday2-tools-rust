@@ -26,7 +26,6 @@ use vek::{Rgb, Vec2, Vec3};
 use crate::util::binaryreader::*;
 
 use crate::util::AsHex;
-use crate::util::read_helpers::{TryFromBytesError};
 use crate::util::binaryreader;
 use pd2tools_macros::{EnumTryFrom, ItemReader, EnumFromData};
 
@@ -120,27 +119,6 @@ make_chunks! {
     //CompositePositionController = 24,
     //CompositeRotationController = 25
 }
-
-
-#[derive(Debug)]
-enum ParseError {
-    NoMagic,
-    UnexpectedEof,
-    BadUtf8,
-    SectionTooShort,
-    Mysterious
-}
-macro_rules! trivialer_from {
-    ($type:ty, $variant:ident) => {
-        impl From<$type> for ParseError {
-            fn from(_: $type) -> Self {
-                ParseError::$variant
-            }
-        }
-    }
-}
-trivialer_from!(TryFromBytesError, UnexpectedEof);
-trivialer_from!(std::str::Utf8Error, BadUtf8);
 
 struct UnparsedBytes(Vec<u8>);
 impl std::fmt::Debug for UnparsedBytes {
