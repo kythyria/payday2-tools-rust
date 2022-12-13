@@ -27,7 +27,7 @@ use crate::util::binaryreader::*;
 
 use crate::util::AsHex;
 use crate::util::read_helpers::{TryFromBytesError};
-use crate::util::parse_helpers;
+use crate::util::binaryreader;
 use pd2tools_macros::{EnumTryFrom, ItemReader, EnumFromData};
 
 struct UnparsedSection<'a> {

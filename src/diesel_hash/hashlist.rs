@@ -4,6 +4,7 @@ use std::ops::Range;
 use fnv::FnvHashMap;
 
 use super::hash as diesel_hash;
+use crate::util::binaryreader;
 
 #[derive(Copy, Clone, Eq, Ord, PartialEq, PartialOrd, Hash, pd2tools_macros::ItemReader)]
 pub struct Hash(pub u64);

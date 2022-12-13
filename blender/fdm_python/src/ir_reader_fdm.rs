@@ -8,16 +8,17 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
+use pd2tools_macros::ItemReader;
 use pyo3::{IntoPy, Python, Py, PyErr, PyObject};
 use thiserror::Error;
 type Vec2f = vek::Vec2<f32>;
 type Rgba = vek::Rgba<u8>;
 
-use pd2tools_macros::Parse;
 use pd2tools_rust::hashindex::HashIndex;
 use pd2tools_rust::formats::fdm;
 use pd2tools_rust::formats::fdm::DieselContainer;
-use pd2tools_rust::util::parse_helpers::{self, Parse};
+use pd2tools_rust::util::binaryreader;
+use pd2tools_rust::util::binaryreader::WriteExt;
 use crate::py_ir as ir;
 
 #[derive(Debug, Error)]
@@ -370,7 +371,7 @@ struct VertexCache {
     index_map: Vec<usize>,
 }
 
-#[derive(Clone, Parse)]
+#[derive(Clone, ItemReader)]
 struct VertexKey {
     co: (f32, f32, f32),
     weights: Vec<(u32, f32)>
@@ -407,7 +408,7 @@ fn merge_vertices(geo: &fdm::GeometrySection, units_per_cm: f32) -> VertexCache 
         }
         
         let mut buf = Vec::<u8>::with_capacity(bufsize);
-        vtx.serialize(&mut buf).unwrap();
+        buf.write_item(&vtx).unwrap();
 
         let entry = value_cache.entry(buf);
         match entry {

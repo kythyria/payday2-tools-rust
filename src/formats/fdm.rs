@@ -10,6 +10,7 @@ use thiserror::Error;
 
 use crate::hashindex::Hash as Idstring;
 use crate::util::AsHex;
+use crate::util::binaryreader;
 use crate::util::binaryreader::*;
 use pd2tools_macros::{EnumTryFrom, ItemReader};
 
