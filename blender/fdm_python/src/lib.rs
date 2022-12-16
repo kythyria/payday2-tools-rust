@@ -2,7 +2,7 @@ mod py_ir;
 mod ir_reader_fdm;
 mod ir_writer_oil;
 mod model_ir;
-mod gather_from_blender;
+mod ir_blender;
 
 use pyo3::prelude::*;
 

@@ -102,14 +102,13 @@ fn mesh_from_bpy_mesh(env: &PyEnv, data: &PyAny) -> model_ir::Mesh {
     let vertex_groups = vgroups_from_bpy_verts(env, data);
 
     data.call_method0(intern!{env.python, "calc_tangents"}).unwrap();
-    let faceloop_normals = TangentSpace::Tangents(get!(env, data, 'iter "loops")
+    let tangents = get!(env, data, 'iter "loops")
         .map(|lp| Tangent {
             normal: vek3f_from_bpy_vec(env, get!(env, lp, 'attr "normal")),
             tangent: vek3f_from_bpy_vec(env, get!(env, lp, 'attr "tangent")),
             bitangent: vek3f_from_bpy_vec(env, get!(env, lp, 'attr "bitangent"))
         })
-        .collect()
-    );
+        .collect();
 
     let faceloop_colors = get!(env, data, 'iter "vertex_colors")
         .map(|vc|{
@@ -138,7 +137,7 @@ fn mesh_from_bpy_mesh(env: &PyEnv, data: &PyAny) -> model_ir::Mesh {
         polygons,
         triangles,
         vertex_groups,
-        faceloop_normals,
+        tangents,
         faceloop_colors,
         faceloop_uvs,
         material_names: Vec::new(),

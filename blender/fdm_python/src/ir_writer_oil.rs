@@ -116,28 +116,19 @@ fn mesh_to_oil_geometry(node_id: u32, me: &Mesh, materials: &mut MaterialCollect
         og.channels.push(oil::GeometryChannel::Colour(idx as u32 + 1, data))
     }
 
-    match &me.faceloop_normals {
-        crate::model_ir::TangentSpace::None => (),
-        crate::model_ir::TangentSpace::Normals(normals) => {
-            let data = normals.iter().map(|i| i.map(|j| j.into())).collect();
-            og.channels.push(oil::GeometryChannel::Normal(0, data));
-        },
-        crate::model_ir::TangentSpace::Tangents(tangents) => {
-            let norms = tangents.iter().map(|i| i.normal)
-                .map(|i| i.map(|j| <f32 as Into<f64>>::into(j)))
-                .collect::<Vec<_>>();
-            let tangs = tangents.iter().map(|i| i.tangent)
-                .map(|i| i.map(|j| <f32 as Into<f64>>::into(j)))
-                .collect::<Vec<_>>();
-            let binorms = tangents.iter().map(|i| i.bitangent)
-                .map(|i| i.map(|j| <f32 as Into<f64>>::into(j)))
-                .collect::<Vec<_>>();
+    let norms = me.tangents.iter().map(|i| i.normal)
+        .map(|i| i.map(|j| <f32 as Into<f64>>::into(j)))
+        .collect::<Vec<_>>();
+    let tangs = me.tangents.iter().map(|i| i.tangent)
+        .map(|i| i.map(|j| <f32 as Into<f64>>::into(j)))
+        .collect::<Vec<_>>();
+    let binorms = me.tangents.iter().map(|i| i.bitangent)
+        .map(|i| i.map(|j| <f32 as Into<f64>>::into(j)))
+        .collect::<Vec<_>>();
 
-            og.channels.push(oil::GeometryChannel::Normal(0, norms));
-            og.channels.push(oil::GeometryChannel::Tangent(0, tangs));
-            og.channels.push(oil::GeometryChannel::Binormal(0, binorms));
-        },
-    };
+    og.channels.push(oil::GeometryChannel::Normal(0, norms));
+    og.channels.push(oil::GeometryChannel::Tangent(0, tangs));
+    og.channels.push(oil::GeometryChannel::Binormal(0, binorms));
 
     let (root_material, material_mapping) = materials.collect_and_map(&me.material_ids);
     og.material_id = root_material;
@@ -174,41 +165,28 @@ fn mesh_to_oil_geometry(node_id: u32, me: &Mesh, materials: &mut MaterialCollect
             })
         }
 
-        match &me.faceloop_normals {
-            crate::model_ir::TangentSpace::None => (),
-            crate::model_ir::TangentSpace::Normals(_) => {
-                channel += 1;
-                loops.push(oil::GeometryFaceloop {
-                    channel,
-                    a: tri.loops[0] as u32,
-                    b: tri.loops[1] as u32,
-                    c: tri.loops[2] as u32
-                });
-            },
-            crate::model_ir::TangentSpace::Tangents(_) => {
-                channel += 1;
-                loops.push(oil::GeometryFaceloop {
-                    channel,
-                    a: tri.loops[0] as u32,
-                    b: tri.loops[1] as u32,
-                    c: tri.loops[2] as u32
-                });
-                channel += 1;
-                loops.push(oil::GeometryFaceloop {
-                    channel,
-                    a: tri.loops[0] as u32,
-                    b: tri.loops[1] as u32,
-                    c: tri.loops[2] as u32
-                });
-                channel += 1;
-                loops.push(oil::GeometryFaceloop {
-                    channel,
-                    a: tri.loops[0] as u32,
-                    b: tri.loops[1] as u32,
-                    c: tri.loops[2] as u32
-                });
-            }
-        }
+        // normal/tangent/binormal
+        channel += 1;
+        loops.push(oil::GeometryFaceloop {
+            channel,
+            a: tri.loops[0] as u32,
+            b: tri.loops[1] as u32,
+            c: tri.loops[2] as u32
+        });
+        channel += 1;
+        loops.push(oil::GeometryFaceloop {
+            channel,
+            a: tri.loops[0] as u32,
+            b: tri.loops[1] as u32,
+            c: tri.loops[2] as u32
+        });
+        channel += 1;
+        loops.push(oil::GeometryFaceloop {
+            channel,
+            a: tri.loops[0] as u32,
+            b: tri.loops[1] as u32,
+            c: tri.loops[2] as u32
+        });
 
         og.faces.push(oil::GeometryFace {
             material_id: material_mapping[local_mat_id],
@@ -259,7 +237,7 @@ fn scene_to_oilchunks(scene: &crate::model_ir::Scene, chunks: &mut Vec<oil::Chun
 }
 
 pub fn export(env: PyEnv, output_path: &str, meters_per_unit: f32, framerate: f32, object: &PyAny) -> PyResult<()> {
-    let scene = crate::gather_from_blender::scene_from_bpy_selected(&env, object, meters_per_unit);
+    let scene = crate::ir_blender::scene_from_bpy_selected(&env, object, meters_per_unit);
     let mut chunks = vec! [
         oil::SceneInfo3 {
             start_time: 0.0,
