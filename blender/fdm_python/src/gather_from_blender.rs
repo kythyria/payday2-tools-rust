@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 use pyo3::{prelude::*, intern, AsPyPointer};
-use crate::{ PyEnv, ExportFlag, ExportFlags, model_ir };
+use crate::{ PyEnv, model_ir };
 use model_ir::*;
 
 type Vec2f = vek::Vec2<f32>;
@@ -146,11 +146,6 @@ fn mesh_from_bpy_mesh(env: &PyEnv, data: &PyAny) -> model_ir::Mesh {
     }
 }
 
-pub fn mesh_from_bpy_object(env: &PyEnv, object: &PyAny, data: &PyAny) -> Mesh {
-    let mut temp_scene = SceneBuilder::new(env);
-    temp_scene.add_bpy_mesh_instance(object)
-}
-
 fn vgroups_from_bpy_verts(env: &PyEnv, data: &PyAny) -> VertexGroups {
     let bpy_verts = data.getattr(intern!{env.python, "vertices"}).unwrap();
     let vlen = bpy_verts.len().unwrap();
@@ -226,7 +221,7 @@ impl<'py> SceneBuilder<'py>
 
     fn add_bpy_mesh_instance(&mut self, object: &PyAny) -> Mesh {
         let data = get!(self.env, object, 'attr "data");
-        let mut mesh = mesh_from_bpy_object(self.env, object, data);
+        let mut mesh = mesh_from_bpy_mesh(self.env, data);
 
         mesh.vertex_groups.names = get!(self.env, object, 'iter "vertex_groups")
             .map(|vg| get!(self.env, vg, 'attr "name"))

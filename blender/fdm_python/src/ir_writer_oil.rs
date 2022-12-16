@@ -1,89 +1,28 @@
-
-use std::collections::{HashMap, hash_map::Entry, HashSet};
 use std::convert::TryInto;
-use std::rc::Rc;
 
-use pyo3::{PyAny, intern, PyResult};
+use pyo3::{PyAny, PyResult};
 
 use pd2tools_rust::formats::oil;
-use crate::{ PyEnv, ExportFlag as MeshExportFlag };
-use crate::model_ir::Mesh;
+use slotmap::SecondaryMap;
+use crate::PyEnv;
+use crate::model_ir::{Mesh, MaterialKey, Scene, ObjectData};
 
-struct GatheredObject<'py> {
-    object: &'py PyAny,
-    py_id: u64,
-    matrix: vek::Mat4<f32>,
-    name: String,
-    children: Vec<GatheredObject<'py>>,
-    data: GatheredData<'py>
-}
-
-#[derive(Clone, Copy)]
-enum GatheredData<'py> {
-    None,
-    Mesh(&'py PyAny),
-    Camera(&'py PyAny),
-    Light(&'py PyAny),
-}
-
-fn gather_object_tree<'py>(env: PyEnv<'py>, object: &'py PyAny) -> GatheredObject<'py> {
-    let name = object.getattr(intern!{env.python, "name"}).unwrap();
-    let name = name.extract().unwrap();
-
-    let matrix = object.getattr(intern!{env.python,"matrix_local"}).unwrap();
-    let matrix = matrix_to_vek(matrix);
-
-    let children: Vec<GatheredObject> = object
-        .getattr(intern!{env.python,"children"})
-        .unwrap()
-        .iter()
-        .unwrap()
-        .map(|i| i.unwrap())
-        .map(|i| gather_object_tree(env, i))
-        .collect();
-
-    // If this is an armature, we have to worry about bone-parented and skinned children.
-    // Children whose parent_type is BONE are parented to a bone.
-    // Children whose parent type is OBJECT but have an Armature Deform modifier are skinned.
-    // Children whose parent_type is ARMATURE just act like that.
-
-    let data_type = object.getattr(intern!{env.python, "type"}).unwrap();
-    let data_type: &str = data_type.extract().unwrap();
-    let data = match data_type {
-        "MESH" => GatheredData::Mesh(object.getattr(intern!{env.python, "data"}).unwrap()),
-        "LIGHT" => GatheredData::Light(object.getattr(intern!{env.python, "data"}).unwrap()),
-        "CAMERA" => GatheredData::Camera(object.getattr(intern!{env.python, "data"}).unwrap()),
-        _ => GatheredData::None
-    };
-
-    GatheredObject {
-        object,
-        py_id: env.id(object),
-        matrix,
-        name,
-        children,
-        data
-    }
-}
-
-fn matrix_to_vek(bmat: &PyAny) -> vek::Mat4<f32> {
-    let mut floats = [[0f32; 4]; 4];
-    for c in 0..4 {
-        let col = bmat.get_item(c).unwrap();
-        for r in 0..4 {
-            let cell = col.get_item(r).unwrap().extract::<f32>().unwrap();
-            floats[c][r] = cell;
-        }
-    }
-    vek::Mat4::from_col_arrays(floats)
-}
-
-struct MaterialCollector {
+struct MaterialCollector<'s> {
+    scene: &'s Scene,
     next_id: u32,
     collected: Vec<oil::Material>,
-    solo_mats: HashMap<Rc<str>, u32> 
+    solo_mats: SecondaryMap<MaterialKey, u32> 
 }
-impl MaterialCollector {
+impl<'s> MaterialCollector<'s> {
+    fn new(scene: &'s Scene, next_id: u32) -> Self {
+        MaterialCollector {
+            scene,
+            next_id,
+            collected: Vec::new(),
+            solo_mats: SecondaryMap::new()
+        }
+    }
+
     fn append_material(&mut self, name: String, parent_id: u32) -> u32 {
         let id = self.next_id;
         self.next_id += 1;
@@ -93,35 +32,39 @@ impl MaterialCollector {
 
     /// Take a mesh's material names, and return the ID of the mesh-wide material along with
     /// the mapping from mesh-local material index to material ID.
-    fn collect_and_map(&mut self, names: &[Option<Rc<str>>]) -> (u32, Vec<u32>) {
+    fn collect_and_map(&mut self, mat_refs: &[Option<MaterialKey>]) -> (u32, Vec<u32>) {
         let mut mapping = Vec::new();
 
-        if names.len() == 0 {
+        if mat_refs.len() == 0 {
             return (0xFFFFFFFFu32, vec![0xFFFFFFFFu32]);
         }
-        else if names.len() == 1 {
-            if names[0].is_none() {
+        else if mat_refs.len() == 1 {
+            if mat_refs[0].is_none() {
                 return (0xFFFFFFFFu32, vec![0xFFFFFFFFu32]);
             }
             
-            let name = names[0].clone().unwrap();
-            if let Some(id) = self.solo_mats.get(&name) {
+            let matkey = mat_refs[0].clone().unwrap();
+            if let Some(id) = self.solo_mats.get(matkey) {
                 return (*id, vec![*id]);
             }
             else {
-                let id = self.append_material(name.to_string(), 0xFFFFFFFFu32);
-                self.solo_mats.insert(name, id);
+                let mat_name = self.scene.materials[matkey].name.clone();
+                let id = self.append_material(mat_name, 0xFFFFFFFFu32);
+                self.solo_mats.insert(matkey, id);
                 return (id, vec![id]);
             }
         }
 
         let parent_id = self.append_material("MultiMaterial".into(), 0xFFFFFFFFu32);
-        let mut mats = HashMap::<&str, u32>::new();
-        for n in names {
+        let mut mats = SecondaryMap::<MaterialKey, u32>::new();
+        for n in mat_refs {
             if let Some(n) = n {
-                let id = match mats.entry(n.as_ref()) {
-                    Entry::Occupied(o) => *o.get(),
-                    Entry::Vacant(v) => *v.insert(self.append_material(n.to_string(), parent_id))
+                use slotmap::secondary::Entry;
+                let name = self.scene.materials[*n].name.clone();
+                let id = match mats.entry(*n) {
+                    None => panic!("How did the material vanish mid-borrow?"),
+                    Some(Entry::Occupied(o)) => *o.get(),
+                    Some(Entry::Vacant(v)) => *v.insert(self.append_material(name, parent_id))
                 };
                 mapping.push(id);
             }
@@ -134,73 +77,7 @@ impl MaterialCollector {
     }
 }
 
-struct FlatObject<'py> {
-    object: &'py PyAny,
-    matrix: vek::Mat4<f32>,
-    name: String,
-    chunk_id: u32,
-    parent_chunk_id: u32,
-    blender_data: GatheredData<'py>,
-    data: FlatData
-}
-
-enum FlatData {
-    None,
-    Mesh(Mesh),
-    Light(FlatLight),
-    Camera(FlatCamera)
-}
-
-struct FlatLight;
-struct FlatCamera;
-
-#[derive(Default)]
-struct FlattenedScene<'py> {
-    next_chunkid: u32,
-
-    nodes: Vec<FlatObject<'py>>,
-    nodes_by_pyid: HashMap<u64, usize>
-}
-impl<'py> FlattenedScene<'py> {
-    fn new() -> Self { FlattenedScene {
-        next_chunkid: 1,
-        ..Default::default()
-    } }
-    fn add_object_tree(&mut self, obj: &'py GatheredObject, parent_chunk: u32) {
-        let chunk_id = self.next_chunkid;
-        self.next_chunkid += 1;
-        self.nodes.push(FlatObject {
-            object: obj.object,
-            matrix: obj.matrix,
-            name: obj.name.clone(),
-            chunk_id,
-            parent_chunk_id: parent_chunk,
-            blender_data: obj.data,
-            data: FlatData::None
-        });
-        self.nodes_by_pyid.insert(obj.py_id, self.nodes.len() -1);
-        for child in &obj.children {
-            self.add_object_tree(child, chunk_id)
-        }
-    }
-
-    fn populate_object_data(&mut self, env: PyEnv<'py>) {
-        for obj in self.nodes.iter_mut() {
-            obj.data = match obj.blender_data {
-                GatheredData::None => FlatData::None,
-                GatheredData::Mesh(d) => {
-                    use MeshExportFlag::*;
-                    let mesh  = crate::gather_from_blender::mesh_from_bpy_object(&env, obj.object, d);
-                    FlatData::Mesh(mesh)
-                },
-                GatheredData::Camera(_) => FlatData::Camera(FlatCamera),
-                GatheredData::Light(_) => FlatData::Light(FlatLight)
-            }
-        }
-    }
-}
-
-fn mesh_to_oil_geometry(node_id: u32, me: &Mesh, material_id_base: u32, materials: &mut MaterialCollector) -> oil::Geometry {
+fn mesh_to_oil_geometry(node_id: u32, me: &Mesh, materials: &mut MaterialCollector) -> oil::Geometry {
     let mut og = oil::Geometry {
         node_id,
         material_id: 0xFFFFFFFFu32,
@@ -262,7 +139,7 @@ fn mesh_to_oil_geometry(node_id: u32, me: &Mesh, material_id_base: u32, material
         },
     };
 
-    let (root_material, material_mapping) = materials.collect_and_map(&me.material_names);
+    let (root_material, material_mapping) = materials.collect_and_map(&me.material_ids);
     og.material_id = root_material;
 
     for tri in &me.triangles {
@@ -343,42 +220,46 @@ fn mesh_to_oil_geometry(node_id: u32, me: &Mesh, material_id_base: u32, material
     og
 }
 
-fn flat_scene_to_oilchunks(scene: &FlattenedScene, chunks: &mut Vec<oil::Chunk>) {  
-    let mut mat_collector = MaterialCollector {
-        next_id: scene.next_chunkid,
-        collected: Default::default(),
-        solo_mats: Default::default()
-    };
-    
-    for fo in &scene.nodes {
+fn scene_to_oilchunks(scene: &crate::model_ir::Scene, chunks: &mut Vec<oil::Chunk>) {
+    let base_chunkid = 1u32;
+    let base_mat_chunkid = (base_chunkid as usize + scene.objects.len()).try_into().unwrap();
+    let mut mat_collector = MaterialCollector::new(scene, base_mat_chunkid);
+
+    let chunkid_for_object = scene.objects.keys()
+        .enumerate()
+        .map(|(idx, key)| (key, idx as u32 + base_chunkid))
+        .collect::<slotmap::SecondaryMap<_,_>>();
+
+    for (oid, obj) in &scene.objects {
+        let parent_id = obj.parent
+            .map_or( 0xFFFFFFFFu32, |p| chunkid_for_object[p]);
+        
+        let chunk_id = chunkid_for_object[oid];
         chunks.push(oil::Node {
-            id: fo.chunk_id,
-            name: fo.name.clone(),
-            transform: fo.matrix.as_(),
+            id: chunk_id,
+            name: obj.name.clone(),
+            transform: obj.transform.as_(),
             pivot_transform: vek::Mat4::identity(),
-            parent_id: fo.parent_chunk_id,
+            parent_id,
+            
         }.into());
 
-        match &fo.data {
-            FlatData::None => (),
-            FlatData::Mesh(m) => {
-                let ch = mesh_to_oil_geometry(fo.chunk_id, m, 0, &mut mat_collector);
+        match &obj.data {
+            ObjectData::None => (),
+            ObjectData::Armature => (),
+            ObjectData::Bone => (),
+            ObjectData::Mesh(md) => {
+                let ch = mesh_to_oil_geometry(chunk_id, md, &mut mat_collector);
                 chunks.push(ch.into())
             },
-            FlatData::Light(_) => todo!(),
-            FlatData::Camera(_) => todo!(),
+            ObjectData::Light(_) => todo!(),
+            ObjectData::Camera(_) => todo!(),
         }
     }
-
-    chunks.extend(mat_collector.collected.drain(..).map(|i| i.into()));
 }
 
-pub fn export(env: PyEnv, output_path: &str, units_per_cm: f32, framerate: f32, object: &PyAny) -> PyResult<()> {
-    let object_tree = gather_object_tree(env, object);
-    let mut flat_scene = FlattenedScene::new();
-    flat_scene.add_object_tree(&object_tree, 0xFFFFFFFF);
-    flat_scene.populate_object_data(env);
-    
+pub fn export(env: PyEnv, output_path: &str, meters_per_unit: f32, framerate: f32, object: &PyAny) -> PyResult<()> {
+    let scene = crate::gather_from_blender::scene_from_bpy_selected(&env, object, meters_per_unit);
     let mut chunks = vec! [
         oil::SceneInfo3 {
             start_time: 0.0,
@@ -389,10 +270,8 @@ pub fn export(env: PyEnv, output_path: &str, units_per_cm: f32, framerate: f32, 
         }.into(),
         oil::MaterialsXml { xml: String::new() }.into()
     ];
-    flat_scene_to_oilchunks(&flat_scene, &mut chunks);
-    
+    scene_to_oilchunks(&scene, &mut chunks);
     let bytes = oil::chunks_to_bytes(&chunks)?;
     std::fs::write(output_path, &bytes)?;
-
     Ok(())
 }
