@@ -208,12 +208,10 @@ class ExportOilModel(bpy.types.Operator, ExportHelper):
 
     def execute(self, context):
         metres_per_unit = context.scene.unit_settings.scale_length
-        cm_per_unit = metres_per_unit * 100
-        units_per_cm = 1/cm_per_unit
 
         fps = context.scene.render.fps / context.scene.render.fps_base
 
-        pd2tools_fdm.export_oil(self.filepath, units_per_cm, fps, bpy.context.active_object)
+        pd2tools_fdm.export_oil(self.filepath, metres_per_unit, fps, bpy.context.active_object)
         return {'FINISHED'}
 
 def menu_func_import(self, context):

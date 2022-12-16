@@ -20,9 +20,6 @@ slotmap::new_key_type! {
 #[derive(Default)]
 pub struct Scene {
     pub objects: SlotMap<ObjectKey, Object>,
-    pub meshes: SlotMap<MeshKey, Mesh>,
-    pub lights: SlotMap<LightKey, Light>,
-    pub cameras: SlotMap<CameraKey, Camera>,
     pub materials: SlotMap<MaterialKey, Material>,
     pub collections: SlotMap<CollectionKey, Collection>,
 
@@ -31,11 +28,11 @@ pub struct Scene {
 }
 
 pub struct Material {
-    pub name: Rc<str>,
+    pub name: String,
 }
 
 pub struct Collection {
-    pub name: Rc<str>,
+    pub name: String,
     pub parent: CollectionKey,
     pub children: Vec<CollectionKey>,
     pub members: Vec<ObjectKey>
@@ -76,6 +73,7 @@ pub struct Mesh {
     pub faceloop_uvs: HashMap<String, Vec<Vec2f>>,
 
     pub material_names: Vec<Option<Rc<str>>>,
+    pub material_ids: Vec<Option<MaterialKey>>
 }
 
 pub struct Faceloop {

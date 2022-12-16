@@ -63,7 +63,7 @@ where
     T::from(a)
 }
 
-pub fn mesh_from_bpy_mesh(env: &PyEnv, data: &PyAny) -> model_ir::Mesh {
+fn mesh_from_bpy_mesh(env: &PyEnv, data: &PyAny) -> model_ir::Mesh {
     let vertices = get!(env, data, 'iter "vertices")
         .map(|vtx| vek3f_from_bpy_vec(env, get!(env, vtx, 'attr "co")))
         .collect();
@@ -131,14 +131,6 @@ pub fn mesh_from_bpy_mesh(env: &PyEnv, data: &PyAny) -> model_ir::Mesh {
         })
         .collect();
 
-    let material_names = get!(env, data, 'iter "materials")
-        .map(|mat| {
-            if mat.is_none() { return None }
-            let st: String = get!(env, mat, 'attr "name");
-            Some(Rc::from(st))
-        })
-        .collect();
-
     Mesh {
         vertices,
         edges: Vec::new(),
@@ -149,29 +141,14 @@ pub fn mesh_from_bpy_mesh(env: &PyEnv, data: &PyAny) -> model_ir::Mesh {
         faceloop_normals,
         faceloop_colors,
         faceloop_uvs,
-        material_names,
+        material_names: Vec::new(),
+        material_ids: Vec::new()
     }
 }
 
 pub fn mesh_from_bpy_object(env: &PyEnv, object: &PyAny, data: &PyAny) -> Mesh {
-    let mut mesh = mesh_from_bpy_mesh(env, data);
-
-    mesh.material_names.clear();
-    mesh.material_names.extend(
-        get!(env, object, 'iter "material_slots")
-        .map(|ms| get!(env, ms, 'attr "material"))
-        .map(|mat: &PyAny| {
-            if mat.is_none() { return None }
-            let st: String = get!(env, mat, 'attr "name");
-            Some(Rc::from(st))
-        })
-    );
-
-    mesh.vertex_groups.names = get!(env, object, 'iter "vertex_groups")
-        .map(|vg| get!(env, vg, 'attr "name"))
-        .collect();
-
-    mesh
+    let mut temp_scene = SceneBuilder::new(env);
+    temp_scene.add_bpy_mesh_instance(object)
 }
 
 fn vgroups_from_bpy_verts(env: &PyEnv, data: &PyAny) -> VertexGroups {
@@ -191,17 +168,10 @@ fn vgroups_from_bpy_verts(env: &PyEnv, data: &PyAny) -> VertexGroups {
     out
 }
 
-fn gather_object_data(env: &PyEnv, object: &PyAny, out: &mut Scene) -> ObjectData {
-    match get!(env, object, 'attr "type") {
-        "MESH" => ObjectData::Mesh(mesh_from_bpy_object(env, object, get!(env, object, 'attr "data"))),
-        "EMPTY" => ObjectData::None,
-        _ => todo!()
-    }
-}
-
 struct SceneBuilder<'py> {
     env: &'py PyEnv<'py>,
     scene: Scene,
+    bpy_mat_to_matid: HashMap<*mut pyo3::ffi::PyObject, MaterialKey>,
     bpy_obj_to_oid: HashMap<*mut pyo3::ffi::PyObject, ObjectKey>,
     oid_to_bpy_parent: HashMap<ObjectKey, *mut pyo3::ffi::PyObject>
 }
@@ -212,8 +182,9 @@ impl<'py> SceneBuilder<'py>
         SceneBuilder {
             env,
             scene: Scene::default(),
+            bpy_mat_to_matid: HashMap::new(),
             bpy_obj_to_oid: HashMap::new(),
-            oid_to_bpy_parent: HashMap::new()
+            oid_to_bpy_parent: HashMap::new(),
         }
     }
 
@@ -223,11 +194,13 @@ impl<'py> SceneBuilder<'py>
     }
     
     fn add_bpy_object(&mut self, object: &PyAny) -> ObjectKey {
+        // If this is an armature, we have to worry about bone-parented and skinned children.
+        // Children whose parent_type is BONE are parented to a bone.
+        // Children whose parent type is OBJECT but have an Armature Deform modifier are skinned.
+        // Children whose parent_type is ARMATURE just act like that.
+
         let odata = match get!(self.env, object, 'attr "type") {
-            "MESH" => {
-                let data = get!(self.env, object, 'attr "data");
-                ObjectData::Mesh(mesh_from_bpy_object(self.env, object, data))
-            },
+            "MESH" => ObjectData::Mesh(self.add_bpy_mesh_instance(object)),
             "EMPTY" => ObjectData::None,
             _ => todo!()
         };
@@ -238,7 +211,7 @@ impl<'py> SceneBuilder<'py>
             children: Vec::new(),
             transform: mat4_from_bpy_matrix(get!(self.env, object, 'attr "matrix_local")),
             in_collections: Vec::new(),
-            data: gather_object_data(self.env, object, &mut self.scene),
+            data: odata,
         };
         let oid = self.scene.objects.insert(new_obj);
 
@@ -247,8 +220,54 @@ impl<'py> SceneBuilder<'py>
         if !parent.is_none() {
             self.oid_to_bpy_parent.insert(oid, parent.as_ptr());
         }
-        
+
         oid
+    }
+
+    fn add_bpy_mesh_instance(&mut self, object: &PyAny) -> Mesh {
+        let data = get!(self.env, object, 'attr "data");
+        let mut mesh = mesh_from_bpy_object(self.env, object, data);
+
+        mesh.vertex_groups.names = get!(self.env, object, 'iter "vertex_groups")
+            .map(|vg| get!(self.env, vg, 'attr "name"))
+            .collect();
+
+        let mats = get!(self.env, object, 'iter "material_slots")
+            .map(|ms| get!(self.env, ms, 'attr "material"))
+            .collect::<Vec<&PyAny>>();
+
+        mesh.material_names.clear();
+        mesh.material_names.extend(
+            mats.iter()
+            .map(|mat| {
+                if mat.is_none() { return None }
+                let st: String = get!(self.env, mat, 'attr "name");
+                Some(Rc::from(st))
+            })
+        );
+
+        mesh.material_ids.clear();
+        mesh.material_ids.extend(
+            mats.iter()
+            .map(|mat| {
+                if mat.is_none() { return None }
+                Some(self.add_bpy_material(mat))
+            })
+        );
+
+        mesh
+    }
+
+    fn add_bpy_material(&mut self, mat: &PyAny) -> MaterialKey {
+        if self.bpy_mat_to_matid.contains_key(&mat.as_ptr()) {
+            return self.bpy_mat_to_matid[&mat.as_ptr()]
+        }
+
+        let new_mat = Material {
+            name: get!(self.env, mat, 'attr "name"),
+        };
+
+        self.scene.materials.insert(new_mat)
     }
 }
 
