@@ -1,8 +1,8 @@
 mod py_ir;
 mod ir_reader_fdm;
 mod ir_writer_oil;
-mod mesh;
-mod mesh2;
+mod model_ir;
+mod gather_from_blender;
 
 use pyo3::prelude::*;
 
@@ -82,3 +82,15 @@ impl<'py> PyEnv<'py> {
         self.id_fn.call1( (pyobj,) ).unwrap().extract::<u64>().unwrap()
     }
 }
+
+#[enumflags2::bitflags]
+#[derive(Copy, Clone, Debug, PartialEq)]
+#[repr(u32)]
+pub enum ExportFlag {
+    Normals,
+    Tangents,
+    TexCoords,
+    Colors,
+    Weights
+}
+type ExportFlags = enumflags2::BitFlags<ExportFlag>;

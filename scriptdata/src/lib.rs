@@ -186,11 +186,3 @@ impl<'a, 'input> RoxmlNodeExt<'a> for roxmltree::Node<'a, 'input> {
         }
     }
 }
-
-/// This only exists because the extension trait version won't pass the lifetime through
-fn required_attribute<'a, 'input>(inp: &roxmltree::Node<'a, 'input>, name: &'static str) -> Result<&'a str, SchemaError> {
-    match inp.attribute(name) {
-        Some(s) => Ok(s),
-        None => Err(SchemaError::MissingAttribute(name))
-    }
-}

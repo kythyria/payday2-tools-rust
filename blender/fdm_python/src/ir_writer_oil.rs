@@ -6,8 +6,8 @@ use std::rc::Rc;
 use pyo3::{PyAny, intern, PyResult};
 
 use pd2tools_rust::formats::oil;
-use crate::PyEnv;
-use crate::mesh2::{ Mesh, ExportFlag as MeshExportFlag };
+use crate::{ PyEnv, ExportFlag as MeshExportFlag };
+use crate::model_ir::Mesh;
 
 struct GatheredObject<'py> {
     object: &'py PyAny,
@@ -190,9 +190,7 @@ impl<'py> FlattenedScene<'py> {
                 GatheredData::None => FlatData::None,
                 GatheredData::Mesh(d) => {
                     use MeshExportFlag::*;
-                    let mesh  = Mesh::from_bpy_object(&env, obj.object, d,
-                        Normals | Tangents | TexCoords | Colors | Weights
-                    );
+                    let mesh  = crate::gather_from_blender::mesh_from_bpy_object(&env, obj.object, d);
                     FlatData::Mesh(mesh)
                 },
                 GatheredData::Camera(_) => FlatData::Camera(FlatCamera),
@@ -242,12 +240,12 @@ fn mesh_to_oil_geometry(node_id: u32, me: &Mesh, material_id_base: u32, material
     }
 
     match &me.faceloop_normals {
-        crate::mesh2::TangentSpace::None => (),
-        crate::mesh2::TangentSpace::Normals(normals) => {
+        crate::model_ir::TangentSpace::None => (),
+        crate::model_ir::TangentSpace::Normals(normals) => {
             let data = normals.iter().map(|i| i.map(|j| j.into())).collect();
             og.channels.push(oil::GeometryChannel::Normal(0, data));
         },
-        crate::mesh2::TangentSpace::Tangents(tangents) => {
+        crate::model_ir::TangentSpace::Tangents(tangents) => {
             let norms = tangents.iter().map(|i| i.normal)
                 .map(|i| i.map(|j| <f32 as Into<f64>>::into(j)))
                 .collect::<Vec<_>>();
@@ -300,8 +298,8 @@ fn mesh_to_oil_geometry(node_id: u32, me: &Mesh, material_id_base: u32, material
         }
 
         match &me.faceloop_normals {
-            crate::mesh2::TangentSpace::None => (),
-            crate::mesh2::TangentSpace::Normals(_) => {
+            crate::model_ir::TangentSpace::None => (),
+            crate::model_ir::TangentSpace::Normals(_) => {
                 channel += 1;
                 loops.push(oil::GeometryFaceloop {
                     channel,
@@ -310,7 +308,7 @@ fn mesh_to_oil_geometry(node_id: u32, me: &Mesh, material_id_base: u32, material
                     c: tri.loops[2] as u32
                 });
             },
-            crate::mesh2::TangentSpace::Tangents(_) => {
+            crate::model_ir::TangentSpace::Tangents(_) => {
                 channel += 1;
                 loops.push(oil::GeometryFaceloop {
                     channel,
