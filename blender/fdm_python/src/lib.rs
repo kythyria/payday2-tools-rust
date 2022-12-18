@@ -67,6 +67,7 @@ fn pd2tools_fdm(_py: Python, m: &PyModule) -> PyResult<()> {
 #[derive(Clone, Copy)]
 pub struct PyEnv<'py> {
     pub python: Python<'py>,
+    pub bpy_context: &'py PyAny,
     id_fn: &'py PyAny,
 }
 
@@ -75,10 +76,19 @@ impl<'py> PyEnv<'py> {
         let builtins = python.import("builtins").unwrap();
         PyEnv {
             python,
-            id_fn: builtins.getattr("id").unwrap()
+            id_fn: builtins.getattr("id").unwrap(),
+            bpy_context: python.import("bpy")
+                .unwrap()
+                .getattr("context")
+                .unwrap()
+
         }
     }
     pub fn id(&self, pyobj: &'py PyAny) -> u64 {
         self.id_fn.call1( (pyobj,) ).unwrap().extract::<u64>().unwrap()
+    }
+
+    pub fn b_c_evaluated_depsgraph_get(&self) -> PyResult<&PyAny> {
+        self.bpy_context.call_method0(pyo3::intern!{self.python, "evaluated_depsgraph_get"})
     }
 }

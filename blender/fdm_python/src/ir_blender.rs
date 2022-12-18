@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::rc::Rc;
+use pyo3::types::PyDict;
 use pyo3::{prelude::*, intern, AsPyPointer};
 use crate::{ PyEnv, model_ir };
 use model_ir::*;
@@ -162,6 +163,50 @@ fn vgroups_from_bpy_verts(env: &PyEnv, data: &PyAny) -> VertexGroups {
     out
 }
 
+/// Wrapper for an evaluated mesh that frees it automatically
+/// 
+/// Presumably io_scene_gltf does this sort of thing because otherwise the temp meshes would
+/// pile up dangerously fast? IDK, but it does it so we're cargo culting.
+struct TemporaryMesh<'py> {
+    mesh: &'py PyAny,
+    object: &'py PyAny,
+    python: Python<'py>
+}
+impl<'py> TemporaryMesh<'py> {
+    /// Get the evaluated mesh for an object
+    fn from_depgraph(env: &'py PyEnv, object: &'py PyAny) -> TemporaryMesh<'py> {
+        let depsgraph = env.b_c_evaluated_depsgraph_get().unwrap();
+        let evaluated_obj = object.call_method1(intern!{env.python, "evaluated_get"}, (depsgraph,))
+            .unwrap();
+
+        let to_mesh_args = PyDict::new(env.python);
+        to_mesh_args.set_item("preserve_all_data_layers", true).unwrap();
+        to_mesh_args.set_item("depsgraph", depsgraph).unwrap();
+        let mesh = evaluated_obj.call_method(intern!{env.python, "to_mesh"}, (), Some(to_mesh_args))
+            .unwrap();
+        
+        TemporaryMesh {
+            mesh,
+            object: evaluated_obj,
+            python: env.python
+        }
+    }
+}
+impl Drop for TemporaryMesh<'_> {
+    fn drop(&mut self) {
+        match self.object.call_method0(intern!{self.python, "to_mesh_clear"}) {
+            _ => () // the worst that can happen is we leak memory, I think?
+        }
+    }
+}
+impl std::ops::Deref for TemporaryMesh<'_> {
+    type Target = PyAny;
+
+    fn deref(&self) -> &Self::Target {
+        self.mesh
+    }
+}
+
 struct SceneBuilder<'py> {
     env: &'py PyEnv<'py>,
     scene: Scene,
@@ -219,8 +264,8 @@ impl<'py> SceneBuilder<'py>
     }
 
     fn add_bpy_mesh_instance(&mut self, object: &PyAny) -> Mesh {
-        let data = get!(self.env, object, 'attr "data");
-        let mut mesh = mesh_from_bpy_mesh(self.env, data);
+        let data = TemporaryMesh::from_depgraph(self.env, object);
+        let mut mesh = mesh_from_bpy_mesh(self.env, &data);
 
         mesh.vertex_groups.names = get!(self.env, object, 'iter "vertex_groups")
             .map(|vg| get!(self.env, vg, 'attr "name"))
