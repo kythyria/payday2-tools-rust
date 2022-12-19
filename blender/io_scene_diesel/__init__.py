@@ -158,12 +158,18 @@ class Pd2toolsPreferences(bpy.types.AddonPreferences):
         description="Hashlist to use when importing models. The usual format: one string per line, LF line endings.",
         subtype='FILE_PATH'
     )
+    author_tag: StringProperty(
+        name="Default author tag",
+        description="When exporting models, set the author tag to this if nothing else is specified",
+        default="nemo@erehwon.invalid"
+    )
     version_string = f"Pd2Tools binary version: {BINARY_VERSION}"
 
     def draw(self, context):
         layout = self.layout
         layout.label(text=self.version_string)
         layout.prop(self, "hashlist_path")
+        layout.prop(self, "author_tag")
 
 
 class ImportDieselModel(bpy.types.Operator, ImportHelper):
@@ -207,11 +213,12 @@ class ExportOilModel(bpy.types.Operator, ExportHelper):
     )
 
     def execute(self, context):
-        metres_per_unit = context.scene.unit_settings.scale_length
+        addon_prefs = context.preferences.addons[__name__].preferences
 
+        metres_per_unit = context.scene.unit_settings.scale_length
         fps = context.scene.render.fps / context.scene.render.fps_base
 
-        pd2tools_fdm.export_oil(self.filepath, metres_per_unit, fps, bpy.context.active_object)
+        pd2tools_fdm.export_oil(self.filepath, metres_per_unit, addon_prefs.author_tag, bpy.context.active_object)
         return {'FINISHED'}
 
 def menu_func_import(self, context):

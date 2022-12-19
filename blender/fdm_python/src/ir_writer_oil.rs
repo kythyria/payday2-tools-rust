@@ -236,13 +236,13 @@ fn scene_to_oilchunks(scene: &crate::model_ir::Scene, chunks: &mut Vec<oil::Chun
     }
 }
 
-pub fn export(env: PyEnv, output_path: &str, meters_per_unit: f32, framerate: f32, object: &PyAny) -> PyResult<()> {
+pub fn export(env: PyEnv, output_path: &str, meters_per_unit: f32, author_tag: &str, object: &PyAny) -> PyResult<()> {
     let scene = crate::ir_blender::scene_from_bpy_selected(&env, object, meters_per_unit);
     let mut chunks = vec! [
         oil::SceneInfo3 {
             start_time: 0.0,
             end_time: 1.0,
-            author_tag: "nemo@erehwon.invalid".to_owned(),
+            author_tag: author_tag.to_owned(),
             source_filename: scene.source_file.clone(),
             scene_type: "default".to_owned()
         }.into(),
