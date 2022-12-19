@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use pyo3::types::PyDict;
 use pyo3::{prelude::*, intern, AsPyPointer};
-use crate::{ PyEnv, model_ir };
+use crate::{ PyEnv, model_ir, bpy_binding };
 use model_ir::*;
 
 type Vec2f = vek::Vec2<f32>;
@@ -102,7 +102,6 @@ fn mesh_from_bpy_mesh(env: &PyEnv, data: &PyAny) -> model_ir::Mesh {
 
     let vertex_groups = vgroups_from_bpy_verts(env, data);
 
-    data.call_method0(intern!{env.python, "calc_tangents"}).unwrap();
     let tangents = get!(env, data, 'iter "loops")
         .map(|lp| Tangent {
             normal: vek3f_from_bpy_vec(env, get!(env, lp, 'attr "normal")),
@@ -163,7 +162,7 @@ fn vgroups_from_bpy_verts(env: &PyEnv, data: &PyAny) -> VertexGroups {
     out
 }
 
-/// Wrapper for an evaluated mesh that frees it automatically
+/// Wrapper for an evaluated, triangulated mesh that frees it automatically
 /// 
 /// Presumably io_scene_gltf does this sort of thing because otherwise the temp meshes would
 /// pile up dangerously fast? IDK, but it does it so we're cargo culting.
@@ -184,6 +183,20 @@ impl<'py> TemporaryMesh<'py> {
         to_mesh_args.set_item("depsgraph", depsgraph).unwrap();
         let mesh = evaluated_obj.call_method(intern!{env.python, "to_mesh"}, (), Some(to_mesh_args))
             .unwrap();
+
+        // Calculate the tangents here, because this can fail if the mesh still has ngons,
+        // and this is where we make a new mesh anyway
+        match mesh.call_method0(intern!{env.python, "calc_tangents"}) {
+            Ok(_) => (),
+            Err(_) => {
+                let bm = bpy_binding::bmesh::new(env.python).unwrap();
+                bm.from_mesh(mesh).unwrap();
+                let faces = bm.faces().unwrap();
+                env.bmesh_ops.triangulate(&bm, faces).unwrap();
+                bm.to_mesh(mesh).unwrap();
+                mesh.call_method0(intern!{env.python, "calc_tangents"}).unwrap();
+            },
+        }
         
         TemporaryMesh {
             mesh,

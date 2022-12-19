@@ -153,3 +153,9 @@ impl VertexGroups {
         self.vertices.push(BaseCount { base, count })
     }
 }
+
+impl Scene {
+    fn change_scale(&mut self, new_scale: f32) {
+        
+    }
+}
