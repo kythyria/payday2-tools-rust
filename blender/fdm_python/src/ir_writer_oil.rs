@@ -243,7 +243,7 @@ pub fn export(env: PyEnv, output_path: &str, meters_per_unit: f32, framerate: f3
             start_time: 0.0,
             end_time: 1.0,
             author_tag: "nemo@erehwon.invalid".to_owned(),
-            source_filename: "fake.blend".to_owned(),
+            source_filename: scene.source_file.clone(),
             scene_type: "default".to_owned()
         }.into(),
         oil::MaterialsXml { xml: String::new() }.into()

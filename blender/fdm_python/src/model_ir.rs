@@ -24,7 +24,8 @@ pub struct Scene {
     pub collections: SlotMap<CollectionKey, Collection>,
 
     pub active_object: Option<ObjectKey>,
-    pub meters_per_unit: f32
+    pub meters_per_unit: f32,
+    pub source_file: String,
 }
 
 pub struct Material {
