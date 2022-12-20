@@ -8,6 +8,8 @@ use model_ir::*;
 type Vec2f = vek::Vec2<f32>;
 type Vec3f = vek::Vec3<f32>;
 type Vec4f = vek::Vec4<f32>;
+type Transform = vek::Transform<f32, f32, f32>;
+type Quaternion = vek::Quaternion<f32>;
 
 macro_rules! get {
     ($env:expr, $ob:expr, 'attr $field:literal) => {
@@ -50,6 +52,25 @@ fn mat4_from_bpy_matrix(bmat: &PyAny) -> vek::Mat4<f32> {
         }
     }
     vek::Mat4::from_col_arrays(floats)
+}
+
+fn quaternion_from_bpy_quat(e: &PyEnv, bq: &PyAny) -> Quaternion {
+    let q: (f32, f32, f32, f32) = bq.call_method0(intern!(e.python, "to_tuple"))
+        .unwrap()
+        .extract()
+        .unwrap();
+    let q = Vec4f::from(q);
+    Quaternion::from(q)
+}
+
+fn transform_from_bpy_matrix(env: &PyEnv, bmat: &PyAny) -> Transform {
+    let py_lrs = bmat.call_method0(intern!{env.python, "decompose"}).unwrap();
+    let (py_loc, py_rot, py_scale): (&PyAny, &PyAny, &PyAny) = py_lrs.extract().unwrap();
+    Transform {
+        position: vek3f_from_bpy_vec(env, py_loc),
+        orientation: quaternion_from_bpy_quat(env, py_rot),
+        scale: vek3f_from_bpy_vec(env, py_scale)
+    }
 }
 
 fn from_bpy_array<const N:usize,T,E>(data: &PyAny) -> T
@@ -264,7 +285,7 @@ impl<'py> SceneBuilder<'py>
             name: get!(self.env, object, 'attr "name"),
             parent: None,
             children: Vec::new(),
-            transform: mat4_from_bpy_matrix(get!(self.env, object, 'attr "matrix_local")),
+            transform: transform_from_bpy_matrix(self.env, get!(self.env, object, 'attr "matrix_local")),
             in_collections: Vec::new(),
             data: odata,
         };

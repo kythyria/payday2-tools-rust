@@ -7,6 +7,7 @@ type Vec2f = vek::Vec2<f32>;
 type Vec3f = vek::Vec3<f32>;
 type Vec4f = vek::Vec4<f32>;
 type Mat4f = vek::Mat4<f32>;
+type Transform = vek::Transform<f32, f32, f32>;
 
 slotmap::new_key_type! {
     pub struct ObjectKey;
@@ -43,7 +44,7 @@ pub struct Object {
     pub name: String,
     pub parent: Option<ObjectKey>,
     pub children: Vec<ObjectKey>,
-    pub transform: Mat4f,
+    pub transform: Transform,
     pub in_collections: Vec<CollectionKey>,
     pub data: ObjectData
 }
@@ -156,7 +157,25 @@ impl VertexGroups {
 }
 
 impl Scene {
-    fn change_scale(&mut self, new_scale: f32) {
+    fn apply_scale(&mut self) {
+        let mut queue: std::collections::VecDeque<ObjectKey> = self.objects
+            .iter()
+            .filter(|(k, o)| o.parent.is_none())
+            .map(|(k, o)| k)
+            .collect();
         
+        while !queue.is_empty() {
+            let curr_id = queue.pop_front().unwrap();
+            let curr = self.objects.get_mut(curr_id).unwrap();
+        }
+    }
+
+
+    fn change_scale(&mut self, new_scale: f32) {
+        let scale_factor = self.meters_per_unit / new_scale;
+        
+        for obj in self.objects.iter_mut() {
+
+        }
     }
 }

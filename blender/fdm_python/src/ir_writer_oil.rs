@@ -213,10 +213,11 @@ fn scene_to_oilchunks(scene: &crate::model_ir::Scene, chunks: &mut Vec<oil::Chun
             .map_or( 0xFFFFFFFFu32, |p| chunkid_for_object[p]);
         
         let chunk_id = chunkid_for_object[oid];
+        let transform: vek::Mat4<f32> = obj.transform.into();
         chunks.push(oil::Node {
             id: chunk_id,
             name: obj.name.clone(),
-            transform: obj.transform.as_(),
+            transform: transform.map(From::<f32>::from),
             pivot_transform: vek::Mat4::identity(),
             parent_id,
             
