@@ -235,6 +235,8 @@ fn scene_to_oilchunks(scene: &crate::model_ir::Scene, chunks: &mut Vec<oil::Chun
             ObjectData::Camera(_) => todo!(),
         }
     }
+
+    chunks.extend(mat_collector.collected.drain(..).map(|i| i.into()))
 }
 
 pub fn export(env: PyEnv, output_path: &str, meters_per_unit: f32, author_tag: &str, object: &PyAny) -> PyResult<()> {
