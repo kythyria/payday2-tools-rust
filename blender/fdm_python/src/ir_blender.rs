@@ -55,12 +55,11 @@ fn mat4_from_bpy_matrix(bmat: &PyAny) -> vek::Mat4<f32> {
 }
 
 fn quaternion_from_bpy_quat(e: &PyEnv, bq: &PyAny) -> Quaternion {
-    let q: (f32, f32, f32, f32) = bq.call_method0(intern!(e.python, "to_tuple"))
-        .unwrap()
-        .extract()
-        .unwrap();
-    let q = Vec4f::from(q);
-    Quaternion::from(q)
+    let x: f32 = get!(e, bq, 'attr "x");
+    let y: f32 = get!(e, bq, 'attr "y");
+    let z: f32 = get!(e, bq, 'attr "z");
+    let w: f32 = get!(e, bq, 'attr "w");
+    Quaternion::from_xyzw(x, y, z, w)
 }
 
 fn transform_from_bpy_matrix(env: &PyEnv, bmat: &PyAny) -> Transform {
