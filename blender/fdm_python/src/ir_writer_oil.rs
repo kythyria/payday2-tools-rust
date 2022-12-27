@@ -240,7 +240,12 @@ fn scene_to_oilchunks(scene: &crate::model_ir::Scene, chunks: &mut Vec<oil::Chun
 }
 
 pub fn export(env: PyEnv, output_path: &str, meters_per_unit: f32, author_tag: &str, object: &PyAny) -> PyResult<()> {
-    let scene = crate::ir_blender::scene_from_bpy_selected(&env, object, meters_per_unit);
+    let mut scene = crate::ir_blender::scene_from_bpy_selected(&env, object, meters_per_unit);
+
+    if f32::abs(0.01 - meters_per_unit) > 0.000244140625f32 { // arbitrary threshold
+        scene.change_scale(0.01);
+    }
+
     let mut chunks = vec! [
         oil::SceneInfo3 {
             start_time: 0.0,

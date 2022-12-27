@@ -157,25 +157,33 @@ impl VertexGroups {
 }
 
 impl Scene {
-    fn apply_scale(&mut self) {
-        let mut queue: std::collections::VecDeque<ObjectKey> = self.objects
-            .iter()
-            .filter(|(k, o)| o.parent.is_none())
-            .map(|(k, o)| k)
-            .collect();
-        
-        while !queue.is_empty() {
-            let curr_id = queue.pop_front().unwrap();
-            let curr = self.objects.get_mut(curr_id).unwrap();
-        }
-    }
-
-
-    fn change_scale(&mut self, new_scale: f32) {
+    /// Actually resize everything in the scene to match `new_scale`, then set that as the scale.
+    /// 
+    /// For [`vek::Transform`] as the transform representation, and for a uniform scale factor,
+    /// this works without any care for ordering: uniform scales commute with themselves, and with 
+    /// rotations. You can also pseudo-commute a scale and a translation by applying or unapplying 
+    /// the scale to the translation. This allows pushing the scale all the way to individual Mesh
+    /// data, which of course can be scaled.
+    /// 
+    /// And so you wind up with, all we have to do is scale each position.
+    pub fn change_scale(&mut self, new_scale: f32) {
         let scale_factor = self.meters_per_unit / new_scale;
         
-        for obj in self.objects.iter_mut() {
-
+        for obj in self.objects.values_mut() {
+            obj.transform.scale *= scale_factor;
+            match &mut obj.data {
+                ObjectData::None => todo!(),
+                ObjectData::Armature => todo!(),
+                ObjectData::Bone => todo!(),
+                ObjectData::Mesh(m) => {
+                    for i in m.vertices.iter_mut() {
+                        *i *= scale_factor
+                    }
+                },
+                ObjectData::Light(_) => todo!(),
+                ObjectData::Camera(_) => todo!(),
+            }
         }
+        self.meters_per_unit = new_scale
     }
 }
