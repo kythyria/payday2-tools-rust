@@ -198,7 +198,7 @@ impl Scene {
         let scale_factor = self.meters_per_unit / new_scale;
         
         for obj in self.objects.values_mut() {
-            obj.transform.scale *= scale_factor;
+            obj.transform.position *= scale_factor;
             match &mut obj.data {
                 ObjectData::None => todo!(),
                 ObjectData::Armature => todo!(),
