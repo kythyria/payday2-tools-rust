@@ -252,7 +252,8 @@ pub fn export(env: PyEnv, output_path: &str, meters_per_unit: f32, author_tag: &
     let mut scene = crate::ir_blender::scene_from_bpy_selected(&env, object, meters_per_unit);
 
     if f32::abs(0.01 - meters_per_unit) > 0.000244140625f32 { // arbitrary threshold
-        scene.change_scale(0.01);
+        let ratio = 0.01/meters_per_unit;
+        scene.change_scale(ratio);
     }
 
     let mut chunks = vec! [
