@@ -273,8 +273,8 @@ impl<'py> SceneBuilder<'py>
     fn set_active_object(&mut self, active_object: ObjectKey) {
         self.scene.active_object = Some(active_object)
     }
-    fn set_source_file(&mut self, path: &str) {
-        self.scene.source_file = path.to_owned();
+    fn set_diesel(&mut self, di: DieselSceneSettings) {
+        self.scene.diesel = di;
     }
     
     fn add_bpy_object(&mut self, object: &PyAny) -> ObjectKey {
@@ -378,7 +378,7 @@ impl From<SceneBuilder<'_>> for Scene {
     }
 }
 
-pub fn scene_from_bpy_selected(env: &PyEnv, data: &PyAny, meters_per_unit: f32) -> Scene {
+pub fn scene_from_bpy_selected(env: &PyEnv, data: &PyAny, meters_per_unit: f32, default_author_tag: &str) -> Scene {
     // According to the manual, it's O(len(bpy.data.objects)) to use children or children_recusive
     // so we should do a pair of iterations instead of recursing ourselves
     // specifically once over children_recursive to grab everything,
@@ -390,8 +390,36 @@ pub fn scene_from_bpy_selected(env: &PyEnv, data: &PyAny, meters_per_unit: f32) 
     let mut scene = SceneBuilder::new(env);
     scene.set_scale(meters_per_unit);
 
+    let bpy_scene: &PyAny = get!(env, env.bpy_context, 'attr "scene");
+    let bpy_scene_diesel: &PyAny = get!(env, bpy_scene, 'attr "diesel");
     let blend_data: &PyAny = get!(env, env.bpy_context, 'attr "blend_data");
-    scene.set_source_file(get!(env, blend_data, 'attr "filepath"));
+
+    if bpy_scene_diesel.is_none() {
+        scene.set_diesel(DieselSceneSettings {
+            author_tag: default_author_tag.to_owned(),
+            source_file: get!(env, blend_data, 'attr "filepath"),
+            scene_type: "default".to_owned(),
+        })
+    }
+    else {
+        let author_tag = if get!(env, bpy_scene_diesel, 'attr "override_author_tag") {
+            get!(env, bpy_scene_diesel, 'attr "author_tag")
+        }
+        else {
+            default_author_tag.to_owned()
+        };
+
+        let source_file = if get!(env, bpy_scene_diesel, 'attr "override_source_path") {
+            get!(env, bpy_scene_diesel, 'attr "source_path")
+        }
+        else {
+            get!(env, blend_data, 'attr "filepath")
+        };
+
+        let scene_type = get!(env, bpy_scene_diesel, 'attr "scene_type");
+        scene.set_diesel(DieselSceneSettings { author_tag, source_file, scene_type })
+    }
+    
 
     let active = scene.add_bpy_object(data);
     scene.set_active_object(active);

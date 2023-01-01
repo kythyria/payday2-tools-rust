@@ -248,8 +248,8 @@ fn scene_to_oilchunks(scene: &crate::model_ir::Scene, chunks: &mut Vec<oil::Chun
     chunks.extend(mat_collector.collected.drain(..).map(|i| i.into()))
 }
 
-pub fn export(env: PyEnv, output_path: &str, meters_per_unit: f32, author_tag: &str, object: &PyAny) -> PyResult<()> {
-    let mut scene = crate::ir_blender::scene_from_bpy_selected(&env, object, meters_per_unit);
+pub fn export(env: PyEnv, output_path: &str, meters_per_unit: f32, default_author_tag: &str, object: &PyAny) -> PyResult<()> {
+    let mut scene = crate::ir_blender::scene_from_bpy_selected(&env, object, meters_per_unit, default_author_tag);
 
     if f32::abs(0.01 - meters_per_unit) > 0.000244140625f32 { // arbitrary threshold
         scene.change_scale(0.01);
@@ -259,9 +259,9 @@ pub fn export(env: PyEnv, output_path: &str, meters_per_unit: f32, author_tag: &
         oil::SceneInfo3 {
             start_time: 0.0,
             end_time: 1.0,
-            author_tag: author_tag.to_owned(),
-            source_filename: scene.source_file.clone(),
-            scene_type: "default".to_owned()
+            author_tag: scene.diesel.author_tag.clone(),
+            source_filename: scene.diesel.source_file.clone(),
+            scene_type: scene.diesel.scene_type.clone()
         }.into(),
         oil::MaterialsXml { xml: String::new() }.into()
     ];

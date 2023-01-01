@@ -26,7 +26,14 @@ pub struct Scene {
 
     pub active_object: Option<ObjectKey>,
     pub meters_per_unit: f32,
+    pub diesel: DieselSceneSettings
+}
+
+#[derive(Default)]
+pub struct DieselSceneSettings {
+    pub author_tag: String,
     pub source_file: String,
+    pub scene_type: String
 }
 
 pub struct Material {
