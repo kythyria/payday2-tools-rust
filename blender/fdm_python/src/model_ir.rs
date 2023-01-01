@@ -195,7 +195,7 @@ impl Scene {
     /// 
     /// And so you wind up with, all we have to do is scale each position.
     pub fn change_scale(&mut self, new_scale: f32) {
-        let scale_factor = new_scale / self.meters_per_unit;
+        let scale_factor = self.meters_per_unit / new_scale;
         
         for obj in self.objects.values_mut() {
             obj.transform.position *= scale_factor;
