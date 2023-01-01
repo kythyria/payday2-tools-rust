@@ -200,7 +200,7 @@ impl Scene {
         for obj in self.objects.values_mut() {
             obj.transform.position *= scale_factor;
             match &mut obj.data {
-                ObjectData::None => todo!(),
+                ObjectData::None => (),
                 ObjectData::Armature => todo!(),
                 ObjectData::Bone => todo!(),
                 ObjectData::Mesh(m) => {
