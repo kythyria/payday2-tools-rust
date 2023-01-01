@@ -5,7 +5,8 @@ from bpy.props import (StringProperty,
                         BoolProperty,
                         EnumProperty,
                         IntProperty,
-                        CollectionProperty)
+                        CollectionProperty,
+                        PointerProperty)
 from bpy_extras.io_utils import ImportHelper, ExportHelper
 from bpy.types import Operator
 from mathutils import *
@@ -221,6 +222,89 @@ class ExportOilModel(bpy.types.Operator, ExportHelper):
         pd2tools_fdm.export_oil(self.filepath, metres_per_unit, addon_prefs.author_tag, bpy.context.active_object)
         return {'FINISHED'}
 
+class DieselSceneSettings(bpy.types.PropertyGroup):
+    override_author_tag: BoolProperty(name="Override author tag", default=False)
+    author_tag: StringProperty(name="Author Tag")
+    override_source_path: BoolProperty(name="Override source path", default=False)
+    source_path: StringProperty(name="Source path")
+    scene_type: StringProperty(name="OIL scene type", default="default")
+
+    @classmethod
+    def register(cls):
+        bpy.types.Scene.diesel = PointerProperty(
+            name="Diesel scene settings",
+            type=cls
+        )
+    
+    @classmethod
+    def unregister(cls):
+        del bpy.types.Scene.diesel
+
+class DIESEL_PT_settings_scene(bpy.types.Panel):
+    bl_idname = "DIESEL_PT_settings_scene"
+    bl_space_type = "PROPERTIES"
+    bl_region_type = "WINDOW"
+    bl_context = "scene"
+    bl_options = {'DEFAULT_CLOSED'}
+    bl_label = "Diesel Export"
+
+    def draw(self, ctx):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+
+        diesel = ctx.scene.diesel
+
+        atr = layout.row(heading="Override author")
+        atr.prop(diesel, "override_author_tag", text="")
+        atrs = atr.row()
+        atrs.active = diesel.override_author_tag
+        atrs.prop(diesel, "author_tag", text="")
+
+        spr = layout.row(heading="Override filepath")
+        spr.prop(diesel, "override_source_path", text="")
+        sprs = spr.row()
+        sprs.active = diesel.override_source_path
+        sprs.prop(diesel, "source_path", text="")
+
+        layout.prop(diesel, "scene_type")
+
+class DieselMeshSettings(bpy.types.PropertyGroup):
+    cast_shadows: BoolProperty(name="Cast shadows", default=True)
+    receive_shadows: BoolProperty(name="Receive shadows", default=True)
+    bounds_only: BoolProperty(name="Export as bounds", default=False)
+
+    @classmethod
+    def register(cls):
+        bpy.types.Mesh.diesel = PointerProperty(
+            name="Diesel mesh settings",
+            type=cls
+        )
+    
+    @classmethod
+    def unregister(cls):
+        del bpy.types.Mesh.diesel
+
+class DIESEL_PT_settings_mesh(bpy.types.Panel):
+    bl_space_type = "PROPERTIES"
+    bl_region_type = "WINDOW"
+    bl_context = "data"
+    bl_options = {'DEFAULT_CLOSED'}
+    bl_label = "Diesel Export"
+
+    @classmethod
+    def poll(cls, ctx):
+        return ctx.object.type in {'MESH','CURVE','SURFACE','FONT','META'}
+
+    def draw(self, ctx):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+
+        layout.prop(ctx.object.data.diesel, "cast_shadows")
+        layout.prop(ctx.object.data.diesel, "receive_shadows")
+        layout.prop(ctx.object.data.diesel, "bounds_only")
+
 def menu_func_import(self, context):
     self.layout.operator(ImportDieselModel.bl_idname, text="Diesel Model (.model)")
 
@@ -231,12 +315,20 @@ def register():
     bpy.utils.register_class(Pd2toolsPreferences)
     bpy.utils.register_class(ImportDieselModel)
     bpy.utils.register_class(ExportOilModel)
+    bpy.utils.register_class(DieselSceneSettings)
+    bpy.utils.register_class(DieselMeshSettings)
+    bpy.utils.register_class(DIESEL_PT_settings_scene)
+    bpy.utils.register_class(DIESEL_PT_settings_mesh)
     bpy.types.TOPBAR_MT_file_export.append(menu_func_export)
     bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
 
 def unregister():
     bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
     bpy.types.TOPBAR_MT_file_export.remove(menu_func_export)
+    bpy.utils.unregister_class(DIESEL_PT_settings_mesh)
+    bpy.utils.unregister_class(DIESEL_PT_settings_scene)
+    bpy.utils.unregister_class(DieselMeshSettings)
+    bpy.utils.unregister_class(DieselSceneSettings)
     bpy.utils.unregister_class(ExportOilModel)
     bpy.utils.unregister_class(ImportDieselModel)
     bpy.utils.unregister_class(Pd2toolsPreferences)

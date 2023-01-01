@@ -150,6 +150,14 @@ fn mesh_from_bpy_mesh(env: &PyEnv, data: &PyAny) -> model_ir::Mesh {
         })
         .collect();
 
+    let mut diesel = DieselMeshSettings::default();
+    let bpy_diesel: &PyAny = get!(env, data, 'attr "diesel");
+    if !bpy_diesel.is_none() {
+        diesel.cast_shadows = get!(env, bpy_diesel, 'attr "cast_shadows");
+        diesel.receive_shadows = get!(env, bpy_diesel, 'attr "receive_shadows");
+        diesel.bounds_only = get!(env, bpy_diesel, 'attr "bounds_only");
+    }
+
     Mesh {
         vertices,
         edges: Vec::new(),
@@ -161,7 +169,8 @@ fn mesh_from_bpy_mesh(env: &PyEnv, data: &PyAny) -> model_ir::Mesh {
         faceloop_colors,
         faceloop_uvs,
         material_names: Vec::new(),
-        material_ids: Vec::new()
+        material_ids: Vec::new(),
+        diesel
     }
 }
 
@@ -391,5 +400,5 @@ pub fn scene_from_bpy_selected(env: &PyEnv, data: &PyAny, meters_per_unit: f32) 
         scene.add_bpy_object(b_obj);
     }
 
-    scene.into()
+    scene.into() 
 }

@@ -75,7 +75,35 @@ pub struct Mesh {
     pub faceloop_uvs: HashMap<String, Vec<Vec2f>>,
 
     pub material_names: Vec<Option<Rc<str>>>,
-    pub material_ids: Vec<Option<MaterialKey>>
+    pub material_ids: Vec<Option<MaterialKey>>,
+
+    pub diesel: DieselMeshSettings
+}
+
+impl Mesh {
+    pub fn compute_local_bounds(&self) -> vek::Aabb<f32> {
+        let mut vit = self.vertices.iter();
+        let mut init_aabb = match vit.next() {
+            Some(v) => vek::Aabb::new_empty(*v),
+            None => vek::Aabb::default(),
+        };
+        vit.fold(init_aabb, |c,v| { c.expanded_to_contain_point(*v)} )
+    }
+}
+
+pub struct DieselMeshSettings {
+    pub cast_shadows: bool,
+    pub receive_shadows: bool,
+    pub bounds_only: bool
+}
+impl Default for DieselMeshSettings {
+    fn default() -> Self {
+        Self {
+            cast_shadows: true,
+            receive_shadows: true,
+            bounds_only: false
+        }
+    }
 }
 
 pub struct Faceloop {

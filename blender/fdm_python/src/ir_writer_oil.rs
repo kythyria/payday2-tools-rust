@@ -81,13 +81,22 @@ fn mesh_to_oil_geometry(node_id: u32, me: &Mesh, materials: &mut MaterialCollect
     let mut og = oil::Geometry {
         node_id,
         material_id: 0xFFFFFFFFu32,
-        casts_shadows: true,
-        receives_shadows: true,
+        casts_shadows: me.diesel.cast_shadows,
+        receives_shadows: me.diesel.receive_shadows,
         channels: Vec::with_capacity(5),
         faces: Vec::with_capacity(me.triangles.len()),
         skin: None,
         override_bounding_box: None,
     };
+
+    if me.diesel.bounds_only {
+        let bounds = me.compute_local_bounds();
+        og.override_bounding_box = Some(oil::BoundingBox {
+            min: bounds.min.map(|i| i.into()),
+            max: bounds.max.map(|i| i.into()),
+        });
+        return og;
+    }
 
     // TODO: Do we care about duplication? Is this horrifyingly slow?
     // TODO: Does the OIL->FDM step *care* about if there are unused things?
