@@ -257,8 +257,8 @@ pub struct ModelSection {
 
 #[derive(Debug, ItemReader)]
 pub enum ModelData {
-    #[tag(3)] BoundsOnly(Bounds),
-    #[tag(6)] Mesh(MeshModel)
+    #[tag(6)] BoundsOnly(Bounds),
+    #[tag(3)] Mesh(MeshModel)
 }
 
 /// Bounding box part of a Model
