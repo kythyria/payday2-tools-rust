@@ -447,7 +447,7 @@ pub fn print_sections(filename: &Path) {
         offset += sec.length;
         let (remain, res) = sec.try_into_chunk();
         match res {
-            Ok(chunk) => println!("{:?} {:}", chunk, AsHex(remain)),
+            Ok(chunk) => println!("{:#?} {:}", chunk, AsHex(remain)),
             Err(e) => println!("{:4} {:?} {:}", sec.type_code, e, sec.length - remain.len())
         }
     }

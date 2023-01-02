@@ -125,19 +125,29 @@ fn mesh_to_oil_geometry(node_id: u32, me: &Mesh, materials: &mut MaterialCollect
         og.channels.push(oil::GeometryChannel::Colour(idx as u32 + 1, data))
     }
 
-    let norms = me.tangents.iter().map(|i| i.normal)
-        .map(|i| i.map(|j| <f32 as Into<f64>>::into(j)))
-        .collect::<Vec<_>>();
-    let tangs = me.tangents.iter().map(|i| i.tangent)
-        .map(|i| i.map(|j| <f32 as Into<f64>>::into(j)))
-        .collect::<Vec<_>>();
-    let binorms = me.tangents.iter().map(|i| i.bitangent)
-        .map(|i| i.map(|j| <f32 as Into<f64>>::into(j)))
-        .collect::<Vec<_>>();
-
-    og.channels.push(oil::GeometryChannel::Normal(0, norms));
-    og.channels.push(oil::GeometryChannel::Tangent(0, tangs));
-    og.channels.push(oil::GeometryChannel::Binormal(0, binorms));
+    let (has_norm, has_tangent) = match &me.tangents {
+        crate::model_ir::TangentLayer::None => (false, false),
+        crate::model_ir::TangentLayer::Normals(norms) => {
+            let norms = norms.iter().map(|i| i.map(|j| <f32 as Into<f64>>::into(j))).collect();
+            og.channels.push(oil::GeometryChannel::Normal(0, norms));
+            (true, false)
+        },
+        crate::model_ir::TangentLayer::Tangents(t) => {
+            let norms = t.iter().map(|i| i.normal)
+                .map(|i| i.map(|j| <f32 as Into<f64>>::into(j)))
+                .collect::<Vec<_>>();
+            let tangs = t.iter().map(|i| i.tangent)
+                .map(|i| i.map(|j| <f32 as Into<f64>>::into(j)))
+                .collect::<Vec<_>>();
+            let binorms = t.iter().map(|i| i.bitangent)
+                .map(|i| i.map(|j| <f32 as Into<f64>>::into(j)))
+                .collect::<Vec<_>>();
+            og.channels.push(oil::GeometryChannel::Normal(0, norms));
+            og.channels.push(oil::GeometryChannel::Tangent(0, tangs));
+            og.channels.push(oil::GeometryChannel::Binormal(0, binorms));
+            (true, true)
+        },
+    };
 
     let (root_material, material_mapping) = materials.collect_and_map(&me.material_ids);
     og.material_id = root_material;
@@ -175,27 +185,31 @@ fn mesh_to_oil_geometry(node_id: u32, me: &Mesh, materials: &mut MaterialCollect
         }
 
         // normal/tangent/binormal
-        channel += 1;
-        loops.push(oil::GeometryFaceloop {
-            channel,
-            a: tri.loops[0] as u32,
-            b: tri.loops[1] as u32,
-            c: tri.loops[2] as u32
-        });
-        channel += 1;
-        loops.push(oil::GeometryFaceloop {
-            channel,
-            a: tri.loops[0] as u32,
-            b: tri.loops[1] as u32,
-            c: tri.loops[2] as u32
-        });
-        channel += 1;
-        loops.push(oil::GeometryFaceloop {
-            channel,
-            a: tri.loops[0] as u32,
-            b: tri.loops[1] as u32,
-            c: tri.loops[2] as u32
-        });
+        if has_norm {
+            channel += 1;
+            loops.push(oil::GeometryFaceloop {
+                channel,
+                a: tri.loops[0] as u32,
+                b: tri.loops[1] as u32,
+                c: tri.loops[2] as u32
+            });
+        }
+        if has_tangent {
+            channel += 1;
+            loops.push(oil::GeometryFaceloop {
+                channel,
+                a: tri.loops[0] as u32,
+                b: tri.loops[1] as u32,
+                c: tri.loops[2] as u32
+            });
+            channel += 1;
+            loops.push(oil::GeometryFaceloop {
+                channel,
+                a: tri.loops[0] as u32,
+                b: tri.loops[1] as u32,
+                c: tri.loops[2] as u32
+            });
+        }
 
         og.faces.push(oil::GeometryFace {
             material_id: material_mapping[local_mat_id],

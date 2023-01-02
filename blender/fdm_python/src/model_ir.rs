@@ -75,7 +75,7 @@ pub struct Mesh {
     pub polygons: Vec<Polygon>,
     pub triangles: Vec<Triangle>,
 
-    pub tangents: Vec<Tangent>,
+    pub tangents: TangentLayer,
     pub vertex_groups: VertexGroups,
 
     pub faceloop_colors: HashMap<String, Vec<Vec4f>>,
@@ -132,6 +132,12 @@ pub struct Polygon {
 pub struct Triangle {
     pub loops: [usize; 3],
     pub polygon: usize,
+}
+
+pub enum TangentLayer {
+    None,
+    Normals(Vec<Vec3f>),
+    Tangents(Vec<Tangent>)
 }
 
 pub struct Tangent {

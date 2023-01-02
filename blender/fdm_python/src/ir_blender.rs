@@ -122,14 +122,6 @@ fn mesh_from_bpy_mesh(env: &PyEnv, data: &PyAny) -> model_ir::Mesh {
 
     let vertex_groups = vgroups_from_bpy_verts(env, data);
 
-    let tangents = get!(env, data, 'iter "loops")
-        .map(|lp| Tangent {
-            normal: vek3f_from_bpy_vec(env, get!(env, lp, 'attr "normal")),
-            tangent: vek3f_from_bpy_vec(env, get!(env, lp, 'attr "tangent")),
-            bitangent: vek3f_from_bpy_vec(env, get!(env, lp, 'attr "bitangent"))
-        })
-        .collect();
-
     let faceloop_colors = get!(env, data, 'iter "vertex_colors")
         .map(|vc|{
             let name: String = get!(env, vc, 'attr "name");
@@ -148,7 +140,24 @@ fn mesh_from_bpy_mesh(env: &PyEnv, data: &PyAny) -> model_ir::Mesh {
                 .collect();
             (name, uvs)
         })
-        .collect();
+        .collect::<HashMap<_,_>>();
+
+    let tangents = if faceloop_uvs.is_empty() { // and thus tangent data will be invalid
+        TangentLayer::Normals(get!(env, data, 'iter "loops")
+            .map(|lp| vek3f_from_bpy_vec(env, get!(env, lp, 'attr "normal")))
+            .collect()
+        )
+    }
+    else { // We have tangents!
+        TangentLayer::Tangents(get!(env, data, 'iter "loops")
+            .map(|lp| Tangent {
+                normal: vek3f_from_bpy_vec(env, get!(env, lp, 'attr "normal")),
+                tangent: vek3f_from_bpy_vec(env, get!(env, lp, 'attr "tangent")),
+                bitangent: vek3f_from_bpy_vec(env, get!(env, lp, 'attr "bitangent"))
+            })
+            .collect()
+        )
+    };
 
     let mut diesel = DieselMeshSettings::default();
     let bpy_diesel: &PyAny = get!(env, data, 'attr "diesel");
@@ -213,18 +222,20 @@ impl<'py> TemporaryMesh<'py> {
         let mesh = evaluated_obj.call_method(intern!{env.python, "to_mesh"}, (), Some(to_mesh_args))
             .unwrap();
 
-        // Calculate the tangents here, because this can fail if the mesh still has ngons,
-        // and this is where we make a new mesh anyway
-        match mesh.call_method0(intern!{env.python, "calc_tangents"}) {
-            Ok(_) => (),
-            Err(_) => {
-                let bm = bpy_binding::bmesh::new(env.python).unwrap();
-                bm.from_mesh(mesh).unwrap();
-                let faces = bm.faces().unwrap();
-                env.bmesh_ops.triangulate(&bm, faces).unwrap();
-                bm.to_mesh(mesh).unwrap();
-                mesh.call_method0(intern!{env.python, "calc_tangents"}).unwrap();
-            },
+        if mesh.getattr(intern!(env.python, "uv_layers")).unwrap().len().unwrap() > 0 {
+            // Calculate the tangents here, because this can fail if the mesh still has ngons,
+            // and this is where we make a new mesh anyway
+            match mesh.call_method0(intern!{env.python, "calc_tangents"}) {
+                Ok(_) => (),
+                Err(_) => {
+                    let bm = bpy_binding::bmesh::new(env.python).unwrap();
+                    bm.from_mesh(mesh).unwrap();
+                    let faces = bm.faces().unwrap();
+                    env.bmesh_ops.triangulate(&bm, faces).unwrap();
+                    bm.to_mesh(mesh).unwrap();
+                    mesh.call_method0(intern!{env.python, "calc_tangents"}).unwrap();
+                },
+            }
         }
         
         TemporaryMesh {
