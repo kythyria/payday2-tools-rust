@@ -206,9 +206,9 @@ class ExportOilModel(bpy.types.Operator, ExportHelper):
     bl_label = "Export OIL model"
     bl_options = {'REGISTER', 'UNDO'}
 
-    filename_ext = ".oil"
+    filename_ext = ".model"
     filter_glob: StringProperty(
-        default="*.oil",
+        default="*.model",
         options={'HIDDEN'},
         maxlen=1024
     )
