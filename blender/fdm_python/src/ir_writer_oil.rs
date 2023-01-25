@@ -248,8 +248,6 @@ fn scene_to_oilchunks(scene: &crate::model_ir::Scene, chunks: &mut Vec<oil::Chun
 
         match &obj.data {
             ObjectData::None => (),
-            ObjectData::Armature => (),
-            ObjectData::Bone => (),
             ObjectData::Mesh(md) => {
                 let ch = mesh_to_oil_geometry(chunk_id, md, &mut mat_collector);
                 chunks.push(ch.into())

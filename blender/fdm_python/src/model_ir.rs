@@ -16,6 +16,7 @@ slotmap::new_key_type! {
     pub struct CameraKey;
     pub struct MaterialKey;
     pub struct CollectionKey;
+    pub struct SkinKey;
 }
 
 #[derive(Default)]
@@ -23,6 +24,7 @@ pub struct Scene {
     pub objects: SlotMap<ObjectKey, Object>,
     pub materials: SlotMap<MaterialKey, Material>,
     pub collections: SlotMap<CollectionKey, Collection>,
+    pub skins: SlotMap<SkinKey, Skin>,
 
     pub active_object: Option<ObjectKey>,
     pub meters_per_unit: f32,
@@ -53,16 +55,21 @@ pub struct Object {
     pub children: Vec<ObjectKey>,
     pub transform: Transform,
     pub in_collections: Vec<CollectionKey>,
-    pub data: ObjectData
+    pub data: ObjectData,
+    pub skin_role: SkinRole,
+}
+
+pub enum SkinRole {
+    None,
+    Armature,
+    Bone
 }
 
 pub enum ObjectData {
     None,
-    Armature,
-    Bone,
     Mesh(Mesh),
     Light(Light),
-    Camera(Camera)
+    Camera(Camera),
 }
 
 pub struct Light;
@@ -84,6 +91,7 @@ pub struct Mesh {
     pub material_names: Vec<Option<Rc<str>>>,
     pub material_ids: Vec<Option<MaterialKey>>,
 
+    pub skin: Option<SkinKey>,
     pub diesel: DieselMeshSettings
 }
 
@@ -197,6 +205,17 @@ impl VertexGroups {
     }
 }
 
+pub struct Skin {
+    pub armature: ObjectKey,
+    pub joints: Vec<SkinJoint>,
+    pub model_to_bind: Mat4f
+}
+
+pub struct SkinJoint {
+    pub bone: ObjectKey,
+    pub bind_to_bone: Mat4f
+}
+
 impl Scene {
     /// Actually resize everything in the scene to match `new_scale`, then set that as the scale.
     /// 
@@ -214,8 +233,6 @@ impl Scene {
             obj.transform.position *= scale_factor;
             match &mut obj.data {
                 ObjectData::None => (),
-                ObjectData::Armature => todo!(),
-                ObjectData::Bone => todo!(),
                 ObjectData::Mesh(m) => {
                     for i in m.vertices.iter_mut() {
                         *i *= scale_factor

@@ -11,6 +11,8 @@ type Vec4f = vek::Vec4<f32>;
 type Transform = vek::Transform<f32, f32, f32>;
 type Quaternion = vek::Quaternion<f32>;
 
+type PyObjPtr = *mut pyo3::ffi::PyObject;
+
 macro_rules! get {
     ($env:expr, $ob:expr, 'attr $field:literal) => {
         $ob.getattr(intern!{$env.python, $field}).unwrap().extract().unwrap()
@@ -40,6 +42,18 @@ fn vek2f_from_bpy_vec(env: &PyEnv, data: &PyAny) -> Vec2f {
 fn vek3f_from_bpy_vec(env: &PyEnv, data: &PyAny) -> Vec3f {
     let tuple = data.call_method0(intern!(env.python, "to_tuple")).unwrap().extract().unwrap();
     vek3f_from_tuple(tuple)
+}
+
+fn mat3_from_bpy_matrix(bmat: &PyAny) -> vek::Mat3<f32> {
+    let mut floats = [[0f32; 3]; 3];
+    for c in 0..3 {
+        let col = bmat.get_item(c).unwrap();
+        for r in 0..3 {
+            let cell = col.get_item(r).unwrap().extract::<f32>().unwrap();
+            floats[c][r] = cell;
+        }
+    }
+    vek::Mat3::from_col_arrays(floats)
 }
 
 fn mat4_from_bpy_matrix(bmat: &PyAny) -> vek::Mat4<f32> {
@@ -179,7 +193,8 @@ fn mesh_from_bpy_mesh(env: &PyEnv, data: &PyAny) -> model_ir::Mesh {
         faceloop_uvs,
         material_names: Vec::new(),
         material_ids: Vec::new(),
-        diesel
+        diesel,
+        skin: None
     }
 }
 
@@ -260,12 +275,19 @@ impl std::ops::Deref for TemporaryMesh<'_> {
     }
 }
 
+#[derive(Hash, PartialEq, Eq, Debug)]
+enum BpyParent {
+    Object(PyObjPtr),
+    Bone(PyObjPtr, String)
+}
+
 struct SceneBuilder<'py> {
     env: &'py PyEnv<'py>,
     scene: Scene,
-    bpy_mat_to_matid: HashMap<*mut pyo3::ffi::PyObject, MaterialKey>,
-    bpy_obj_to_oid: HashMap<*mut pyo3::ffi::PyObject, ObjectKey>,
-    oid_to_bpy_parent: HashMap<ObjectKey, *mut pyo3::ffi::PyObject>
+    bpy_mat_to_matid: HashMap<PyObjPtr, MaterialKey>,
+    child_oid_to_bpy_parent: HashMap<ObjectKey, BpyParent>,
+    bpy_parent_to_oid_parent: HashMap<BpyParent, ObjectKey>,
+    bpy_armature_to_skin: HashMap<PyObjPtr, SkinKey>
 }
 
 impl<'py> SceneBuilder<'py> 
@@ -275,8 +297,9 @@ impl<'py> SceneBuilder<'py>
             env,
             scene: Scene::default(),
             bpy_mat_to_matid: HashMap::new(),
-            bpy_obj_to_oid: HashMap::new(),
-            oid_to_bpy_parent: HashMap::new(),
+            bpy_parent_to_oid_parent: HashMap::new(),
+            child_oid_to_bpy_parent: HashMap::new(),
+            bpy_armature_to_skin: HashMap::new()
         }
     }
 
@@ -294,9 +317,12 @@ impl<'py> SceneBuilder<'py>
         // Children whose parent type is OBJECT but have an Armature Deform modifier are skinned.
         // Children whose parent_type is ARMATURE just act like that.
 
-        let odata = match get!(self.env, object, 'attr "type") {
+        let otype: &str = get!(self.env, object, 'attr "type");
+
+        let odata = match otype {
             "MESH" => ObjectData::Mesh(self.add_bpy_mesh_instance(object)),
             "EMPTY" => ObjectData::None,
+            "ARMATURE" => ObjectData::None,
             _ => todo!()
         };
 
@@ -307,13 +333,34 @@ impl<'py> SceneBuilder<'py>
             transform: transform_from_bpy_matrix(self.env, get!(self.env, object, 'attr "matrix_local")),
             in_collections: Vec::new(),
             data: odata,
+            skin_role: SkinRole::None
         };
         let oid = self.scene.objects.insert(new_obj);
 
-        self.bpy_obj_to_oid.insert(object.as_ptr(), oid);
+        if otype == "ARMATURE" {
+            self.add_bpy_armature_bones(oid, object);
+            self.scene.objects[oid].skin_role = SkinRole::Armature;
+        }
+
+        self.bpy_parent_to_oid_parent.insert(BpyParent::Object(object.as_ptr()), oid);
         let parent = object.getattr(intern!{self.env.python, "parent"}).unwrap();
         if !parent.is_none() {
-            self.oid_to_bpy_parent.insert(oid, parent.as_ptr());
+            let parent_type: &str = get!(self.env, object, 'attr "parent_type");
+            let pkey = match parent_type {
+                "OBJECT" => BpyParent::Object(parent.as_ptr()),
+                "BONE" => {
+                    let bone_name: String = get!(self.env, object, 'attr "parent_bone");
+                    if bone_name.is_empty() {
+                        BpyParent::Object(parent.as_ptr())
+                    }
+                    else {
+                        BpyParent::Bone(parent.as_ptr(), bone_name)
+                    }
+                },
+                "ARMATURE" => todo!("Skinning"),
+                _ => panic!("Unknown parent type {}", parent_type)
+            };
+            self.child_oid_to_bpy_parent.insert(oid, pkey);
         }
 
         oid
@@ -364,17 +411,73 @@ impl<'py> SceneBuilder<'py>
 
         self.scene.materials.insert(new_mat)
     }
+
+    fn add_bpy_armature_bones(&mut self, oid: ObjectKey, object: &PyAny) {
+        let skin = Skin {
+            armature: oid,
+            joints: Vec::new(),
+            model_to_bind: vek::Mat4::identity(),
+        };
+        let data: &PyAny = get!(self.env, object, 'attr "data");
+        for bpy_bone in get!(self.env, data, 'iter "bones") {
+            // For some reason things being parented to bone tails *isn't* a display trick.
+            // Bones really are stored that way.
+            // So the position of a bone is its head position plus the parent's tail pos.
+            // And the rotation comes from the `matrix` property.
+            let bone_name: String = get!(self.env, bpy_bone, 'attr "name");
+            let head = vek3f_from_bpy_vec(self.env, get!(self.env, bpy_bone, 'attr "head"));
+            let rot_mat: &PyAny = get!(self.env, bpy_bone, 'attr "matrix");
+            let rot = rot_mat.call_method0(intern!{self.env.python, "to_quaternion"}).unwrap();
+            let rot = quaternion_from_bpy_quat(self.env, rot);
+            let parent: &PyAny = get!(self.env, bpy_bone, 'attr "parent");
+            let parent_tail = if parent.is_none() { Vec3f::new(0.0, 0.0, 0.0) }
+            else {
+                vek3f_from_bpy_vec(self.env, get!(self.env, parent, 'attr "tail"))
+            };
+
+            let transform = Transform {
+                position: parent_tail + head,
+                orientation: rot,
+                scale: vek::Vec3::one()
+            };
+
+            let bone_obj = Object {
+                name: bone_name.clone(),
+                parent: None,
+                children: Vec::new(),
+                transform,
+                in_collections: Vec::new(),
+                data: ObjectData::None,
+                skin_role: SkinRole::Bone,
+            };
+
+            let bone_key = self.scene.objects.insert(bone_obj);
+            self.bpy_parent_to_oid_parent
+                .insert(BpyParent::Bone(object.as_ptr(), bone_name.clone()), bone_key);
+            if parent.is_none() {
+                self.child_oid_to_bpy_parent
+                .insert(bone_key, BpyParent::Object(object.as_ptr()));
+            }
+            else {
+                let parent_name = get!(self.env, parent, 'attr "name");
+                self.child_oid_to_bpy_parent.insert(bone_key, BpyParent::Bone(object.as_ptr(), parent_name));
+            }
+        }
+    }
 }
 
 impl From<SceneBuilder<'_>> for Scene {
     fn from(mut build: SceneBuilder) -> Self {
-        let mut parent_links = Vec::with_capacity(build.oid_to_bpy_parent.len());
+        let mut parent_links = Vec::with_capacity(build.child_oid_to_bpy_parent.len());
+
+        dbg!(&build.bpy_parent_to_oid_parent);
+        dbg!(&build.child_oid_to_bpy_parent);
 
         for oid in build.scene.objects.keys() {
-            match build.oid_to_bpy_parent.get(&oid) {
+            match build.child_oid_to_bpy_parent.get(&oid) {
                 None => (),
                 Some(p) => {
-                    let parent_oid = build.bpy_obj_to_oid[p];
+                    let parent_oid = build.bpy_parent_to_oid_parent[p];
                     parent_links.push((oid, parent_oid));
                 },
             }
