@@ -254,6 +254,7 @@ fn scene_to_oilchunks(scene: &crate::model_ir::Scene, chunks: &mut Vec<oil::Chun
             },
             ObjectData::Light(_) => todo!(),
             ObjectData::Camera(_) => todo!(),
+            ObjectData::Armature(_) => ()
         }
     }
 
@@ -265,6 +266,13 @@ pub fn export(env: PyEnv, output_path: &str, meters_per_unit: f32, default_autho
 
     if f32::abs(0.01 - meters_per_unit) > 0.000244140625f32 { // arbitrary threshold
         scene.change_scale(0.01);
+    }
+
+    for (_, obj) in scene.objects.iter_mut() {
+        match &mut obj.data {
+            ObjectData::Mesh(me) => me.vcols_to_faceloop_cols(),
+            _ => ()
+        }
     }
 
     let mut chunks = vec! [

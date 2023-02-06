@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, BTreeMap};
 use std::rc::Rc;
 use pyo3::types::PyDict;
 use pyo3::{prelude::*, intern, AsPyPointer};
@@ -136,15 +136,28 @@ fn mesh_from_bpy_mesh(env: &PyEnv, data: &PyAny) -> model_ir::Mesh {
 
     let vertex_groups = vgroups_from_bpy_verts(env, data);
 
-    let faceloop_colors = get!(env, data, 'iter "vertex_colors")
-        .map(|vc|{
-            let name: String = get!(env, vc, 'attr "name");
-            let cols: Vec<Vec4f> = get!(env, vc, 'iter "data")
+    let mut vertex_colors = BTreeMap::new();
+    let mut faceloop_colors = BTreeMap::new();
+    for att in get!(env, data, 'iter "attributes") {
+        let data_type = get!(env, att, 'attr "data_type");
+        let data = match data_type {
+            "FLOAT_COLOR" => get!(env, att, 'iter "data")
                 .map(|i| from_bpy_array(get!(env, i, 'attr "color")))
-                .collect();
-            (name, cols)
-        })
-        .collect();
+                .collect::<Vec<Vec4f>>(),
+            "BYTE_COLOR" => get!(env, att, 'iter "data")
+                .map(|i| from_bpy_array(get!(env, i, 'attr "color")))
+                .collect::<Vec<Vec4f>>(),
+            _ => continue
+        };
+
+        let name: String = get!(env, att, 'attr "name");
+
+        match get!(env, att, 'attr "domain") {
+            "POINT" => vertex_colors.insert(name, data),
+            "CORNER" => faceloop_colors.insert(name, data),
+            _ => panic!("Implausible vcol domain")
+        };
+    }
 
     let faceloop_uvs = get!(env, data, 'iter "uv_layers")
         .map(|uvl| {
@@ -154,7 +167,7 @@ fn mesh_from_bpy_mesh(env: &PyEnv, data: &PyAny) -> model_ir::Mesh {
                 .collect();
             (name, uvs)
         })
-        .collect::<HashMap<_,_>>();
+        .collect::<BTreeMap<_,_>>();
 
     let tangents = if faceloop_uvs.is_empty() { // and thus tangent data will be invalid
         TangentLayer::Normals(get!(env, data, 'iter "loops")
@@ -188,6 +201,7 @@ fn mesh_from_bpy_mesh(env: &PyEnv, data: &PyAny) -> model_ir::Mesh {
         polygons,
         triangles,
         vertex_groups,
+        vertex_colors,
         tangents,
         faceloop_colors,
         faceloop_uvs,
@@ -322,7 +336,7 @@ impl<'py> SceneBuilder<'py>
         let odata = match otype {
             "MESH" => ObjectData::Mesh(self.add_bpy_mesh_instance(object)),
             "EMPTY" => ObjectData::None,
-            "ARMATURE" => ObjectData::None,
+            "ARMATURE" => ObjectData::Armature(self.add_bpy_armature_bones(object)),
             _ => todo!()
         };
 
@@ -333,14 +347,9 @@ impl<'py> SceneBuilder<'py>
             transform: transform_from_bpy_matrix(self.env, get!(self.env, object, 'attr "matrix_local")),
             in_collections: Vec::new(),
             data: odata,
-            skin_role: SkinRole::None
+            skin_role: if otype == "ARMATURE" { SkinRole::Armature } else { SkinRole::None }
         };
         let oid = self.scene.objects.insert(new_obj);
-
-        if otype == "ARMATURE" {
-            self.add_bpy_armature_bones(oid, object);
-            self.scene.objects[oid].skin_role = SkinRole::Armature;
-        }
 
         self.bpy_parent_to_oid_parent.insert(BpyParent::Object(object.as_ptr()), oid);
         let parent = object.getattr(intern!{self.env.python, "parent"}).unwrap();
@@ -412,12 +421,9 @@ impl<'py> SceneBuilder<'py>
         self.scene.materials.insert(new_mat)
     }
 
-    fn add_bpy_armature_bones(&mut self, oid: ObjectKey, object: &PyAny) {
-        let skin = Skin {
-            armature: oid,
-            joints: Vec::new(),
-            model_to_bind: vek::Mat4::identity(),
-        };
+    fn add_bpy_armature_bones(&mut self, object: &PyAny) -> SkinKey {
+        let mut joints = Vec::new();
+
         let data: &PyAny = get!(self.env, object, 'attr "data");
         for bpy_bone in get!(self.env, data, 'iter "bones") {
             // For some reason things being parented to bone tails *isn't* a display trick.
@@ -462,7 +468,20 @@ impl<'py> SceneBuilder<'py>
                 let parent_name = get!(self.env, parent, 'attr "name");
                 self.child_oid_to_bpy_parent.insert(bone_key, BpyParent::Bone(object.as_ptr(), parent_name));
             }
+
+            let bonespace_to_bindspace = get!(self.env, bpy_bone, 'attr "matrix_local");
+            let bonespace_to_bindspace = mat4_from_bpy_matrix(bonespace_to_bindspace);
+
+            joints.push(SkinJoint {
+                bone: bone_key,
+                bindspace_to_bonespace: bonespace_to_bindspace.inverted(),
+            });
         }
+        
+        self.scene.skins.insert(Skin {
+            joints,
+            world_to_bind: vek::Mat4::identity(),
+        })
     }
 }
 

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, BTreeMap};
 use std::rc::Rc;
 
 use slotmap::SlotMap;
@@ -70,6 +70,7 @@ pub enum ObjectData {
     Mesh(Mesh),
     Light(Light),
     Camera(Camera),
+    Armature(SkinKey)
 }
 
 pub struct Light;
@@ -84,14 +85,15 @@ pub struct Mesh {
 
     pub tangents: TangentLayer,
     pub vertex_groups: VertexGroups,
-
-    pub faceloop_colors: HashMap<String, Vec<Vec4f>>,
-    pub faceloop_uvs: HashMap<String, Vec<Vec2f>>,
+    pub vertex_colors: BTreeMap<String, Vec<Vec4f>>,
+    
+    pub faceloop_colors: BTreeMap<String, Vec<Vec4f>>,
+    pub faceloop_uvs: BTreeMap<String, Vec<Vec2f>>,
 
     pub material_names: Vec<Option<Rc<str>>>,
     pub material_ids: Vec<Option<MaterialKey>>,
 
-    pub skin: Option<SkinKey>,
+    pub skin: Option<SkinReference>,
     pub diesel: DieselMeshSettings
 }
 
@@ -103,6 +105,17 @@ impl Mesh {
             None => vek::Aabb::default(),
         };
         vit.fold(init_aabb, |c,v| { c.expanded_to_contain_point(*v)} )
+    }
+
+    pub fn vcols_to_faceloop_cols(&mut self) {
+        let vertex_color_attrs = std::mem::take(&mut self.vertex_colors);
+        
+        for (name, vcols) in vertex_color_attrs {
+            let flcols = self.faceloops.iter()
+                .map(|fl| vcols[fl.vertex])
+                .collect();
+            self.faceloop_colors.insert(name, flcols);
+        }
     }
 }
 
@@ -205,15 +218,24 @@ impl VertexGroups {
     }
 }
 
+pub struct SkinReference {
+    armature: ObjectKey,
+    skin: SkinKey,
+    /// Half of the model-to-bind transform, specifically the half that's the mesh's 
+    /// model-to-world transform
+    model_to_world: Mat4f
+}
+
 pub struct Skin {
-    pub armature: ObjectKey,
     pub joints: Vec<SkinJoint>,
-    pub model_to_bind: Mat4f
+    /// This is half of the model-to-bind transform, specifically the half that's the inverse
+    /// of the armature's model-to-world transform.
+    pub world_to_bind: Mat4f
 }
 
 pub struct SkinJoint {
     pub bone: ObjectKey,
-    pub bind_to_bone: Mat4f
+    pub bindspace_to_bonespace: Mat4f
 }
 
 impl Scene {
@@ -240,6 +262,7 @@ impl Scene {
                 },
                 ObjectData::Light(_) => todo!(),
                 ObjectData::Camera(_) => todo!(),
+                ObjectData::Armature(_) => todo!(),
             }
         }
         self.meters_per_unit = new_scale
