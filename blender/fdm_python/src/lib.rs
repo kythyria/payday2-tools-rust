@@ -51,9 +51,9 @@ fn pd2tools_fdm(_py: Python, m: &PyModule) -> PyResult<()> {
     }
 
     #[pyfunction]
-    fn export_oil(py: Python, output_path: &str, meters_per_unit: f32, author_tag: &str, object: &PyAny, vcol_numbering_strategy: String) -> PyResult<()> {
+    fn export_oil(py: Python, output_path: &str, meters_per_unit: f32, author_tag: &str, object: &PyAny) -> PyResult<()> {
         let env = PyEnv::new(py);
-        ir_writer_oil::export(env, output_path, meters_per_unit, author_tag, object, vcol_numbering_strategy)
+        ir_writer_oil::export(env, output_path, meters_per_unit, author_tag, object)
     }
 
     m.add_function(wrap_pyfunction!(diesel_hash, m)?)?;
