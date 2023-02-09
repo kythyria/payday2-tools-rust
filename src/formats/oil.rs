@@ -322,7 +322,8 @@ pub enum GeometryChannel {
     #[tag(2)] Normal  (u32, Vec<Vec3<f64>>),
     #[tag(3)] Binormal(u32, Vec<Vec3<f64>>),
     #[tag(4)] Tangent (u32, Vec<Vec3<f64>>),
-    #[tag(5)] Colour  (u32, Vec<Rgb<f64>>)
+    #[tag(5)] Colour  (u32, Vec<Rgb<f64>>),
+    #[tag(6)] Alpha   (u32, Vec<f64>)
 }
 
 #[derive(Debug, Clone, ItemReader)]

@@ -213,13 +213,52 @@ class ExportOilModel(bpy.types.Operator, ExportHelper):
         maxlen=1024
     )
 
+    """
+    ABC123
+    123ABC
+    A1B2C3
+    1A2B3C
+    """
+
+    """
+    A B C 1 2 3
+    0 1 2 3 4 5
+    3 4 5 0 1 2
+    0 1 2 0 1 2
+    0 2 4 1 3 5
+    1 3 5 0 2 4
+    """
+
+   #vcol_numbering_strategy: EnumProperty(
+   #    name="Vertex alpha numbering",
+   #    description="How to number the alpha attributes of vertex colours",
+   #    default="SAME",
+   #    items=[
+   #        ("SAME", "Same", "Alpha attributes have the same index as the matching RGB attributes"),
+   #        ("INTERLEAVED_AFTER", "Interleaved (After)", "Alpha attributes have the index following that of the RGB attribute" ),
+   #        ("INTERLEAVED_BEFORE", "Interleaved (Before)", "Alpha attributes numbered after the matching RGB attributes"),
+   #    ]
+   #)
+
+   #vcol_placement_strategy: EnumProperty(
+   #    name="Vertex alpha ordering",
+   #    description="Where to place vertex alpha attributes relative to RGB attributes",
+   #    default="SORTED",
+   #    items=[
+   #        ("SORTED_RGB_FIRST", "Sorted (RGB first)", "In numerical order, RGB wins ties"),
+   #        ("SORTED_ALPHA_FIRST", "Sorted (alpha first)", "Numerical order, alpha wins ties"),
+   #        ("BLOCK_RGB_FIRST", "Block (RGB first)", "All the RGB, then all the alpha"),
+   #        ("BLOCK_RGB_LAST", "Block (alpha first)", "All the alpha, then all the RGB")
+   #    ]
+   #)
+
     def execute(self, context):
         addon_prefs = context.preferences.addons[__name__].preferences
 
         metres_per_unit = context.scene.unit_settings.scale_length
         fps = context.scene.render.fps / context.scene.render.fps_base
 
-        pd2tools_fdm.export_oil(self.filepath, metres_per_unit, addon_prefs.author_tag, bpy.context.active_object)
+        pd2tools_fdm.export_oil(self.filepath, metres_per_unit, addon_prefs.author_tag, bpy.context.active_object, self.vcol_numbering_strategy)
         return {'FINISHED'}
 
 class DieselSceneSettings(bpy.types.PropertyGroup):

@@ -77,7 +77,7 @@ impl<'s> MaterialCollector<'s> {
     }
 }
 
-fn mesh_to_oil_geometry(node_id: u32, me: &Mesh, materials: &mut MaterialCollector) -> oil::Geometry {
+fn mesh_to_oil_geometry(node_id: u32, me: &Mesh, materials: &mut MaterialCollector, vcol_numbering_strategy: String) -> oil::Geometry {
     let mut og = oil::Geometry {
         node_id,
         material_id: 0xFFFFFFFFu32,
@@ -105,24 +105,24 @@ fn mesh_to_oil_geometry(node_id: u32, me: &Mesh, materials: &mut MaterialCollect
         i.map(|c| c.into())
     }).collect()));
 
-    let mut uv_list = me.faceloop_uvs.iter().collect::<Vec<_>>();
-    uv_list.sort_by(|i,j| i.0.cmp(j.0));
-
-    for (idx, (_name, tc)) in uv_list.into_iter().enumerate() {
+    for (idx, (_name, tc)) in me.faceloop_uvs.iter().enumerate() {
         let data = tc.iter().map(|i| i.map(|j| j.into())).collect();
         og.channels.push(oil::GeometryChannel::TexCoord(idx as u32 + 1, data))
     }
 
-    let mut vc_list = me.faceloop_colors.iter().collect::<Vec<_>>();
-    vc_list.sort_by(|i,j| i.0.cmp(j.0));
-
-    for (idx, (_name, vc)) in vc_list.iter().enumerate() {
-        let data = vc.iter().map(|i| {
+    for (idx, (_name, vc)) in me.faceloop_colors.iter().enumerate() {
+        let data_rgb = vc.iter().map(|i| {
             let v: vek::Vec4<f64> = i.map(|j| j.into());
             let c = vek::Rgba::from(v);
             c.rgb()
         }).collect();
-        og.channels.push(oil::GeometryChannel::Colour(idx as u32 + 1, data))
+        let data_a = vc.iter().map(|i| {
+            let v: vek::Vec4<f64> = i.map(|j| j.into());
+            let c = vek::Rgba::from(v);
+            c.a
+        }).collect();
+        og.channels.push(oil::GeometryChannel::Colour(idx as u32 + 1, data_rgb));
+        og.channels.push(oil::GeometryChannel::Alpha(idx as u32 + 1, data_a))
     }
 
     let (has_norm, has_tangent) = match &me.tangents {
@@ -181,7 +181,14 @@ fn mesh_to_oil_geometry(node_id: u32, me: &Mesh, materials: &mut MaterialCollect
                 a: tri.loops[0] as u32,
                 b: tri.loops[1] as u32,
                 c: tri.loops[2] as u32
-            })
+            });
+            channel += 1;
+            loops.push(oil::GeometryFaceloop {
+                channel,
+                a: tri.loops[0] as u32,
+                b: tri.loops[1] as u32,
+                c: tri.loops[2] as u32
+            });
         }
 
         // normal/tangent/binormal
@@ -221,7 +228,7 @@ fn mesh_to_oil_geometry(node_id: u32, me: &Mesh, materials: &mut MaterialCollect
     og
 }
 
-fn scene_to_oilchunks(scene: &crate::model_ir::Scene, chunks: &mut Vec<oil::Chunk>) {
+fn scene_to_oilchunks(scene: &crate::model_ir::Scene, chunks: &mut Vec<oil::Chunk>, vcol_numbering_strategy: String) {
     let base_chunkid = 1u32;
     let base_mat_chunkid = (base_chunkid as usize + scene.objects.len()).try_into().unwrap();
     let mut mat_collector = MaterialCollector::new(scene, base_mat_chunkid);
@@ -249,7 +256,7 @@ fn scene_to_oilchunks(scene: &crate::model_ir::Scene, chunks: &mut Vec<oil::Chun
         match &obj.data {
             ObjectData::None => (),
             ObjectData::Mesh(md) => {
-                let ch = mesh_to_oil_geometry(chunk_id, md, &mut mat_collector);
+                let ch = mesh_to_oil_geometry(chunk_id, md, &mut mat_collector, vcol_numbering_strategy.clone());
                 chunks.push(ch.into())
             },
             ObjectData::Light(_) => todo!(),
@@ -261,7 +268,7 @@ fn scene_to_oilchunks(scene: &crate::model_ir::Scene, chunks: &mut Vec<oil::Chun
     chunks.extend(mat_collector.collected.drain(..).map(|i| i.into()))
 }
 
-pub fn export(env: PyEnv, output_path: &str, meters_per_unit: f32, default_author_tag: &str, object: &PyAny) -> PyResult<()> {
+pub fn export(env: PyEnv, output_path: &str, meters_per_unit: f32, default_author_tag: &str, object: &PyAny, vcol_numbering_strategy: String) -> PyResult<()> {
     let mut scene = crate::ir_blender::scene_from_bpy_selected(&env, object, meters_per_unit, default_author_tag);
 
     if f32::abs(0.01 - meters_per_unit) > 0.000244140625f32 { // arbitrary threshold
@@ -285,7 +292,7 @@ pub fn export(env: PyEnv, output_path: &str, meters_per_unit: f32, default_autho
         }.into(),
         oil::MaterialsXml { xml: String::new() }.into()
     ];
-    scene_to_oilchunks(&scene, &mut chunks);
+    scene_to_oilchunks(&scene, &mut chunks, vcol_numbering_strategy);
     let bytes = oil::chunks_to_bytes(&chunks)?;
     std::fs::write(output_path, &bytes)?;
     Ok(())
