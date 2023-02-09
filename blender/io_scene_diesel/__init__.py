@@ -258,7 +258,7 @@ class ExportOilModel(bpy.types.Operator, ExportHelper):
         metres_per_unit = context.scene.unit_settings.scale_length
         fps = context.scene.render.fps / context.scene.render.fps_base
 
-        pd2tools_fdm.export_oil(self.filepath, metres_per_unit, addon_prefs.author_tag, bpy.context.active_object, self.vcol_numbering_strategy)
+        pd2tools_fdm.export_oil(self.filepath, metres_per_unit, addon_prefs.author_tag, bpy.context.active_object, "")
         return {'FINISHED'}
 
 class DieselSceneSettings(bpy.types.PropertyGroup):
