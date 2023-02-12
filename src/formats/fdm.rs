@@ -172,11 +172,11 @@ pub struct AuthorSection {
     name: Idstring,
 
     /// Email address of the author. In Overkill/LGL's tools, settable in the exporter settings.
-    #[read_as(NullTerminatedString)]
+    #[read_as(NullTerminated1252String)]
     author_email: String,
 
     /// Absolute path of the original file.
-    #[read_as(NullTerminatedString)]
+    #[read_as(NullTerminated1252String)]
     source_filename: String,
     unknown_2: u32
 }
