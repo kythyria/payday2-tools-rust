@@ -557,6 +557,7 @@ impl ItemReader for GeometrySection {
             tex_coord_7(2, TexCoord7, write_attr::<Vec2f>);
             color_0(5, Color0, write_attr::<Bgra<u8>>);
 
+            //TODO: The attribute formats here are just totally wrong.
             blend_indices_0(item.weightcount_0, BlendIndices0, wr_idx_0);
             blend_weight_0(item.weightcount_0, BlendWeight0, wr_wgt_0);
             blend_indices_1(item.weightcount_1, BlendIndices1, wr_idx_1);
@@ -597,6 +598,22 @@ impl GeometryHeader {
         counts[self.attribute_format as usize]
     }
 }
+
+#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, EnumTryFrom, ItemReader)]
+#[repr(u32)]
+pub enum GeometryAttributeFormat {
+    Nothing = 0,
+    Float1 = 1,
+    Float2 = 2,
+    Float3 = 3,
+    Float4 = 4,
+    Byte4 = 5,
+    Short2 = 6,
+    Short4 = 7,
+    UnormPacked3 = 8,
+    Half2 = 9,
+}
+
 #[derive(Debug, Copy, Clone, Hash, Eq, PartialEq, EnumTryFrom, ItemReader)]
 #[repr(u32)]
 pub enum GeometryAttributeType {
