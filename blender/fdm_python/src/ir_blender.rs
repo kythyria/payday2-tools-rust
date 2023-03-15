@@ -2,6 +2,8 @@ use std::collections::{HashMap, BTreeMap};
 use std::rc::Rc;
 use pyo3::types::PyDict;
 use pyo3::{prelude::*, intern, AsPyPointer};
+use slotmap::SparseSecondaryMap;
+use vek::Mat4;
 use crate::{ PyEnv, model_ir, bpy_binding };
 use model_ir::*;
 
@@ -14,6 +16,17 @@ type Quaternion = vek::Quaternion<f32>;
 type PyObjPtr = *mut pyo3::ffi::PyObject;
 
 macro_rules! get {
+    ($ob:expr, 'attr $field:literal) => {
+        $ob.getattr(intern!{$ob.py(), $field}).unwrap().extract().unwrap()
+    };
+    ($ob:expr, 'iter $field:literal) => {
+        $ob.getattr(intern!{$ob.py(), $field})
+            .unwrap()
+            .iter()
+            .unwrap()
+            .map(Result::unwrap)
+    };
+
     ($env:expr, $ob:expr, 'attr $field:literal) => {
         $ob.getattr(intern!{$env.python, $field}).unwrap().extract().unwrap()
     };
@@ -232,15 +245,32 @@ fn vgroups_from_bpy_verts(env: &PyEnv, data: &PyAny) -> VertexGroups {
 /// Wrapper for an evaluated, triangulated mesh that frees it automatically
 /// 
 /// Presumably io_scene_gltf does this sort of thing because otherwise the temp meshes would
-/// pile up dangerously fast? IDK, but it does it so we're cargo culting.
+/// pile up dangerously fast? IDK, but it does it so we're cargo culting. We also borrow the
+/// way it disables armatures, there's probably a better way.
 struct TemporaryMesh<'py> {
     mesh: &'py PyAny,
     object: &'py PyAny,
-    python: Python<'py>
 }
 impl<'py> TemporaryMesh<'py> {
     /// Get the evaluated mesh for an object
+    /// 
+    /// We disable and re-enable any armature modifiers so that skinning doesn't have an
+    /// effect here.
     fn from_depgraph(env: &'py PyEnv, object: &'py PyAny) -> TemporaryMesh<'py> {
+        //for idx, modifier in enumerate(blender_object.modifiers):
+        //if modifier.type == 'ARMATURE':
+        //    armature_modifiers[idx] = modifier.show_viewport
+        //    modifier.show_viewport = False
+        let mut armature_modifiers = Vec::<(&PyAny, bool)>::new();
+        for mo in get!(object, 'iter "modifiers") {
+            let mty: &str = get!(mo, 'attr "type");
+            if mty == "ARMATURE" { continue; }
+
+            armature_modifiers.push((mo, get!(mo, 'attr "show_viewport")));
+            mo.setattr(intern!{mo.py(), "show_viewport"}, false).unwrap();
+        }
+
+
         let depsgraph = env.b_c_evaluated_depsgraph_get().unwrap();
         let evaluated_obj = object.call_method1(intern!{env.python, "evaluated_get"}, (depsgraph,))
             .unwrap();
@@ -266,17 +296,20 @@ impl<'py> TemporaryMesh<'py> {
                 },
             }
         }
+
+        for (mo, vis) in armature_modifiers {
+            mo.setattr(intern!{mo.py(), "show_viewport"}, vis).unwrap();
+        }
         
         TemporaryMesh {
             mesh,
             object: evaluated_obj,
-            python: env.python
         }
     }
 }
 impl Drop for TemporaryMesh<'_> {
     fn drop(&mut self) {
-        match self.object.call_method0(intern!{self.python, "to_mesh_clear"}) {
+        match self.object.call_method0(intern!{self.object.py(), "to_mesh_clear"}) {
             _ => () // the worst that can happen is we leak memory, I think?
         }
     }
@@ -301,7 +334,7 @@ struct SceneBuilder<'py> {
     bpy_mat_to_matid: HashMap<PyObjPtr, MaterialKey>,
     child_oid_to_bpy_parent: HashMap<ObjectKey, BpyParent>,
     bpy_parent_to_oid_parent: HashMap<BpyParent, ObjectKey>,
-    bpy_armature_to_skin: HashMap<PyObjPtr, SkinKey>
+    skin_requests: Vec<(ObjectKey, PyObjPtr, Mat4<f32>)>
 }
 
 impl<'py> SceneBuilder<'py> 
@@ -313,7 +346,7 @@ impl<'py> SceneBuilder<'py>
             bpy_mat_to_matid: HashMap::new(),
             bpy_parent_to_oid_parent: HashMap::new(),
             child_oid_to_bpy_parent: HashMap::new(),
-            bpy_armature_to_skin: HashMap::new()
+            skin_requests: Vec::new()
         }
     }
 
@@ -366,7 +399,12 @@ impl<'py> SceneBuilder<'py>
                         BpyParent::Bone(parent.as_ptr(), bone_name)
                     }
                 },
-                "ARMATURE" => todo!("Skinning"),
+                "ARMATURE" => {
+                    let model_to_world = get!(self.env, object, 'attr "matrix_world");
+                    let model_to_world = mat4_from_bpy_matrix(model_to_world);
+                    self.skin_requests.push((oid, parent.as_ptr(), model_to_world));
+                    BpyParent::Object(parent.as_ptr())
+                },
                 _ => panic!("Unknown parent type {}", parent_type)
             };
             self.child_oid_to_bpy_parent.insert(oid, pkey);
@@ -421,7 +459,7 @@ impl<'py> SceneBuilder<'py>
         self.scene.materials.insert(new_mat)
     }
 
-    fn add_bpy_armature_bones(&mut self, object: &PyAny) -> SkinKey {
+    fn add_bpy_armature_bones(&mut self, object: &PyAny) -> BindPoseKey {
         let mut joints = Vec::new();
 
         let data: &PyAny = get!(self.env, object, 'attr "data");
@@ -472,15 +510,18 @@ impl<'py> SceneBuilder<'py>
             let bonespace_to_bindspace = get!(self.env, bpy_bone, 'attr "matrix_local");
             let bonespace_to_bindspace = mat4_from_bpy_matrix(bonespace_to_bindspace);
 
-            joints.push(SkinJoint {
+            joints.push(BindJoint {
                 bone: bone_key,
                 bindspace_to_bonespace: bonespace_to_bindspace.inverted(),
             });
         }
+
+        let mid_to_bind = mat4_from_bpy_matrix(get!(self.env, object, 'attr "matrix_world"))
+            .inverted();
         
-        self.scene.skins.insert(Skin {
+        self.scene.bind_poses.insert(BindPose {
             joints,
-            world_to_bind: vek::Mat4::identity(),
+            mid_to_bind,
         })
     }
 }
@@ -505,6 +546,40 @@ impl From<SceneBuilder<'_>> for Scene {
         for (child, parent) in parent_links {
             build.scene.objects[child].parent = Some(parent);
             build.scene.objects[parent].children.push(child);
+        }
+
+        for (skinned, bpy_skeleton, model_to_mid) in &build.skin_requests {
+            let skeleton_oid = build.bpy_parent_to_oid_parent[&BpyParent::Object(*bpy_skeleton)];
+            let skeleton_obj = &build.scene.objects[skeleton_oid];
+            let skele_data = match skeleton_obj.data {
+                ObjectData::Armature(a) => &build.scene.bind_poses[a],
+                _ => panic!("Skin reference didn't reference armature")
+            };
+
+            let joint_names = skele_data.joints.iter()
+                .map(|bj| build.scene.objects[bj.bone].name.as_ref())
+                .collect::<Vec<_>>();
+            
+            let skinned_mesh = match &build.scene.objects[*skinned].data {
+                ObjectData::Mesh(me) => me,
+                _ => panic!("Tried to skin a non-mesh")
+            };
+
+            let vgroup_to_joint_mapping = skinned_mesh.vertex_groups.names.iter()
+                .map(|vgn| joint_names.iter().position(|jn| jn == vgn))
+                .map(|i| i.unwrap())
+                .collect::<Vec<_>>();
+
+            let skinned_mesh = match &mut build.scene.objects[*skinned].data {
+                ObjectData::Mesh(me) => me,
+                _ => panic!("Tried to skin a non-mesh")
+            };
+
+            skinned_mesh.skin = Some(SkinReference {
+                armature: skeleton_oid,
+                model_to_mid: *model_to_mid,
+                vgroup_to_joint_mapping,
+            })
         }
 
         build.scene

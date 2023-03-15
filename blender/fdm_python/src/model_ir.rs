@@ -16,7 +16,7 @@ slotmap::new_key_type! {
     pub struct CameraKey;
     pub struct MaterialKey;
     pub struct CollectionKey;
-    pub struct SkinKey;
+    pub struct BindPoseKey;
 }
 
 #[derive(Default)]
@@ -24,7 +24,7 @@ pub struct Scene {
     pub objects: SlotMap<ObjectKey, Object>,
     pub materials: SlotMap<MaterialKey, Material>,
     pub collections: SlotMap<CollectionKey, Collection>,
-    pub skins: SlotMap<SkinKey, Skin>,
+    pub bind_poses: SlotMap<BindPoseKey, BindPose>,
 
     pub active_object: Option<ObjectKey>,
     pub meters_per_unit: f32,
@@ -70,7 +70,7 @@ pub enum ObjectData {
     Mesh(Mesh),
     Light(Light),
     Camera(Camera),
-    Armature(SkinKey)
+    Armature(BindPoseKey)
 }
 
 pub struct Light;
@@ -219,21 +219,23 @@ impl VertexGroups {
 }
 
 pub struct SkinReference {
-    armature: ObjectKey,
-    skin: SkinKey,
+    pub armature: ObjectKey,
+    /// For each vgroup number, the index in the BindPose of the corresponding bone.
+    pub vgroup_to_joint_mapping: Vec<usize>,
     /// Half of the model-to-bind transform, specifically the half that's the mesh's 
-    /// model-to-world transform
-    model_to_world: Mat4f
+    /// model-to-world transform (if the data came from blender)
+    pub model_to_mid: Mat4f
 }
 
-pub struct Skin {
-    pub joints: Vec<SkinJoint>,
+/// Stores the bind pose of an armature.
+pub struct BindPose {
+    pub joints: Vec<BindJoint>,
     /// This is half of the model-to-bind transform, specifically the half that's the inverse
-    /// of the armature's model-to-world transform.
-    pub world_to_bind: Mat4f
+    /// of the armature's model-to-world transform (if the data came from blender).
+    pub mid_to_bind: Mat4f
 }
 
-pub struct SkinJoint {
+pub struct BindJoint {
     pub bone: ObjectKey,
     pub bindspace_to_bonespace: Mat4f
 }
