@@ -303,7 +303,7 @@ pub struct SkinBoneEntry {
     pub premul_transform: vek::Mat4<f64>
 }
 
-#[derive(Debug, Clone, Copy, ItemReader)]
+#[derive(Default, Debug, Clone, Copy, ItemReader)]
 pub struct VertexWeight {
     pub bone_id: u32,
     pub weight: f64

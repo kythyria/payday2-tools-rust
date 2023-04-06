@@ -256,7 +256,57 @@ fn scene_to_oilchunks(scene: &crate::model_ir::Scene, chunks: &mut Vec<oil::Chun
         match &obj.data {
             ObjectData::None => (),
             ObjectData::Mesh(md) => {
-                let ch = mesh_to_oil_geometry(chunk_id, md, &mut mat_collector);
+                let mut ch = mesh_to_oil_geometry(chunk_id, md, &mut mat_collector);
+
+                match &md.skin {
+                    None => (),
+                    Some(skin) => {
+                        let bindpose = match scene.objects[skin.armature].data {
+                            ObjectData::Armature(bp) => &scene.bind_poses[bp],
+                            _ => panic!()
+                        };
+                        let postmul_transform = skin.model_to_mid * bindpose.mid_to_bind;
+                        let bones = bindpose.joints.iter()
+                            .map(|bj| oil::SkinBoneEntry {
+                                bone_node_id: chunkid_for_object[bj.bone],
+                                premul_transform: bj.bindspace_to_bonespace.map(|i| i.into())
+                            }).collect::<Vec<_>>();
+
+                        let weights_per_vertex = md.vertex_groups.vertices
+                            .iter()
+                            .map(|i| i.count)
+                            .max()
+                            .unwrap_or(0);
+                        
+                        let mut weights = Vec::with_capacity(weights_per_vertex * md.vertices.len());
+                        for (i, vw) in md.vertex_groups.iter_vertex_weights() {
+                            let vertex_weights = vw.iter().map(|w|{
+                                let joint_idx = skin.vgroup_to_joint_mapping[w.group];
+                                let bone_id = bones[joint_idx].bone_node_id;
+                                let weight = w.weight.into();
+                                oil::VertexWeight { bone_id, weight }
+                            });
+                            let pad_count = (weights_per_vertex) - vw.len();
+                            let padding = itertools::repeat_n(oil::VertexWeight::default(), pad_count);
+                            weights.extend(vertex_weights);
+                            weights.extend(padding);
+                        }
+
+                        let bonesets = vec![ bones.iter().map(|i| i.bone_node_id).collect() ];
+                        
+                        let gs = oil::GeometrySkin {
+                            root_node_id: chunkid_for_object[skin.armature],
+                            postmul_transform: postmul_transform.map(|i| i.into()),
+                            bones,
+                            weights_per_vertex: weights_per_vertex.try_into().unwrap(),
+                            weights,
+                            bonesets,
+                        };
+
+                        ch.skin = Some(gs)
+                    }
+                }
+
                 chunks.push(ch.into())
             },
             ObjectData::Light(_) => todo!(),

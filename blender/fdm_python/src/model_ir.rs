@@ -216,6 +216,11 @@ impl VertexGroups {
         let count = self.weights.len() - base;
         self.vertices.push(BaseCount { base, count })
     }
+
+    pub fn iter_vertex_weights(&self) -> impl Iterator<Item=(usize, &[Weight])> {
+        (0..self.vertices.len())
+        .map(move |i| (i, &self[i]))
+    }
 }
 
 pub struct SkinReference {
@@ -261,10 +266,29 @@ impl Scene {
                     for i in m.vertices.iter_mut() {
                         *i *= scale_factor
                     }
+                    
+                    match &mut m.skin {
+                        Some(sk) => {
+                            sk.model_to_mid.cols[3].x *= scale_factor;
+                            sk.model_to_mid.cols[3].y *= scale_factor;
+                            sk.model_to_mid.cols[3].z *= scale_factor;
+                        },
+                        _ => ()
+                    }
                 },
                 ObjectData::Light(_) => todo!(),
                 ObjectData::Camera(_) => todo!(),
-                ObjectData::Armature(_) => todo!(),
+                ObjectData::Armature(bpk) => {
+                    let bind_pose = &mut self.bind_poses[*bpk];
+                    for j in bind_pose.joints.iter_mut() {
+                        j.bindspace_to_bonespace.cols[3].x *= scale_factor;
+                        j.bindspace_to_bonespace.cols[3].y *= scale_factor;
+                        j.bindspace_to_bonespace.cols[3].z *= scale_factor;
+                    }
+                    bind_pose.mid_to_bind.cols[3].x *= scale_factor;
+                    bind_pose.mid_to_bind.cols[3].y *= scale_factor;
+                    bind_pose.mid_to_bind.cols[3].z *= scale_factor;
+                },
             }
         }
         self.meters_per_unit = new_scale
