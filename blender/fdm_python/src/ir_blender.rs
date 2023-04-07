@@ -242,6 +242,13 @@ fn vgroups_from_bpy_verts(env: &PyEnv, data: &PyAny) -> VertexGroups {
     out
 }
 
+fn armature_modifiers_of<'py>(object: &'py PyAny) -> impl Iterator<Item=&'py PyAny> {
+    get!(object, 'iter "modifiers").filter(|mo| {
+        let mty: &str = get!(mo, 'attr "type");
+        mty == "ARMATURE"
+    })
+}
+
 /// Wrapper for an evaluated, triangulated mesh that frees it automatically
 /// 
 /// Presumably io_scene_gltf does this sort of thing because otherwise the temp meshes would
@@ -262,10 +269,7 @@ impl<'py> TemporaryMesh<'py> {
         //    armature_modifiers[idx] = modifier.show_viewport
         //    modifier.show_viewport = False
         let mut armature_modifiers = Vec::<(&PyAny, bool)>::new();
-        for mo in get!(object, 'iter "modifiers") {
-            let mty: &str = get!(mo, 'attr "type");
-            if mty == "ARMATURE" { continue; }
-
+        for mo in armature_modifiers_of(object) {
             armature_modifiers.push((mo, get!(mo, 'attr "show_viewport")));
             mo.setattr(intern!{mo.py(), "show_viewport"}, false).unwrap();
         }
@@ -334,6 +338,8 @@ struct SceneBuilder<'py> {
     bpy_mat_to_matid: HashMap<PyObjPtr, MaterialKey>,
     child_oid_to_bpy_parent: HashMap<ObjectKey, BpyParent>,
     bpy_parent_to_oid_parent: HashMap<BpyParent, ObjectKey>,
+    
+    /// (being_skinned, skeleton, model_to_mid)
     skin_requests: Vec<(ObjectKey, PyObjPtr, Mat4<f32>)>
 }
 
@@ -408,6 +414,13 @@ impl<'py> SceneBuilder<'py>
                 _ => panic!("Unknown parent type {}", parent_type)
             };
             self.child_oid_to_bpy_parent.insert(oid, pkey);
+        }
+        
+        if let Some(mo) = armature_modifiers_of(object).next() {
+            let skel: &PyAny = get!(mo, 'attr "object");
+            let model_to_world = get!(self.env, object, 'attr "matrix_world");
+            let model_to_world = mat4_from_bpy_matrix(model_to_world);
+            self.skin_requests.push((oid, skel.as_ptr(), model_to_world));
         }
 
         oid
