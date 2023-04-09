@@ -3,6 +3,7 @@ mod ir_reader_fdm;
 mod ir_writer_oil;
 mod model_ir;
 mod ir_blender;
+mod bpy;
 
 use pyo3::prelude::*;
 

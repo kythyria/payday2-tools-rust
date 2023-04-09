@@ -3,7 +3,7 @@ use std::rc::Rc;
 use pyo3::types::PyDict;
 use pyo3::{prelude::*, intern, AsPyPointer};
 use vek::Mat4;
-use crate::{ PyEnv, model_ir, bpy_binding };
+use crate::{ PyEnv, model_ir, bpy_binding, bpy };
 use model_ir::*;
 
 type Vec2f = vek::Vec2<f32>;
@@ -230,8 +230,8 @@ fn vgroups_from_bpy_verts(data: &PyAny) -> VertexGroups {
     out
 }
 
-fn armature_modifiers_of<'py>(object: &'py PyAny) -> impl Iterator<Item=&'py PyAny> {
-    get!(object, 'iter "modifiers").filter(|mo| {
+fn armature_modifiers_of<'py>(object: &'py bpy::Object<'py>) -> impl Iterator<Item=&'py PyAny> {
+    object.iter_modifiers().filter(|mo|{
         let mty: &str = get!(mo, 'attr "type");
         mty == "ARMATURE"
     })
@@ -244,47 +244,41 @@ fn armature_modifiers_of<'py>(object: &'py PyAny) -> impl Iterator<Item=&'py PyA
 /// way it disables armatures, there's probably a better way.
 struct TemporaryMesh<'py> {
     mesh: &'py PyAny,
-    object: &'py PyAny,
+    object: bpy::Object<'py>,
 }
 impl<'py> TemporaryMesh<'py> {
     /// Get the evaluated mesh for an object
     /// 
     /// We disable and re-enable any armature modifiers so that skinning doesn't have an
     /// effect here.
-    fn from_depgraph(env: &'py PyEnv, object: &'py PyAny) -> TemporaryMesh<'py> {
+    fn from_depgraph(env: &'py PyEnv, object: &bpy::Object<'py>) -> TemporaryMesh<'py> {
         //for idx, modifier in enumerate(blender_object.modifiers):
         //if modifier.type == 'ARMATURE':
         //    armature_modifiers[idx] = modifier.show_viewport
         //    modifier.show_viewport = False
         let mut armature_modifiers = Vec::<(&PyAny, bool)>::new();
-        for mo in armature_modifiers_of(object) {
+        for mo in armature_modifiers_of(&object) {
             armature_modifiers.push((mo, get!(mo, 'attr "show_viewport")));
             mo.setattr(intern!{mo.py(), "show_viewport"}, false).unwrap();
         }
 
 
         let depsgraph = env.b_c_evaluated_depsgraph_get().unwrap();
-        let evaluated_obj = object.call_method1(intern!{object.py(), "evaluated_get"}, (depsgraph,))
-            .unwrap();
+        let evaluated_obj = object.evaluated_get(depsgraph);
+        let mesh = evaluated_obj.to_mesh(true, depsgraph).unwrap();
 
-        let to_mesh_args = PyDict::new(object.py());
-        to_mesh_args.set_item("preserve_all_data_layers", true).unwrap();
-        to_mesh_args.set_item("depsgraph", depsgraph).unwrap();
-        let mesh = evaluated_obj.call_method(intern!{object.py(), "to_mesh"}, (), Some(to_mesh_args))
-            .unwrap();
-
-        if mesh.getattr(intern!(object.py(), "uv_layers")).unwrap().len().unwrap() > 0 {
+        if mesh.getattr(intern!(mesh.py(), "uv_layers")).unwrap().len().unwrap() > 0 {
             // Calculate the tangents here, because this can fail if the mesh still has ngons,
             // and this is where we make a new mesh anyway
-            match mesh.call_method0(intern!{object.py(), "calc_tangents"}) {
+            match mesh.call_method0(intern!{mesh.py(), "calc_tangents"}) {
                 Ok(_) => (),
                 Err(_) => {
-                    let bm = bpy_binding::bmesh::new(object.py()).unwrap();
+                    let bm = bpy_binding::bmesh::new(mesh.py()).unwrap();
                     bm.from_mesh(mesh).unwrap();
                     let faces = bm.faces().unwrap();
                     env.bmesh_ops.triangulate(&bm, faces).unwrap();
                     bm.to_mesh(mesh).unwrap();
-                    mesh.call_method0(intern!{object.py(), "calc_tangents"}).unwrap();
+                    mesh.call_method0(intern!{mesh.py(), "calc_tangents"}).unwrap();
                 },
             }
         }
@@ -301,7 +295,7 @@ impl<'py> TemporaryMesh<'py> {
 }
 impl Drop for TemporaryMesh<'_> {
     fn drop(&mut self) {
-        match self.object.call_method0(intern!{self.object.py(), "to_mesh_clear"}) {
+        match self.object.to_mesh_clear() {
             _ => () // the worst that can happen is we leak memory, I think?
         }
     }
@@ -352,50 +346,48 @@ impl<'py> SceneBuilder<'py>
         self.scene.diesel = di;
     }
     
-    fn add_bpy_object(&mut self, object: &PyAny) -> ObjectKey {
+    fn add_bpy_object(&mut self, object: bpy::Object<'py>) -> ObjectKey {
         // If this is an armature, we have to worry about bone-parented and skinned children.
         // Children whose parent_type is BONE are parented to a bone.
         // Children whose parent type is OBJECT but have an Armature Deform modifier are skinned.
         // Children whose parent_type is ARMATURE just act like that.
 
-        let otype: &str = get!(object, 'attr "type");
-
+        let otype = object.r#type();
         let odata = match otype {
-            "MESH" => ObjectData::Mesh(self.add_bpy_mesh_instance(object)),
-            "EMPTY" => ObjectData::None,
-            "ARMATURE" => ObjectData::Armature(self.add_bpy_armature_bones(object)),
+            bpy::ObjectType::Mesh => ObjectData::Mesh(self.add_bpy_mesh_instance(&object)),
+            bpy::ObjectType::Empty => ObjectData::None,
+            bpy::ObjectType::Armature => ObjectData::Armature(self.add_bpy_armature_bones(&object)),
             _ => todo!()
         };
 
         let new_obj = Object {
-            name: get!(object, 'attr "name"),
+            name: object.name().into(),
             parent: None,
             children: Vec::new(),
-            transform: transform_from_bpy_matrix(get!(object, 'attr "matrix_local")),
+            transform: object.matrix_local(),
             in_collections: Vec::new(),
             data: odata,
-            skin_role: if otype == "ARMATURE" { SkinRole::Armature } else { SkinRole::None }
+            skin_role: if otype == bpy::ObjectType::Armature { SkinRole::Armature } else { SkinRole::None }
         };
         let oid = self.scene.objects.insert(new_obj);
 
         self.bpy_parent_to_oid_parent.insert(BpyParent::Object(object.as_ptr()), oid);
-        let parent = object.getattr(intern!{object.py(), "parent"}).unwrap();
-        if !parent.is_none() {
-            let parent_type: &str = get!(object, 'attr "parent_type");
+        let parent = object.parent();
+        if let Some(parent) = parent {
+            let parent_type = object.parent_type();
             let pkey = match parent_type {
-                "OBJECT" => BpyParent::Object(parent.as_ptr()),
-                "BONE" => {
-                    let bone_name: String = get!(object, 'attr "parent_bone");
-                    if bone_name.is_empty() {
+                bpy::ParentType::Object => BpyParent::Object(parent.as_ptr()),
+                bpy::ParentType::Bone => {
+                    let bone_name = object.parent_bone();
+                    if bone_name.len() == 0 {
                         BpyParent::Object(parent.as_ptr())
                     }
                     else {
-                        BpyParent::Bone(parent.as_ptr(), bone_name)
+                        BpyParent::Bone(parent.as_ptr(), bone_name.into())
                     }
                 },
-                "ARMATURE" => {
-                    let model_to_world = get!(object, 'attr "matrix_world");
-                    let model_to_world = mat4_from_bpy_matrix(model_to_world);
+                bpy::ParentType::Armature => {
+                    let model_to_world = object.matrix_world();
                     self.skin_requests.push((oid, parent.as_ptr(), model_to_world));
                     BpyParent::Object(parent.as_ptr())
                 },
@@ -404,25 +396,24 @@ impl<'py> SceneBuilder<'py>
             self.child_oid_to_bpy_parent.insert(oid, pkey);
         }
         
-        if let Some(mo) = armature_modifiers_of(object).next() {
+        if let Some(mo) = armature_modifiers_of(&object).next() {
             let skel: &PyAny = get!(mo, 'attr "object");
-            let model_to_world = get!(object, 'attr "matrix_world");
-            let model_to_world = mat4_from_bpy_matrix(model_to_world);
+            let model_to_world = object.matrix_world();
             self.skin_requests.push((oid, skel.as_ptr(), model_to_world));
         }
 
         oid
     }
 
-    fn add_bpy_mesh_instance(&mut self, object: &PyAny) -> Mesh {
-        let data = TemporaryMesh::from_depgraph(self.env, object);
+    fn add_bpy_mesh_instance(&mut self, object: &bpy::Object<'py>) -> Mesh {
+        let data = TemporaryMesh::from_depgraph(self.env, &object);
         let mut mesh = mesh_from_bpy_mesh(&data);
 
-        mesh.vertex_groups.names = get!(object, 'iter "vertex_groups")
+        mesh.vertex_groups.names = object.iter_vertex_groups()
             .map(|vg| get!(vg, 'attr "name"))
             .collect();
 
-        let mats = get!(object, 'iter "material_slots")
+        let mats = object.iter_material_slots() 
             .map(|ms| get!(ms, 'attr "material"))
             .collect::<Vec<&PyAny>>();
 
@@ -460,24 +451,24 @@ impl<'py> SceneBuilder<'py>
         self.scene.materials.insert(new_mat)
     }
 
-    fn add_bpy_armature_bones(&mut self, object: &PyAny) -> BindPoseKey {
+    fn add_bpy_armature_bones(&mut self, object: &bpy::Object<'py>) -> BindPoseKey {
         let mut joints = Vec::new();
 
-        let data: &PyAny = get!(object, 'attr "data");
-        for bpy_bone in get!(data, 'iter "bones") {
+        let data = bpy::Armature::new(object.data());
+        for bpy_bone in data.iter_bones() {
             // For some reason things being parented to bone tails *isn't* a display trick.
             // Bones really are stored that way.
             // So the position of a bone is its head position plus the parent's tail pos.
             // And the rotation comes from the `matrix` property.
-            let bone_name: String = get!(bpy_bone, 'attr "name");
-            let head = vek3f_from_bpy_vec(get!(bpy_bone, 'attr "head"));
-            let rot_mat: &PyAny = get!(bpy_bone, 'attr "matrix");
-            let rot = rot_mat.call_method0(intern!{object.py(), "to_quaternion"}).unwrap();
+            let bone_name = bpy_bone.name();
+            let head = bpy_bone.head();
+            let rot_mat = bpy_bone.matrix();
+            let rot = rot_mat.call_method0(intern!{rot_mat.py(), "to_quaternion"}).unwrap();
             let rot = quaternion_from_bpy_quat(rot);
-            let parent: &PyAny = get!(bpy_bone, 'attr "parent");
-            let parent_tail = if parent.is_none() { Vec3f::new(0.0, 0.0, 0.0) }
-            else {
-                vek3f_from_bpy_vec(get!(parent, 'attr "tail"))
+            let parent = bpy_bone.parent();
+            let parent_tail = match &parent {
+                None => Vec3f::new(0.0, 0.0, 0.0),
+                Some(parent) => parent.tail()
             };
 
             let transform = Transform {
@@ -487,7 +478,7 @@ impl<'py> SceneBuilder<'py>
             };
 
             let bone_obj = Object {
-                name: bone_name.clone(),
+                name: bone_name.to_owned(),
                 parent: None,
                 children: Vec::new(),
                 transform,
@@ -498,18 +489,20 @@ impl<'py> SceneBuilder<'py>
 
             let bone_key = self.scene.objects.insert(bone_obj);
             self.bpy_parent_to_oid_parent
-                .insert(BpyParent::Bone(object.as_ptr(), bone_name.clone()), bone_key);
-            if parent.is_none() {
-                self.child_oid_to_bpy_parent
-                .insert(bone_key, BpyParent::Object(object.as_ptr()));
-            }
-            else {
-                let parent_name = get!(parent, 'attr "name");
-                self.child_oid_to_bpy_parent.insert(bone_key, BpyParent::Bone(object.as_ptr(), parent_name));
+                .insert(BpyParent::Bone(object.as_ptr(), bone_name.to_owned()), bone_key);
+            match parent {
+                None => {
+                    self.child_oid_to_bpy_parent
+                    .insert(bone_key, BpyParent::Object(object.as_ptr()));
+                },
+                Some(parent) => {
+                    let parent_name = parent.name().to_owned();
+                    self.child_oid_to_bpy_parent
+                    .insert(bone_key, BpyParent::Bone(object.as_ptr(), parent_name));
+                }
             }
 
-            let bonespace_to_bindspace = get!(bpy_bone, 'attr "matrix_local");
-            let bonespace_to_bindspace = mat4_from_bpy_matrix(bonespace_to_bindspace);
+            let bonespace_to_bindspace = bpy_bone.matrix_local();
 
             joints.push(BindJoint {
                 bone: bone_key,
@@ -517,8 +510,7 @@ impl<'py> SceneBuilder<'py>
             });
         }
 
-        let mid_to_bind = mat4_from_bpy_matrix(get!(object, 'attr "matrix_world"))
-            .inverted();
+        let mid_to_bind = object.matrix_world().inverted();
         
         self.scene.bind_poses.insert(BindPose {
             joints,
@@ -630,10 +622,11 @@ pub fn scene_from_bpy_selected(env: &PyEnv, data: &PyAny, meters_per_unit: f32, 
     }
     
 
+    let data = bpy::Object::new(data);
     let active = scene.add_bpy_object(data);
     scene.set_active_object(active);
 
-    for b_obj in get!(data, 'iter "children_recursive") {
+    for b_obj in data.iter_children_recursive() {
         scene.add_bpy_object(b_obj);
     }
 
