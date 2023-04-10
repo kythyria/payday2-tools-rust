@@ -1,9 +1,9 @@
 use std::collections::{HashMap, BTreeMap};
 use std::rc::Rc;
-use pyo3::types::PyDict;
 use pyo3::{prelude::*, intern, AsPyPointer};
 use vek::Mat4;
-use crate::{ PyEnv, model_ir, bpy_binding, bpy };
+use crate::bpy::{PropCollection, GilCarrier};
+use crate::{ PyEnv, model_ir, bpy };
 use model_ir::*;
 
 type Vec2f = vek::Vec2<f32>;
@@ -45,46 +45,12 @@ fn vek3f_from_bpy_vec(data: &PyAny) -> Vec3f {
     vek3f_from_tuple(tuple)
 }
 
-fn mat3_from_bpy_matrix(bmat: &PyAny) -> vek::Mat3<f32> {
-    let mut floats = [[0f32; 3]; 3];
-    for c in 0..3 {
-        let col = bmat.get_item(c).unwrap();
-        for r in 0..3 {
-            let cell = col.get_item(r).unwrap().extract::<f32>().unwrap();
-            floats[c][r] = cell;
-        }
-    }
-    vek::Mat3::from_col_arrays(floats)
-}
-
-fn mat4_from_bpy_matrix(bmat: &PyAny) -> vek::Mat4<f32> {
-    let mut floats = [[0f32; 4]; 4];
-    for c in 0..4 {
-        let col = bmat.get_item(c).unwrap();
-        for r in 0..4 {
-            let cell = col.get_item(r).unwrap().extract::<f32>().unwrap();
-            floats[c][r] = cell;
-        }
-    }
-    vek::Mat4::from_col_arrays(floats)
-}
-
 fn quaternion_from_bpy_quat(bq: &PyAny) -> Quaternion {
     let x: f32 = get!(bq, 'attr "x");
     let y: f32 = get!(bq, 'attr "y");
     let z: f32 = get!(bq, 'attr "z");
     let w: f32 = get!(bq, 'attr "w");
     Quaternion::from_xyzw(x, y, z, w)
-}
-
-fn transform_from_bpy_matrix(bmat: &PyAny) -> Transform {
-    let py_lrs = bmat.call_method0(intern!{bmat.py(), "decompose"}).unwrap();
-    let (py_loc, py_rot, py_scale): (&PyAny, &PyAny, &PyAny) = py_lrs.extract().unwrap();
-    Transform {
-        position: vek3f_from_bpy_vec(py_loc),
-        orientation: quaternion_from_bpy_quat(py_rot),
-        scale: vek3f_from_bpy_vec(py_scale)
-    }
 }
 
 fn from_bpy_array<const N:usize,T,E>(data: &PyAny) -> T
@@ -100,46 +66,47 @@ where
 }
 
 fn mesh_from_bpy_mesh(data: &PyAny) -> model_ir::Mesh {
-    let vertices = get!(data, 'iter "vertices")
-        .map(|vtx| vek3f_from_bpy_vec(get!(vtx, 'attr "co")))
+    let data2 = bpy::Mesh::new(data);
+    let vertices = data2.iter_vertices()
+        .map(|vtx| vtx.co())
         .collect();
 
     //let edges = get!(env, data, 'iter "edges")
     //    .map(|ed| get!(env, ed, 'attr "vertices"))
     //    .collect();
 
-    let faceloops = get!(data, 'iter "loops")
+    let faceloops = data2.loops().iter()
         .map(|lp| Faceloop {
-            vertex: get!(lp, 'attr "vertex_index"),
-            edge: get!(lp, 'attr "edge_index")
+            vertex: lp.vertex_index(),
+            edge: lp.edge_index()
         })
         .collect();
     
-    let polygons = get!(data, 'iter "polygons")
+    let polygons = data2.polygons().iter()
         .map(|poly|{
             Polygon {
-                base: get!(poly, 'attr "loop_start"),
-                count: get!(poly, 'attr "loop_total"),
-                material: get!(poly, 'attr "material_index"),
+                base: poly.loop_start(),
+                count: poly.loop_total(),
+                material: poly.material_index(),
             }
         })
         .collect();
 
-    data.call_method0(intern!{data.py(), "calc_loop_triangles"}).unwrap();
-    let triangles = get!(data, 'iter "loop_triangles")
+    data2.calc_loop_triangles();
+    let triangles = data2.loop_triangles().iter()
         .map(|tri| Triangle {
-            loops: from_bpy_array(get!(tri, 'attr "loops")),
-            polygon: get!(tri, 'attr "polygon_index"),
+            loops: tri.loops(),
+            polygon: tri.polygon_index()
         })
         .collect();
 
-    data.call_method0(intern!{data.py(), "calc_normals_split"}).unwrap();
+    data2.calc_normals_split();
 
-    let vertex_groups = vgroups_from_bpy_verts(data);
+    let vertex_groups = vgroups_from_bpy_verts(&data2);
 
     let mut vertex_colors = BTreeMap::new();
     let mut faceloop_colors = BTreeMap::new();
-    for att in get!(data, 'iter "attributes") {
+    for att in get!(data2.as_pyany(), 'iter "attributes") {
         let data_type = get!(att, 'attr "data_type");
         let data = match data_type {
             "FLOAT_COLOR" => get!(att, 'iter "data")
@@ -170,18 +137,18 @@ fn mesh_from_bpy_mesh(data: &PyAny) -> model_ir::Mesh {
         })
         .collect::<BTreeMap<_,_>>();
 
-    let tangents = if faceloop_uvs.is_empty() { // and thus tangent data will be invalid
-        TangentLayer::Normals(get!(data, 'iter "loops")
-            .map(|lp| vek3f_from_bpy_vec(get!(lp, 'attr "normal")))
+    let tangents = if faceloop_uvs.is_empty() { // and 
+        TangentLayer::Normals(data2.loops().iter()
+            .map(|lp| lp.normal())
             .collect()
         )
     }
     else { // We have tangents!
-        TangentLayer::Tangents(get!(data, 'iter "loops")
+        TangentLayer::Tangents(data2.loops().iter()
             .map(|lp| Tangent {
-                normal: vek3f_from_bpy_vec(get!(lp, 'attr "normal")),
-                tangent: vek3f_from_bpy_vec(get!(lp, 'attr "tangent")),
-                bitangent: vek3f_from_bpy_vec(get!(lp, 'attr "bitangent"))
+                normal: lp.normal(),
+                tangent: lp.tangent(),
+                bitangent: lp.bitangent(),
             })
             .collect()
         )
@@ -213,17 +180,16 @@ fn mesh_from_bpy_mesh(data: &PyAny) -> model_ir::Mesh {
     }
 }
 
-fn vgroups_from_bpy_verts(data: &PyAny) -> VertexGroups {
-    let bpy_verts = data.getattr(intern!{data.py(), "vertices"}).unwrap();
-    let vlen = bpy_verts.len().unwrap();
+fn vgroups_from_bpy_verts(data: &bpy::Mesh) -> VertexGroups {
+    let bpy_verts = data.vertices();
+    let vlen = bpy_verts.len();
 
     let mut out = VertexGroups::with_capacity(vlen, 3);
-    for bv in bpy_verts.iter().unwrap() {
-        let bv = bv.unwrap();
-        let groups = get!(bv, 'iter "groups")
+    for bv in bpy_verts.iter() {
+        let groups = bv.groups().into_iter()
             .map(|grp| Weight {
-                group: get!(grp, 'attr "group"),
-                weight: get!(grp, 'attr "weight"),
+                group: grp.group(),
+                weight: grp.weight(),
             });
         out.add_for_vertex(groups)
     }
@@ -262,23 +228,22 @@ impl<'py> TemporaryMesh<'py> {
             mo.setattr(intern!{mo.py(), "show_viewport"}, false).unwrap();
         }
 
-
         let depsgraph = env.b_c_evaluated_depsgraph_get().unwrap();
         let evaluated_obj = object.evaluated_get(depsgraph);
-        let mesh = evaluated_obj.to_mesh(true, depsgraph).unwrap();
+        let mesh = evaluated_obj.to_mesh(true, depsgraph);
 
-        if mesh.getattr(intern!(mesh.py(), "uv_layers")).unwrap().len().unwrap() > 0 {
+        if mesh.as_pyany().getattr(intern!(mesh.py(), "uv_layers")).unwrap().len().unwrap() > 0 {
             // Calculate the tangents here, because this can fail if the mesh still has ngons,
             // and this is where we make a new mesh anyway
-            match mesh.call_method0(intern!{mesh.py(), "calc_tangents"}) {
+            match mesh.calc_tangents() {
                 Ok(_) => (),
                 Err(_) => {
-                    let bm = bpy_binding::bmesh::new(mesh.py()).unwrap();
-                    bm.from_mesh(mesh).unwrap();
+                    let bm = bpy::bmesh::new(mesh.py()).unwrap();
+                    bm.from_mesh(mesh.as_pyany()).unwrap();
                     let faces = bm.faces().unwrap();
                     env.bmesh_ops.triangulate(&bm, faces).unwrap();
-                    bm.to_mesh(mesh).unwrap();
-                    mesh.call_method0(intern!{mesh.py(), "calc_tangents"}).unwrap();
+                    bm.to_mesh(mesh.as_pyany()).unwrap();
+                    mesh.calc_tangents().unwrap();
                 },
             }
         }
@@ -288,7 +253,7 @@ impl<'py> TemporaryMesh<'py> {
         }
         
         TemporaryMesh {
-            mesh,
+            mesh: mesh.as_pyany(),
             object: evaluated_obj,
         }
     }
