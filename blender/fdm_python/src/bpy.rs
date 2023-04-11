@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 
-use pyo3::types::{PyDict, PySequence};
+use pd2tools_macros::WrapsPyAny;
+use pyo3::types::PyDict;
 use pyo3::{prelude::*, intern, AsPyPointer};
 type Vec2f = vek::Vec2<f32>;
 type Vec3f = vek::Vec3<f32>;
@@ -21,42 +22,16 @@ macro_rules! get {
     };
 }
 
-pub trait GilCarrier<'py> {
+pub trait WrapsPyAny<'py> {
     fn py(&self) -> Python<'py>;
+    fn as_ptr(&self) -> *mut pyo3::ffi::PyObject;
+    fn as_pyany(&self) -> &'py PyAny;
 }
 
 macro_rules! bpy_struct_wrapper {
     ($name:ident) => {
-        #[derive(Copy,Clone)]
+        #[derive(Copy,Clone,WrapsPyAny)]
         pub struct $name<'py>(&'py PyAny);
-        impl<'py> $name<'py> {
-            pub fn new(r: &'py PyAny) -> Self {
-                Self(r)
-            }
-        
-            #[allow(unused)]
-            pub fn as_ptr(&self) -> *mut pyo3::ffi::PyObject { self.0.as_ptr() }
-            #[allow(unused)]
-            pub fn as_pyany(&self) -> &'py PyAny { self.0 }
-        }
-        impl<'py> GilCarrier<'py> for $name<'py> {
-            fn py(&self) -> Python<'py> { self.0.py() }
-        }
-        impl<'py> FromPyObject<'py> for $name<'py> {
-            fn extract(ob: &'py PyAny) -> PyResult<Self> {
-                Ok(Self::new(ob))
-            }
-        }
-        impl<'py> IntoPy<PyObject> for $name<'py> {
-            fn into_py(self, py: Python<'_>) -> PyObject {
-                self.0.into_py(py)
-            }
-        }
-        impl<'py> pyo3::conversion::ToPyObject for $name<'py> {
-            fn to_object(&self, py: Python<'_>) -> PyObject {
-                self.0.into_py(py)
-            }
-        }
         //impl<'py> std::ops::Deref for $name<'py> {
         //    type Target = PyAny;
         //
@@ -163,6 +138,20 @@ pub trait ArrayPropCollection: PropCollection + std::ops::Index<usize> {
     fn get(&self, key: usize) -> Option<Self::Item>;
 }
 
+/// Types that wrap an array we could use directly
+/// Unsafe because to implement this, `as_data_pointer` and `len` have to add up to a valid slice.
+/// Since they come from outside, the compiler can't check that.
+pub unsafe trait PodArray {
+    type Item: bytemuck::Pod;
+    
+    fn as_data_pointer(&self) -> *const Self::Item;
+    fn len(&self) -> usize;
+    fn as_slice(&self) -> &[Self::Item];
+    fn to_vec(&self) -> Vec<Self::Item> {
+        Vec::from(self.as_slice())
+    }
+}
+
 macro_rules! bpy_collection {
     ($name:ident, 'array $item:ty) => {
         bpy_struct_wrapper!($name);
@@ -180,6 +169,24 @@ macro_rules! bpy_collection {
             }
         }
     }
+}
+
+//#[derive(Copy,Clone)]
+//struct BpyCollection<'py, T>(&'py PyAny, PhantomData<T>);
+#[derive(Copy,Clone,WrapsPyAny)]
+pub struct BpyCollection<'py, T>(&'py PyAny, PhantomData<T>);
+impl<'py,T: FromPyObject<'py>+Clone> IntoIterator for BpyCollection<'py,T>{
+  type Item = T;
+  type IntoIter = TypedPyIterator<'py, T>;
+  fn into_iter(self) -> Self::IntoIter {
+    TypedPyIterator(self.0.iter().unwrap(),PhantomData)
+  }
+}
+impl<'py,T: FromPyObject<'py>+Clone> PropCollection for BpyCollection<'py,T> {
+  fn len(&self) -> usize { self.0.len().unwrap() }
+  fn iter(&self) -> TypedPyIterator<Self::Item> {
+    TypedPyIterator(self.0.iter().unwrap(),PhantomData)
+  }
 }
 
 pub struct TypedPyIterator<'py, T>(&'py pyo3::types::PyIterator, PhantomData<T>);
@@ -259,15 +266,9 @@ where
 }
 
 /// Blender Object
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, WrapsPyAny)]
 pub struct Object<'py>(&'py PyAny);
 impl<'py> Object<'py> {
-    pub fn new(r: &'py PyAny) -> Object<'py> {
-        Self(r)
-    }
-
-    pub fn as_ptr(&self) -> *mut pyo3::ffi::PyObject { self.0.as_ptr() }
-
     attr_get!(name: "name" => &str );
     attr_get!(r#type: "type" => ObjectType );
     attr_get!(parent: "parent" => Option<Object>);
@@ -277,9 +278,9 @@ impl<'py> Object<'py> {
     attr_get!(matrix_world: "matrix_world" => vek::Mat4<f32> as mat4_from_bpy_matrix);
     attr_get!(data: "data" => &PyAny);
 
-    iter_get!(iter_modifiers: "modifiers");
-    iter_get!(iter_vertex_groups: "vertex_groups");
-    iter_get!(iter_material_slots: "material_slots");
+    iter_get!(iter_modifiers: "modifiers" => Modifier<'py>);
+    iter_get!(iter_vertex_groups: "vertex_groups" => VertexGroup);
+    iter_get!(iter_material_slots: "material_slots" => MaterialSlot);
     iter_get!(iter_children_recursive: "children_recursive" => Object);
 
     method!(evaluated_get: "evaluated_get"(depsgraph: &'py PyAny) -> Object<'py>);
@@ -288,14 +289,9 @@ impl<'py> Object<'py> {
         args.set_item("preserve_all_data_layers", preserve_all_data_layers).unwrap();
         args.set_item("depsgraph", depsgraph).unwrap();
         let d = self.0.call_method(intern!(self.0.py(), "to_mesh"), (), Some(args)).unwrap();
-        Mesh::new(d)
+        Mesh::wrap(d)
     }
     method!(to_mesh_clear: "to_mesh_clear"());
-}
-impl<'py> FromPyObject<'py> for Object<'py> {
-    fn extract(ob: &'py PyAny) -> PyResult<Self> {
-        Ok(Self::new(ob))
-    }
 }
 
 bpy_str_enum!{
@@ -330,9 +326,24 @@ bpy_str_enum!{
     }
 }
 
+bpy_struct_wrapper!(VertexGroup);
+impl<'py> VertexGroup<'py> {
+    attr_get!(name: "name" => &'py str);
+}
+
+bpy_struct_wrapper!(MaterialSlot);
+impl<'py> MaterialSlot<'py> {
+    attr_get!(material: "material" => Option<Material<'py>>);
+}
+
+bpy_struct_wrapper!(Material);
+impl<'py> Material<'py> {
+    attr_get!(name: "name" => &'py str);
+}
+
 pub struct Bone<'py>(&'py PyAny);
 impl<'py> Bone<'py> {
-    pub fn new(r: &'py PyAny) -> Self {
+    pub fn wrap(r: &'py PyAny) -> Self {
         Self(r)
     }
     attr_get!(name: "name" => &str );
@@ -340,11 +351,11 @@ impl<'py> Bone<'py> {
     attr_get!(tail: "tail" => Vec3f as vek3f_from_bpy_vec);
     attr_get!(parent: "parent" => Option<Bone>);
     attr_get!(matrix_local: "matrix_local" => vek::Mat4<f32> as mat4_from_bpy_matrix);
-    attr_get!(matrix: "matrix" => &PyAny);
+    attr_get!(matrix: "matrix" => BMathMatrix);
 }
 impl<'py> FromPyObject<'py> for Bone<'py> {
     fn extract(ob: &'py PyAny) -> PyResult<Self> {
-        Ok(Self::new(ob))
+        Ok(Self::wrap(ob))
     }
 }
 
@@ -363,6 +374,8 @@ impl<'py> Mesh<'py> {
     attr_get!(polygons: "polygons" => MeshPolygons);
     attr_get!(loop_triangles: "loop_triangles" => MeshLoopTriangles);
     attr_get!(attributes: "attributes" => AttributeGroup);
+    attr_get!(uv_layers: "uv_layers" => UvLoopLayers);
+    attr_get!(diesel_settings: "diesel" => &'py PyAny);
     iter_get!(iter_vertices: "vertices" => MeshVertex);
 
     method!(calc_loop_triangles: "calc_loop_triangles"());
@@ -375,6 +388,7 @@ bpy_collection!(MeshLoops, 'array MeshLoop<'py>);
 bpy_collection!(MeshPolygons, 'array MeshPolygon<'py>);
 bpy_collection!(MeshLoopTriangles, 'array MeshLoopTriangle<'py>);
 bpy_collection!(AttributeGroup, 'array Attribute<'py>);
+bpy_collection!(UvLoopLayers, 'array MeshUvLoopLayer<'py>);
 
 bpy_struct_wrapper!(MeshVertex);
 impl<'py> MeshVertex<'py> {
@@ -414,7 +428,107 @@ impl<'py> MeshLoopTriangle<'py> {
 bpy_struct_wrapper!(Attribute);
 impl<'py> Attribute<'py> {
     attr_get!(name: "name" => &str);
+    attr_get!(domain: "domain" => AttributeDomain);
+    attr_get!(data_type: "data_type" => AttributeType);
+
+    // TODO: Make this actually typesafe
+    attr_get!(bool_data: "data" => BpyCollection<AttributeScalarValue<bool>>);
+    attr_get!(i8_data: "data" => BpyCollection<AttributeScalarValue<u8>>);
+    attr_get!(vec2f_data: "data" => BpyCollection<AttributeVek2fValue>);
+    attr_get!(f32_data: "data" => BpyCollection<AttributeScalarValue<f32>>);
+    attr_get!(vec3f_data: "data" => BpyCollection<AttributeVek3fValue>);
+    attr_get!(i32_data: "data" => BpyCollection<AttributeScalarValue<i32>>);
+    attr_get!(str_data: "data" => BpyCollection<AttributeScalarValue<&str>>);
+    attr_get!(f32_color_data: "data" => BpyCollection<AttributeColorValue>);
+    attr_get!(u8_color_data: "data" => BpyCollection<AttributeColorValue>);
 }
+
+#[derive(Copy, Clone, WrapsPyAny)]
+pub struct AttributeScalarValue<'py,T>(&'py PyAny, PhantomData<T>);
+impl<'py, T: FromPyObject<'py>> AttributeScalarValue<'py, T> {
+    attr_get!(value: "value" => T);
+}
+
+#[derive(Copy, Clone, WrapsPyAny)]
+pub struct AttributeColorValue<'py>(&'py PyAny);
+impl<'py> AttributeColorValue<'py> {
+    attr_get!(value: "color" => Vec4f as from_bpy_array);
+}
+
+#[derive(Copy, Clone, WrapsPyAny)]
+pub struct AttributeVek2fValue<'py>(&'py PyAny);
+impl<'py> AttributeVek2fValue<'py> {
+    attr_get!(value: "vector" => Vec2f as vek2f_from_bpy_vec);
+}
+
+#[derive(Copy, Clone, WrapsPyAny)]
+pub struct AttributeVek3fValue<'py>(&'py PyAny);
+impl<'py> AttributeVek3fValue<'py> {
+    attr_get!(value: "vector" => Vec3f as vek3f_from_bpy_vec);
+}
+
+bpy_str_enum!{
+    pub enum AttributeDomain {
+        Point = "POINT",
+        Edge = "EDGE",
+        Face = "FACE",
+        Faceloop = "CORNER",
+        Spline = "CURVE",
+        Instance = "INSTANCE",
+    }
+}
+bpy_str_enum! {
+    pub enum AttributeType {
+        F32 = "FLOAT",
+        I32 = "INT",
+        Vec3f = "FLOAT_VECTOR",
+        FloatColor = "FLOAT_COLOR",
+        ByteColor = "BYTE_COLOR",
+        String = "STRING",
+        Bool = "BOOLEAN",
+        Vec2f = "FLOAT2",
+        I8 = "INT8",
+    }
+}
+
+#[derive(Copy, Clone, WrapsPyAny)]
+pub struct MeshUvLoopLayer<'py>(&'py PyAny);
+impl<'py> MeshUvLoopLayer<'py> {
+    attr_get!(name: "name" => &str);
+    attr_get!(uv: "uv" => BpyCollection<AttributeVek2fValue>);
+}
+
+bpy_struct_wrapper!(Modifier);
+impl<'py> Modifier<'py> {
+    attr_get!(show_viewport: "show_viewport" => bool);
+    
+    pub fn set_show_viewport(&self, vis: bool) {
+        self.as_pyany().setattr(intern!(self.py(), "show_viewport"), vis).unwrap()
+    }
+
+    pub fn try_into_armature(self) -> Option<ArmatureModifier<'py>> {
+        let typ: &str = get!(self.as_pyany(), 'attr "type");
+        if typ == "ARMATURE" {
+            Some(ArmatureModifier::wrap(self.as_pyany()))
+        }
+        else {
+            None
+        }
+    }
+}
+
+bpy_struct_wrapper!(ArmatureModifier);
+impl<'py> ArmatureModifier<'py> {
+    attr_get!(show_viewport: "show_viewport" => bool);
+    
+    pub fn set_show_viewport(&self, vis: bool) {
+        self.as_pyany().setattr(intern!(self.py(), "show_viewport"), vis).unwrap()
+    }
+
+    attr_get!(object: "object" => Object);
+}
+
+
 
 pub mod bmesh {
     use pyo3::{intern, prelude::*};
@@ -473,5 +587,13 @@ pub mod bmesh {
             args.set_item("faces", faces).unwrap();
             self.0.call_method(intern!{self.1, "triangulate"}, (mesh,), Some(args))
         }
+    }
+}
+
+bpy_struct_wrapper!(BMathMatrix);
+impl<'py> BMathMatrix<'py> {
+    pub fn to_quaternion(&self) -> Quaternion {
+        let quat = self.as_pyany().call_method0(intern!{self.py(), "to_quaternion"}).unwrap();
+        quaternion_from_bpy_quat(quat)
     }
 }

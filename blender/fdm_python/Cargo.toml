@@ -17,8 +17,9 @@ features = ["extension-module", "abi3-py37"]
 [dependencies]
 pd2tools-rust = { path = "../.." }
 pd2tools-macros = { path = "../../macros" }
-vek = "0.15.1"
+vek = { version = "0.15.10", features = [ "bytemuck" ] }
 slotmap = "1.0.6"
 thiserror = "1.0.25"
 itertools = "0.10.3"
 enumflags2 = "0.7.5"
+bytemuck = "1.13.1"

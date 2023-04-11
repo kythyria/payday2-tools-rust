@@ -70,7 +70,7 @@ pub struct PyEnv<'py> {
     pub python: Python<'py>,
     pub bpy_context: &'py PyAny,
     pub bmesh: &'py PyModule,
-    pub bmesh_ops: bpy_binding::bmesh::Ops<'py>,
+    pub bmesh_ops: bpy::bmesh::Ops<'py>,
     id_fn: &'py PyAny,
 }
 
@@ -86,7 +86,7 @@ impl<'py> PyEnv<'py> {
                 .unwrap(),
             bmesh: python.import("bmesh")
                 .unwrap(),
-            bmesh_ops: bpy_binding::bmesh::Ops::import(python)
+            bmesh_ops: bpy::bmesh::Ops::import(python)
         }
     }
     pub fn id(&self, pyobj: &'py PyAny) -> u64 {
@@ -95,67 +95,5 @@ impl<'py> PyEnv<'py> {
 
     pub fn b_c_evaluated_depsgraph_get(&self) -> PyResult<&PyAny> {
         self.bpy_context.call_method0(pyo3::intern!{self.python, "evaluated_depsgraph_get"})
-    }
-}
-
-mod bpy_binding {
-    pub mod bmesh {
-        use pyo3::{intern, prelude::*};
-
-        pub fn new<'py>(py: Python<'py>) -> PyResult<BMesh<'py>> {
-            BMesh::new(py)
-        }
-
-        pub struct BMesh<'py>(&'py PyAny, Python<'py>);
-        impl Drop for BMesh<'_> {
-            fn drop(&mut self) {
-                match self.0.call_method0(intern!{self.1, "free"}) {
-                    _ => ()
-                }
-            }
-        }
-        impl<'py> BMesh<'py> {
-            pub fn new(py: Python<'py>) -> PyResult<BMesh<'py>> {
-                py.import("bmesh")
-                    .unwrap()
-                    .call_method0(intern!{py, "new"})
-                    .map(|bm| BMesh(bm, py))
-            }
-            pub fn free(self) { }
-            pub fn from_mesh(&self, mesh: &'py PyAny) -> PyResult<()> {
-                self.0.call_method1(intern!{self.1, "from_mesh"}, (mesh,))
-                    .map(|_|())
-            }
-            pub fn faces(&self) -> PyResult<&'py PyAny> {
-                self.0.getattr(intern!{self.1, "faces"})
-            }
-            pub fn to_mesh(&self, mesh: &'py PyAny) -> PyResult<()> {
-                self.0.call_method1(intern!{self.1, "to_mesh"}, (mesh,))
-                    .map(|_|())
-            }
-        }
-        impl IntoPy<pyo3::Py<pyo3::PyAny>> for BMesh<'_> {
-            fn into_py(self, _py: Python<'_>) -> pyo3::Py<pyo3::PyAny> {
-                self.0.into()
-            }
-        }
-        impl IntoPy<pyo3::Py<pyo3::PyAny>> for &BMesh<'_> {
-            fn into_py(self, _py: Python<'_>) -> pyo3::Py<pyo3::PyAny> {
-                self.0.into()
-            }
-        }
-
-        #[derive(Clone, Copy)]
-        pub struct Ops<'py>(&'py PyModule, Python<'py>);
-        impl<'py> Ops<'py> {
-            pub fn import(py: Python<'py>) -> Self {
-                Self(py.import("bmesh.ops").unwrap(), py)
-            }
-            pub fn triangulate(&self, mesh: &'py BMesh<'py>, faces: &'py PyAny) -> PyResult<&PyAny> {
-                let args = pyo3::types::PyDict::new(self.1);
-                args.set_item("faces", faces).unwrap();
-                self.0.call_method(intern!{self.1, "triangulate"}, (mesh,), Some(args))
-            }
-        }
     }
 }

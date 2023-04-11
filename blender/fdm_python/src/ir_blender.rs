@@ -1,16 +1,13 @@
 use std::collections::{HashMap, BTreeMap};
 use std::rc::Rc;
-use pyo3::{prelude::*, intern, AsPyPointer};
+use pyo3::{prelude::*, intern};
 use vek::Mat4;
-use crate::bpy::{PropCollection, GilCarrier};
+use crate::bpy::{PropCollection, WrapsPyAny};
 use crate::{ PyEnv, model_ir, bpy };
 use model_ir::*;
 
-type Vec2f = vek::Vec2<f32>;
 type Vec3f = vek::Vec3<f32>;
-type Vec4f = vek::Vec4<f32>;
 type Transform = vek::Transform<f32, f32, f32>;
-type Quaternion = vek::Quaternion<f32>;
 
 type PyObjPtr = *mut pyo3::ffi::PyObject;
 
@@ -27,47 +24,8 @@ macro_rules! get {
     };
 }
 
-fn vek2f_from_tuple(inp: (f32, f32)) -> Vec2f {
-    inp.into()
-}
-
-fn vek3f_from_tuple(inp: (f32, f32, f32)) -> Vec3f {
-    inp.into()
-}
-
-fn vek2f_from_bpy_vec(data: &PyAny) -> Vec2f {
-    let tuple = data.call_method0(intern!(data.py(), "to_tuple")).unwrap().extract().unwrap();
-    vek2f_from_tuple(tuple)
-}
-
-fn vek3f_from_bpy_vec(data: &PyAny) -> Vec3f {
-    let tuple = data.call_method0(intern!(data.py(), "to_tuple")).unwrap().extract().unwrap();
-    vek3f_from_tuple(tuple)
-}
-
-fn quaternion_from_bpy_quat(bq: &PyAny) -> Quaternion {
-    let x: f32 = get!(bq, 'attr "x");
-    let y: f32 = get!(bq, 'attr "y");
-    let z: f32 = get!(bq, 'attr "z");
-    let w: f32 = get!(bq, 'attr "w");
-    Quaternion::from_xyzw(x, y, z, w)
-}
-
-fn from_bpy_array<const N:usize,T,E>(data: &PyAny) -> T
-where
-    T: From<[E; N]>,
-    E: Default + Copy + for<'a> FromPyObject<'a>
-{
-    let mut a: [E; N] = [E::default(); N];
-    for i in 0..N {
-        a[i] = data.get_item(i).unwrap().extract().unwrap();
-    }
-    T::from(a)
-}
-
-fn mesh_from_bpy_mesh(data: &PyAny) -> model_ir::Mesh {
-    let data2 = bpy::Mesh::new(data);
-    let vertices = data2.iter_vertices()
+fn mesh_from_bpy_mesh(data: bpy::Mesh) -> model_ir::Mesh {
+    let vertices = data.iter_vertices()
         .map(|vtx| vtx.co())
         .collect();
 
@@ -75,14 +33,14 @@ fn mesh_from_bpy_mesh(data: &PyAny) -> model_ir::Mesh {
     //    .map(|ed| get!(env, ed, 'attr "vertices"))
     //    .collect();
 
-    let faceloops = data2.loops().iter()
+    let faceloops = data.loops().iter()
         .map(|lp| Faceloop {
             vertex: lp.vertex_index(),
             edge: lp.edge_index()
         })
         .collect();
     
-    let polygons = data2.polygons().iter()
+    let polygons = data.polygons().iter()
         .map(|poly|{
             Polygon {
                 base: poly.loop_start(),
@@ -92,59 +50,51 @@ fn mesh_from_bpy_mesh(data: &PyAny) -> model_ir::Mesh {
         })
         .collect();
 
-    data2.calc_loop_triangles();
-    let triangles = data2.loop_triangles().iter()
+    data.calc_loop_triangles();
+    let triangles = data.loop_triangles().iter()
         .map(|tri| Triangle {
             loops: tri.loops(),
             polygon: tri.polygon_index()
         })
         .collect();
 
-    data2.calc_normals_split();
+    data.calc_normals_split();
 
-    let vertex_groups = vgroups_from_bpy_verts(&data2);
+    let vertex_groups = vgroups_from_bpy_verts(&data);
 
     let mut vertex_colors = BTreeMap::new();
     let mut faceloop_colors = BTreeMap::new();
-    for att in get!(data2.as_pyany(), 'iter "attributes") {
-        let data_type = get!(att, 'attr "data_type");
-        let data = match data_type {
-            "FLOAT_COLOR" => get!(att, 'iter "data")
-                .map(|i| from_bpy_array(get!(i, 'attr "color")))
-                .collect::<Vec<Vec4f>>(),
-            "BYTE_COLOR" => get!(att, 'iter "data")
-                .map(|i| from_bpy_array(get!(i, 'attr "color")))
-                .collect::<Vec<Vec4f>>(),
-            _ => continue
-        };
+    let mut faceloop_uvs = BTreeMap::new();
 
-        let name: String = get!(att, 'attr "name");
-
-        match get!(att, 'attr "domain") {
-            "POINT" => vertex_colors.insert(name, data),
-            "CORNER" => faceloop_colors.insert(name, data),
-            _ => panic!("Implausible vcol domain")
+    for att in data.attributes() {
+        use bpy::{AttributeDomain as AD, AttributeType as AT};
+        match (att.domain(), att.data_type()) {
+            (AD::Point, AT::ByteColor) |
+            (AD::Point, AT::FloatColor) => {
+                let data = att.f32_color_data().iter().map(|i| i.value()).collect();
+                vertex_colors.insert(att.name().to_owned(), data);
+            },
+            (AD::Faceloop, AT::ByteColor) |
+            (AD::Faceloop, AT::FloatColor) => {
+                let data = att.f32_color_data().iter().map(|i| i.value()).collect();
+                faceloop_colors.insert(att.name().to_owned(), data);
+            },
+            (_,_) => continue
         };
     }
 
-    let faceloop_uvs = get!(data, 'iter "uv_layers")
-        .map(|uvl| {
-            let name: String = get!(uvl, 'attr "name");
-            let uvs: Vec<Vec2f> = get!(uvl, 'iter "data")
-                .map(|uv| vek2f_from_bpy_vec(get!(uv, 'attr "uv")))
-                .collect();
-            (name, uvs)
-        })
-        .collect::<BTreeMap<_,_>>();
+    for uv in data.uv_layers() {
+        faceloop_uvs.insert(uv.name().into(), uv.uv().iter().map(|i| i.value()).collect());
+    }
 
     let tangents = if faceloop_uvs.is_empty() { // and 
-        TangentLayer::Normals(data2.loops().iter()
+        TangentLayer::Normals(data.loops().iter()
             .map(|lp| lp.normal())
             .collect()
         )
     }
     else { // We have tangents!
-        TangentLayer::Tangents(data2.loops().iter()
+        TangentLayer::Tangents(data.loops().iter()
             .map(|lp| Tangent {
                 normal: lp.normal(),
                 tangent: lp.tangent(),
@@ -155,7 +105,7 @@ fn mesh_from_bpy_mesh(data: &PyAny) -> model_ir::Mesh {
     };
 
     let mut diesel = DieselMeshSettings::default();
-    let bpy_diesel: &PyAny = get!(data, 'attr "diesel");
+    let bpy_diesel = data.diesel_settings();
     if !bpy_diesel.is_none() {
         diesel.cast_shadows = get!(bpy_diesel, 'attr "cast_shadows");
         diesel.receive_shadows = get!(bpy_diesel, 'attr "receive_shadows");
@@ -196,11 +146,8 @@ fn vgroups_from_bpy_verts(data: &bpy::Mesh) -> VertexGroups {
     out
 }
 
-fn armature_modifiers_of<'py>(object: &'py bpy::Object<'py>) -> impl Iterator<Item=&'py PyAny> {
-    object.iter_modifiers().filter(|mo|{
-        let mty: &str = get!(mo, 'attr "type");
-        mty == "ARMATURE"
-    })
+fn armature_modifiers_of<'py>(object: &'py bpy::Object<'py>) -> impl Iterator<Item=bpy::ArmatureModifier> {
+    object.iter_modifiers().filter_map(|mo| mo.try_into_armature())
 }
 
 /// Wrapper for an evaluated, triangulated mesh that frees it automatically
@@ -209,7 +156,7 @@ fn armature_modifiers_of<'py>(object: &'py bpy::Object<'py>) -> impl Iterator<It
 /// pile up dangerously fast? IDK, but it does it so we're cargo culting. We also borrow the
 /// way it disables armatures, there's probably a better way.
 struct TemporaryMesh<'py> {
-    mesh: &'py PyAny,
+    mesh: bpy::Mesh<'py>,
     object: bpy::Object<'py>,
 }
 impl<'py> TemporaryMesh<'py> {
@@ -222,10 +169,10 @@ impl<'py> TemporaryMesh<'py> {
         //if modifier.type == 'ARMATURE':
         //    armature_modifiers[idx] = modifier.show_viewport
         //    modifier.show_viewport = False
-        let mut armature_modifiers = Vec::<(&PyAny, bool)>::new();
+        let mut armature_modifiers = Vec::<(bpy::ArmatureModifier, bool)>::new();
         for mo in armature_modifiers_of(&object) {
-            armature_modifiers.push((mo, get!(mo, 'attr "show_viewport")));
-            mo.setattr(intern!{mo.py(), "show_viewport"}, false).unwrap();
+            armature_modifiers.push((mo, mo.show_viewport()));
+            mo.set_show_viewport(false);
         }
 
         let depsgraph = env.b_c_evaluated_depsgraph_get().unwrap();
@@ -249,11 +196,11 @@ impl<'py> TemporaryMesh<'py> {
         }
 
         for (mo, vis) in armature_modifiers {
-            mo.setattr(intern!{mo.py(), "show_viewport"}, vis).unwrap();
+            mo.set_show_viewport(vis);
         }
         
         TemporaryMesh {
-            mesh: mesh.as_pyany(),
+            mesh,
             object: evaluated_obj,
         }
     }
@@ -265,11 +212,11 @@ impl Drop for TemporaryMesh<'_> {
         }
     }
 }
-impl std::ops::Deref for TemporaryMesh<'_> {
-    type Target = PyAny;
+impl<'py> std::ops::Deref for TemporaryMesh<'py> {
+    type Target = bpy::Mesh<'py>;
 
     fn deref(&self) -> &Self::Target {
-        self.mesh
+        &self.mesh
     }
 }
 
@@ -362,7 +309,7 @@ impl<'py> SceneBuilder<'py>
         }
         
         if let Some(mo) = armature_modifiers_of(&object).next() {
-            let skel: &PyAny = get!(mo, 'attr "object");
+            let skel = mo.object();
             let model_to_world = object.matrix_world();
             self.skin_requests.push((oid, skel.as_ptr(), model_to_world));
         }
@@ -372,23 +319,21 @@ impl<'py> SceneBuilder<'py>
 
     fn add_bpy_mesh_instance(&mut self, object: &bpy::Object<'py>) -> Mesh {
         let data = TemporaryMesh::from_depgraph(self.env, &object);
-        let mut mesh = mesh_from_bpy_mesh(&data);
+        let mut mesh = mesh_from_bpy_mesh(*data);
 
         mesh.vertex_groups.names = object.iter_vertex_groups()
-            .map(|vg| get!(vg, 'attr "name"))
+            .map(|vg| vg.name().into() )
             .collect();
 
         let mats = object.iter_material_slots() 
-            .map(|ms| get!(ms, 'attr "material"))
-            .collect::<Vec<&PyAny>>();
+            .map(|ms| ms.material())
+            .collect::<Vec<_>>();
 
         mesh.material_names.clear();
         mesh.material_names.extend(
             mats.iter()
             .map(|mat| {
-                if mat.is_none() { return None }
-                let st: String = get!(mat, 'attr "name");
-                Some(Rc::from(st))
+                mat.map(|m| Rc::from(m.name()))
             })
         );
 
@@ -396,21 +341,20 @@ impl<'py> SceneBuilder<'py>
         mesh.material_ids.extend(
             mats.iter()
             .map(|mat| {
-                if mat.is_none() { return None }
-                Some(self.add_bpy_material(mat))
+                mat.map(|m| self.add_bpy_material(m))
             })
         );
 
         mesh
     }
 
-    fn add_bpy_material(&mut self, mat: &PyAny) -> MaterialKey {
+    fn add_bpy_material(&mut self, mat: bpy::Material) -> MaterialKey {
         if self.bpy_mat_to_matid.contains_key(&mat.as_ptr()) {
             return self.bpy_mat_to_matid[&mat.as_ptr()]
         }
 
         let new_mat = Material {
-            name: get!(mat, 'attr "name"),
+            name: mat.name().into(),
         };
 
         self.scene.materials.insert(new_mat)
@@ -419,7 +363,7 @@ impl<'py> SceneBuilder<'py>
     fn add_bpy_armature_bones(&mut self, object: &bpy::Object<'py>) -> BindPoseKey {
         let mut joints = Vec::new();
 
-        let data = bpy::Armature::new(object.data());
+        let data = bpy::Armature::wrap(object.data());
         for bpy_bone in data.iter_bones() {
             // For some reason things being parented to bone tails *isn't* a display trick.
             // Bones really are stored that way.
@@ -427,9 +371,7 @@ impl<'py> SceneBuilder<'py>
             // And the rotation comes from the `matrix` property.
             let bone_name = bpy_bone.name();
             let head = bpy_bone.head();
-            let rot_mat = bpy_bone.matrix();
-            let rot = rot_mat.call_method0(intern!{rot_mat.py(), "to_quaternion"}).unwrap();
-            let rot = quaternion_from_bpy_quat(rot);
+            let rot= bpy_bone.matrix().to_quaternion();
             let parent = bpy_bone.parent();
             let parent_tail = match &parent {
                 None => Vec3f::new(0.0, 0.0, 0.0),
@@ -587,7 +529,7 @@ pub fn scene_from_bpy_selected(env: &PyEnv, data: &PyAny, meters_per_unit: f32, 
     }
     
 
-    let data = bpy::Object::new(data);
+    let data = bpy::Object::wrap(data);
     let active = scene.add_bpy_object(data);
     scene.set_active_object(active);
 

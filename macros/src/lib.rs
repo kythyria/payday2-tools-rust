@@ -90,7 +90,7 @@ pub fn derive_enum_from_data(item: proc_macro::TokenStream) -> proc_macro::Token
                     let generics = &input.generics;
             
                     quote_spanned! { span => 
-                        impl#generics From<#from_type> for #enum_type#generics {
+                        impl #generics From<#from_type> for #enum_type #generics {
                             fn from(src: #from_type) -> Self {
                                 #enum_type::#variant_name(src)
                             }
@@ -151,4 +151,56 @@ pub fn tuple_itemreaders(item: proc_macro::TokenStream) -> proc_macro::TokenStre
 
     let i = quote!{ #(#impls)* };
     i.into()
+}
+
+#[proc_macro_derive(WrapsPyAny)]
+pub fn derive_wraps_pyany(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let item = syn::parse_macro_input!(item as syn::DeriveInput);
+
+    let name = item.ident;
+    let generics = item.generics;
+    let lt = match generics.lifetimes().next() {
+        Some(lt) => &lt.lifetime,
+        None => return quote_spanned! {
+            generics.span() => compile_error!("Variants must have one item")
+        }.into(),
+    };
+    let vis = item.vis;
+    let has_types = generics.type_params().map(|tp| &tp.ident).next().is_some();
+    let phantom = if has_types {
+        quote! { , PhantomData }
+    }
+    else {
+        quote! { }
+    };
+
+    let (impl_generics, ty_generics, where_cl) = generics.split_for_impl();
+
+    quote!{
+        impl #impl_generics #name #ty_generics #where_cl {
+            #vis fn wrap(ob: & #lt PyAny) -> Self {
+                Self(ob #phantom)
+            }
+        }
+        impl #impl_generics WrapsPyAny<#lt> for #name #ty_generics #where_cl {
+            fn py(&self) -> Python<#lt> { self.0.py() }
+            fn as_ptr(&self) -> *mut pyo3::ffi::PyObject { self.0.as_ptr() }
+            fn as_pyany(&self) -> & #lt PyAny { self.0 }
+        }
+        impl #impl_generics pyo3::conversion::IntoPy<PyObject> for #name #ty_generics #where_cl{
+            fn into_py(self, py: Python<'_>) -> PyObject {
+                self.0.into_py(py)
+            }
+        }
+        impl #impl_generics pyo3::conversion::ToPyObject for #name #ty_generics #where_cl {
+            fn to_object(&self, py: Python<'_>) -> PyObject {
+                self.0.into_py(py)
+            }
+        }
+        impl #impl_generics pyo3::conversion::FromPyObject<#lt> for #name #ty_generics #where_cl {
+            fn extract(ob: & #lt PyAny) -> PyResult<Self> {
+                Ok(Self::wrap(ob))
+            }
+        }
+    }.into()
 }
