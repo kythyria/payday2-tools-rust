@@ -88,7 +88,7 @@ impl<'s, 'hi> SceneBuilder<'s, 'hi> {
     }
 
     fn add_mesh(&mut self, mesh: &fdm::MeshModel) -> ir::Mesh {
-        let passthrough_gp = match &self.fdm[mesh.geometry_provider] {
+        let passthrough_gp: &fdm::PassthroughGP = match &self.fdm[mesh.geometry_provider] {
             fdm::Section::PassthroughGP(pgp) => &*pgp,
             _ => panic!("GeoIP didn't point to a PassthroughGP")
         };

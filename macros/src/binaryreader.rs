@@ -111,11 +111,11 @@ fn rw_enum(item: &syn::DeriveInput, enumer: &syn::DataEnum) -> TokenStream {
         read_arms.push(quote!{
             #disc_value => {
                 #(#reader_statements);*;
-                Ok(#item_name::#variant_name#structor_body)
+                Ok(#item_name::#variant_name #structor_body)
             }
         });
         write_arms.push(quote!{
-            #item_name::#variant_name#structor_body => {
+            #item_name::#variant_name #structor_body => {
                 stream.write_item_as::<#disc_ty>(&#disc_value)?;
                 #(#writer_statements);*;
             }
@@ -160,11 +160,11 @@ fn rw_struct(name: &Ident, struc: &syn::DataStruct) -> TokenStream {
 
             fn read_from_stream<R: binaryreader::ReadExt>(stream: &mut R) -> Result<Self::Item, Self::Error> {
                 #(#reader_statements);*;
-                Ok(Self#structor_body)
+                Ok(Self #structor_body)
             }
 
             fn write_to_stream<W: binaryreader::WriteExt>(stream: &mut W, item: &Self::Item) -> Result<(), Self::Error> {
-                let Self#structor_body = item;
+                let Self #structor_body = item;
                 #(#writer_statements);*;
                 Ok(())
             }

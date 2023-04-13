@@ -2,7 +2,7 @@
 name = "pd2tools-rust"
 version = "0.1.0"
 authors = ["Kythyria Tieran <kythyria@berigora.net>"]
-edition = "2018"
+edition = "2021"
 default-run = "pd2tools"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

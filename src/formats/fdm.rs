@@ -73,15 +73,25 @@ macro_rules! make_document {
     (@conv $variantname:ident, $typename:ident) => {
         impl From<$typename> for Section {
             fn from(data: $typename) -> Self {
-                Self::$variantname(data)
+                Self::$variantname(Box::from(data))
             }
         }
 
-        impl TryFrom<Section> for $typename {
+        impl TryFrom<Section> for Box<$typename> {
             type Error = ();
-            fn try_from(data: Section) -> Result<$typename, Self::Error> {
+            fn try_from(data: Section) -> Result<Box<$typename>, Self::Error> {
                 match data {
-                    Section::$variantname(data) => Ok(data)
+                    Section::$variantname(data) => Ok(data),
+                    _ => Err(())
+                }
+            }
+        }
+
+        impl<'a> TryFrom<&'a Section> for &'a $typename {
+            type Error = ();
+            fn try_from(data: &Section) -> Result<&$typename, Self::Error> {
+                match &data {
+                    Section::$variantname(data) => Ok(data),
                     _ => Err(())
                 }
             }
