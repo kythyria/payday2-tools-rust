@@ -1,9 +1,10 @@
 mod py_ir;
-mod ir_reader_fdm;
+mod py_ir_reader_fdm;
 mod ir_writer_oil;
 mod model_ir;
 mod ir_blender;
 mod bpy;
+mod ir_reader_fdm;
 
 use pyo3::prelude::*;
 
@@ -43,7 +44,7 @@ fn pd2tools_fdm(_py: Python, m: &PyModule) -> PyResult<()> {
             Ok(s) => s
         };
 
-        let r = ir_reader_fdm::sections_to_ir(py, &sections, &hashlist, units_per_cm, framerate);
+        let r = py_ir_reader_fdm::sections_to_ir(py, &sections, &hashlist, units_per_cm, framerate);
         r.map_err(|e| {
             let mut es = String::new();
             pd2tools_rust::util::write_error_chain(&mut es, e).unwrap();
@@ -69,6 +70,7 @@ fn pd2tools_fdm(_py: Python, m: &PyModule) -> PyResult<()> {
 pub struct PyEnv<'py> {
     pub python: Python<'py>,
     pub bpy_context: &'py PyAny,
+    pub bpy_data: &'py PyAny,
     pub bmesh: &'py PyModule,
     pub bmesh_ops: bpy::bmesh::Ops<'py>,
     id_fn: &'py PyAny,
@@ -77,15 +79,13 @@ pub struct PyEnv<'py> {
 impl<'py> PyEnv<'py> {
     pub fn new(python: Python<'py>) -> PyEnv<'py> {
         let builtins = python.import("builtins").unwrap();
+        let bpy = python.import("bpy").unwrap();
         PyEnv {
             python,
             id_fn: builtins.getattr("id").unwrap(),
-            bpy_context: python.import("bpy")
-                .unwrap()
-                .getattr("context")
-                .unwrap(),
-            bmesh: python.import("bmesh")
-                .unwrap(),
+            bpy_context: bpy.getattr("context").unwrap(),
+            bpy_data: bpy.getattr("data").unwrap(),
+            bmesh: python.import("bmesh").unwrap(),
             bmesh_ops: bpy::bmesh::Ops::import(python)
         }
     }

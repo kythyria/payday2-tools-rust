@@ -69,6 +69,25 @@ macro_rules! make_document {
         <$typ as std::fmt::Debug>::fmt($data, $f)
     };
 
+    (@conv $variantname:ident, Unknown) => { };
+    (@conv $variantname:ident, $typename:ident) => {
+        impl From<$typename> for Section {
+            fn from(data: $typename) -> Self {
+                Self::$variantname(data)
+            }
+        }
+
+        impl TryFrom<Section> for $typename {
+            type Error = ();
+            fn try_from(data: Section) -> Result<$typename, Self::Error> {
+                match data {
+                    Section::$variantname(data) => Ok(data)
+                    _ => Err(())
+                }
+            }
+        }
+    };
+
     ($( ($tag:literal, $variantname:ident, $typename:ident) )+) => {
         #[derive(Copy, Clone, Eq, PartialEq, Debug, PartialOrd, Ord, EnumTryFrom, ItemReader)]
         pub enum SectionType {
@@ -104,6 +123,10 @@ macro_rules! make_document {
             }
         }
 
+        $(
+            make_document!(@conv $variantname, $typename);
+        )+
+
         pub fn read_section<'a>(sec_type: SectionType, mut data: &'a [u8]) -> Result<Section, ReadError> {
             match sec_type {
                 $( SectionType::$variantname => make_document!(@read_arm Section::$variantname, $typename, data), )+
@@ -113,45 +136,45 @@ macro_rules! make_document {
 }
 
 make_document! {
-    (0x0ffcd100, Object3D,                       Object3dSection                      )
+    (0x0ffcd100, Object3D,                       Object3d                             )
     (0x33552583, LightSet,                       Unknown                              )
-    (0x62212d88, Model,                          ModelSection                         )
-    (0x7623c465, AuthorTag,                      AuthorSection                        )
-    (0x7ab072d3, Geometry,                       GeometrySection                      )
+    (0x62212d88, Model,                          Model                                )
+    (0x7623c465, AuthorTag,                      AuthorTag                            )
+    (0x7ab072d3, Geometry,                       Geometry                             )
     (0x072b4d37, SimpleTexture,                  Unknown                              )
     (0x2c5d6201, CubicTexture,                   Unknown                              )
     (0x1d0b1808, VolumetricTexture,              Unknown                              )
-    (0x3c54609c, Material,                       MaterialSection                      )
-    (0x29276b1d, MaterialGroup,                  MaterialGroupSection                 )
+    (0x3c54609c, Material,                       Material                             )
+    (0x29276b1d, MaterialGroup,                  MaterialGroup                        )
     (0x2c1f096f, NormalManagingGP,               Unknown                              )
     (0x5ed2532f, TextureSpaceGP,                 Unknown                              )
-    (0xe3a3b1ca, PassthroughGP,                  PassthroughGPSection                 )
+    (0xe3a3b1ca, PassthroughGP,                  PassthroughGP                        )
     (0x65cc1825, SkinBones,                      Unknown                              )
-    (0x4c507a13, Topology,                       TopologySection                      )
-    (0x03b634bd, TopologyIP,                     TopologyIPSection                    )
+    (0x4c507a13, Topology,                       Topology                             )
+    (0x03b634bd, TopologyIP,                     TopologyIP                           )
     (0x46bf31a7, Camera,                         Unknown                              )
-    (0xffa13b80, Light,                          LightSection                         )
+    (0xffa13b80, Light,                          Light                                )
     (0x2060697e, ConstFloatController,           Unknown                              )
     (0x6da951b2, StepFloatController,            Unknown                              )
-    (0x76bf5b66, LinearFloatController,          LinearFloatControllerSection         )
+    (0x76bf5b66, LinearFloatController,          LinearFloatController                )
     (0x29743550, BezierFloatController,          Unknown                              )
     (0x5b0168d0, ConstVector3Controller,         Unknown                              )
     (0x544e238f, StepVector3Controller,          Unknown                              )
-    (0x26a5128c, LinearVector3Controller,        LinearVector3ControllerSection       )
+    (0x26a5128c, LinearVector3Controller,        LinearVector3Controller              )
     (0x28db639a, BezierVector3Controller,        Unknown                              )
     (0x33da0fc4, XYZVector3Controller,           Unknown                              )
     (0x2e540f3c, ConstRotationController,        Unknown                              )
     (0x033606e8, EulerRotationController,        Unknown                              )
     (0x007fb371, QuatStepRotationController,     Unknown                              )
-    (0x648a206c, QuatLinearRotationController,   QuatLinearRotationControllerSection  )
+    (0x648a206c, QuatLinearRotationController,   QuatLinearRotationController         )
     (0x197345a5, QuatBezRotationController,      Unknown                              )
     (0x22126dc0, LookAtRotationController,       Unknown                              )
-    (0x679d695b, LookAtConstrRotationController, LookAtConstrRotationControllerSection)
+    (0x679d695b, LookAtConstrRotationController, LookAtConstrRotationController       )
     (0x3d756e0c, IKChainTarget,                  Unknown                              )
     (0xf6c1eef7, IKChainRotationController,      Unknown                              )
     (0xdd41d329, CompositeVector3Controller,     Unknown                              )
     (0x95bb08f7, CompositeRotationController,    Unknown                              )
-    (0x5dc011b8, AnimationData,                  AnimationDataSection                 )
+    (0x5dc011b8, AnimationData,                  AnimationData                        )
     (0x74f7363f, Animatable,                     Unknown                              )
     (0x186a8bbf, KeyEvents,                      Unknown                              )
     (0x7f3552d1, D3DShader,                      Unknown                              )
@@ -167,18 +190,18 @@ pub fn parse_stream(input: &mut impl ReadExt) -> Result<DieselContainer, ReadErr
 
 /// Metadata about the model file. Release Diesel never, AFAIK, actually cares about this.
 #[derive(Debug, ItemReader)]
-pub struct AuthorSection {
+pub struct AuthorTag {
     /// Very likely the "scene type" field
-    name: Idstring,
+    pub name: Idstring,
 
     /// Email address of the author. In Overkill/LGL's tools, settable in the exporter settings.
     #[read_as(NullTerminated1252String)]
-    author_email: String,
+    pub author_email: String,
 
     /// Absolute path of the original file.
     #[read_as(NullTerminated1252String)]
-    source_filename: String,
-    unknown_2: u32
+    pub source_filename: String,
+    pub unknown_2: u32
 }
 
 /// Scene object node
@@ -186,7 +209,7 @@ pub struct AuthorSection {
 /// Blender calls this an Object, GLTF calls it a Node. Object3d on its own is an Empty node, just marking a point in
 /// space, a joint, or suchlike. It may also occur as the start of a lamp, bounds, model, or camera
 #[derive(Debug, ItemReader)]
-pub struct Object3dSection {
+pub struct Object3d {
     pub name: Idstring,
 
     #[read_as(AnimationControllerList)]
@@ -250,8 +273,8 @@ impl ItemReader for Mat4fWithPos {
 }
 
 #[derive(Debug, ItemReader)]
-pub struct ModelSection {
-    pub object: Object3dSection,
+pub struct Model {
+    pub object: Object3d,
     pub data: ModelData
 }
 
@@ -320,8 +343,8 @@ pub struct RenderAtom {
 
 /// Light source
 #[derive(Debug, ItemReader)]
-pub struct LightSection {
-    pub object: Object3dSection,
+pub struct Light {
+    pub object: Object3d,
     pub unknown_1: u8,
     pub light_type: LightType,
     pub color: vek::Rgba<f32>,
@@ -343,7 +366,7 @@ pub enum LightType {
 /// It's unclear what the exact role is: Diesel itself has two more "Geometry Provider" classes that aren't used in any
 /// file shipping with release Payday 2.
 #[derive(Debug, ItemReader)]
-pub struct PassthroughGPSection {
+pub struct PassthroughGP {
     pub geometry: u32,
     pub topology: u32
 }
@@ -352,13 +375,13 @@ pub struct PassthroughGPSection {
 ///
 /// It's unclear what the role of this is at all, there are no other *IP classes that I can see.
 #[derive(Debug, ItemReader)]
-pub struct TopologyIPSection {
+pub struct TopologyIP {
     pub topology: u32
 }
 
 /// Index buffer
 #[derive(Debug, ItemReader)]
-pub struct TopologySection {
+pub struct Topology {
     pub unknown_1: u32,
     
     pub faces: Vec<u16>,
@@ -375,7 +398,7 @@ pub struct TopologySection {
 /// The vertex attributes are almost in an order in the models in PD2 release. There's insufficient data to determine
 /// exactly what it is and in any case there's two. I'm using the more common one. 
 #[derive(Default, Debug)]
-pub struct GeometrySection {
+pub struct Geometry {
     pub name: Idstring,
 
     pub position: Vec<Vec3f>,
@@ -404,12 +427,12 @@ pub struct GeometrySection {
     // Just guessing here
     pub point_size: Vec<f32>
 }
-impl ItemReader for GeometrySection {
+impl ItemReader for Geometry {
     type Error = ReadError;
-    type Item = GeometrySection;
+    type Item = Geometry;
 
     fn read_from_stream<R: ReadExt>(stream: &mut R) -> Result<Self::Item, Self::Error> {
-        let mut result = GeometrySection::default();
+        let mut result = Geometry::default();
 
         let vertex_count: u32 = stream.read_item()?;
         let descriptors: Vec<GeometryHeader> = stream.read_item()?;
@@ -654,12 +677,12 @@ impl Default for BlendComponentCount {
 } 
 
 #[derive(Debug, ItemReader)]
-pub struct MaterialGroupSection {
+pub struct MaterialGroup {
     pub material_ids: Vec<u32>
 }
 
 #[derive(Debug, ItemReader)]
-pub struct MaterialSection {
+pub struct Material {
     pub name: u64,
 
     #[skip_before(48)]
@@ -667,7 +690,7 @@ pub struct MaterialSection {
 }
 
 #[derive(Debug, ItemReader)]
-pub struct AnimationDataSection {
+pub struct AnimationData {
     pub name: Idstring,
     pub unknown_2: u32,
     pub duration: f32,
@@ -675,7 +698,7 @@ pub struct AnimationDataSection {
 }
 
 #[derive(Debug, ItemReader)]
-pub struct LinearVector3ControllerSection {
+pub struct LinearVector3Controller {
     pub name: Idstring,
     pub flags: u32,
     pub unknown_1: u32,
@@ -684,7 +707,7 @@ pub struct LinearVector3ControllerSection {
 }
 
 #[derive(Debug, ItemReader)]
-pub struct LinearFloatControllerSection {
+pub struct LinearFloatController {
     pub name: Idstring,
     pub flags: u32,
     pub unknown_1: u32,
@@ -693,7 +716,7 @@ pub struct LinearFloatControllerSection {
 }
 
 #[derive(Debug, ItemReader)]
-pub struct QuatLinearRotationControllerSection {
+pub struct QuatLinearRotationController {
     pub name: Idstring,
     pub flags: u32,
     pub unknown_1: u32,
@@ -702,7 +725,7 @@ pub struct QuatLinearRotationControllerSection {
 }
 
 #[derive(Debug, ItemReader)]
-pub struct LookAtConstrRotationControllerSection {
+pub struct LookAtConstrRotationController {
     pub name: Idstring,
     pub unknown_1: u32,
     pub section_1: u32,
@@ -712,8 +735,8 @@ pub struct LookAtConstrRotationControllerSection {
 
 #[derive(Debug, ItemReader)]
 pub struct ModelToolHashSection {
-    version: u16,
+    pub version: u16,
 
     #[read_as(CountedVec<CountedString<u16>>)]
-    strings: Vec<String>
+    pub strings: Vec<String>
 }

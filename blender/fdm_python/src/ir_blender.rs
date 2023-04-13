@@ -539,3 +539,8 @@ pub fn scene_from_bpy_selected(env: &PyEnv, data: &PyAny, meters_per_unit: f32, 
 
     scene.into() 
 }
+
+//fn mesh_into_bpy_mesh<'py>(env: &PyEnv<'py>, name: &str, input: Mesh) -> bpy::Mesh<'py> {
+//    let me: bpy::Mesh = env.bpy_data.meshes().new(name);
+//    me.from_pydata()
+//}
