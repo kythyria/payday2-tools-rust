@@ -333,6 +333,9 @@ pub struct MeshModel {
 /// A single draw's worth of geometry
 ///
 /// If you get this wrong Diesel doesn't usually crash but will display nonsense.
+/// 
+/// Almost certainly this corresponds to [`IDirect3DDevice9::DrawIndexedPrimitive`](https://learn.microsoft.com/en-us/windows/win32/api/d3d9helper/nf-d3d9helper-idirect3ddevice9-drawindexedprimitive).
+/// Along the lines of `DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, base_vertex, geometry_slice_length, base_index, triangle_count)`.
 #[derive(Debug, ItemReader)]
 pub struct RenderAtom {
     /// Starting position in the Geometry (vertex buffer). AFAICT this merely defines a slice, it doesn't get added to the indices.
@@ -609,7 +612,7 @@ impl ItemReader for Geometry {
     }
 }
 
-#[derive(Debug, ItemReader)]
+#[derive(Debug, ItemReader, Copy, Clone)]
 pub struct GeometryHeader {
     pub attribute_format: u32,
     pub attribute_type: GeometryAttributeType

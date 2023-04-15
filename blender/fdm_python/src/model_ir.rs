@@ -1,13 +1,11 @@
 use std::collections::{HashMap, HashSet, BTreeMap};
 use std::rc::Rc;
 
+use bytemuck::Zeroable;
+use bytemuck_derive::Zeroable;
 use slotmap::SlotMap;
 
-type Vec2f = vek::Vec2<f32>;
-type Vec3f = vek::Vec3<f32>;
-type Vec4f = vek::Vec4<f32>;
-type Mat4f = vek::Mat4<f32>;
-type Transform = vek::Transform<f32, f32, f32>;
+use crate::vek_types::*;
 
 slotmap::new_key_type! {
     pub struct ObjectKey;
@@ -76,6 +74,7 @@ pub enum ObjectData {
 pub struct Light;
 pub struct Camera;
 
+#[derive(Default)]
 pub struct Mesh {
     pub vertices: Vec<Vec3f>,
     pub edges: Vec<(usize, usize)>,
@@ -83,11 +82,11 @@ pub struct Mesh {
     pub polygons: Vec<Polygon>,
     pub triangles: Vec<Triangle>,
 
-    pub tangents: TangentLayer,
     pub vertex_groups: VertexGroups,
-    pub vertex_colors: BTreeMap<String, Vec<Vec4f>>,
+    pub vertex_colors: BTreeMap<String, Vec<Rgbaf>>,
     
-    pub faceloop_colors: BTreeMap<String, Vec<Vec4f>>,
+    pub faceloop_tangents: TangentLayer,
+    pub faceloop_colors: BTreeMap<String, Vec<Rgbaf>>,
     pub faceloop_uvs: BTreeMap<String, Vec<Vec2f>>,
 
     pub material_names: Vec<Option<Rc<str>>>,
@@ -117,6 +116,48 @@ impl Mesh {
             self.faceloop_colors.insert(name, flcols);
         }
     }
+
+    /// Convert vertex position and index buffer into a mesh
+    /// 
+    /// Vertex indices are preserved, this just makes faceloops, tris, and polys.
+    /// Currently does not understand restarts or make edges.
+    pub fn from_indexed_tris(vtx_co: &[Vec3f], indices: &[u16]) -> Self {
+        let mut faceloops = Vec::with_capacity(indices.len());
+        let mut polygons = Vec::with_capacity(indices.len()/3);
+        let mut triangles = Vec::with_capacity(indices.len()/3);
+        
+        let index_tris: &[[u16; 3]] = bytemuck::cast_slice(indices);
+        for tri in index_tris {
+            let fl0 = Faceloop { vertex: tri[0].into(), edge: 0 };
+            let fl1 = Faceloop { vertex: tri[1].into(), edge: 0 };
+            let fl2 = Faceloop { vertex: tri[2].into(), edge: 0 };
+
+            let next_fl = faceloops.len();
+            faceloops.push(fl0);
+            faceloops.push(fl1);
+            faceloops.push(fl2);
+
+            let next_poly = polygons.len();
+            polygons.push(Polygon { base: next_fl, count: 3, material: 0 });
+            triangles.push(
+                Triangle { loops: [next_fl+0, next_fl+1, next_fl+2], polygon: next_poly }
+            );
+        }
+
+        Mesh {
+            vertices: vtx_co.to_owned(),
+            faceloops,
+            polygons,
+            triangles,
+            ..Default::default()
+        }
+    }
+
+    fn vertex_attrib_to_faceloop<T: Clone>(&self, attrib: &[T]) -> Vec<T> {
+        self.faceloops.iter()
+            .map(|fl| attrib[fl.vertex].clone())
+            .collect()
+    }
 }
 
 pub struct DieselMeshSettings {
@@ -139,6 +180,7 @@ pub struct Faceloop {
     pub edge: usize
 }
 
+#[derive(Default, Zeroable, Clone, Copy)]
 pub struct Weight {
     pub group: usize,
     pub weight: f32
@@ -155,8 +197,9 @@ pub struct Triangle {
     pub polygon: usize,
 }
 
+#[derive(Default)]
 pub enum TangentLayer {
-    None,
+    #[default] None,
     Normals(Vec<Vec3f>),
     Tangents(Vec<Tangent>)
 }
@@ -210,7 +253,7 @@ impl VertexGroups {
     }
     pub fn has_weights(&self) -> bool { !self.vertices.is_empty() }
     pub fn is_empty(&self) -> bool { self.vertices.is_empty() }
-    pub fn add_for_vertex(&mut self, groups: impl Iterator<Item=Weight>) {
+    pub fn push(&mut self, groups: impl Iterator<Item=Weight>) {
         let base = self.weights.len();
         self.weights.extend(groups);
         let count = self.weights.len() - base;

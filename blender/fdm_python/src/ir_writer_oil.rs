@@ -112,20 +112,17 @@ fn mesh_to_oil_geometry(node_id: u32, me: &Mesh, materials: &mut MaterialCollect
 
     for (idx, (_name, vc)) in me.faceloop_colors.iter().enumerate() {
         let data_rgb = vc.iter().map(|i| {
-            let v: vek::Vec4<f64> = i.map(|j| j.into());
-            let c = vek::Rgba::from(v);
-            c.rgb()
+            let v: vek::Rgba<f64> = i.map(|j| j.into());
+            v.rgb()
         }).collect();
         let data_a = vc.iter().map(|i| {
-            let v: vek::Vec4<f64> = i.map(|j| j.into());
-            let c = vek::Rgba::from(v);
-            c.a
+            i.a.into()
         }).collect();
         og.channels.push(oil::GeometryChannel::Colour(idx as u32 + 1, data_rgb));
         og.channels.push(oil::GeometryChannel::Alpha(idx as u32 + 1, data_a))
     }
 
-    let (has_norm, has_tangent) = match &me.tangents {
+    let (has_norm, has_tangent) = match &me.faceloop_tangents {
         crate::model_ir::TangentLayer::None => (false, false),
         crate::model_ir::TangentLayer::Normals(norms) => {
             let norms = norms.iter().map(|i| i.map(|j| <f32 as Into<f64>>::into(j))).collect();

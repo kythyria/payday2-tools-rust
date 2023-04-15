@@ -120,7 +120,7 @@ fn mesh_from_bpy_mesh(data: bpy::Mesh) -> model_ir::Mesh {
         triangles,
         vertex_groups,
         vertex_colors,
-        tangents,
+        faceloop_tangents: tangents,
         faceloop_colors,
         faceloop_uvs,
         material_names: Vec::new(),
@@ -141,7 +141,7 @@ fn vgroups_from_bpy_verts(data: &bpy::Mesh) -> VertexGroups {
                 group: grp.group(),
                 weight: grp.weight(),
             });
-        out.add_for_vertex(groups)
+        out.push(groups)
     }
     out
 }

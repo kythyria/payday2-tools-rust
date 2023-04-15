@@ -3,11 +3,7 @@ use std::marker::PhantomData;
 use pd2tools_macros::WrapsPyAny;
 use pyo3::types::PyDict;
 use pyo3::{prelude::*, intern, AsPyPointer};
-type Vec2f = vek::Vec2<f32>;
-type Vec3f = vek::Vec3<f32>;
-type Vec4f = vek::Vec4<f32>;
-type Transform = vek::Transform<f32, f32, f32>;
-type Quaternion = vek::Quaternion<f32>;
+use crate::vek_types::*;
 
 macro_rules! get {
     ($ob:expr, 'attr $field:literal) => {
@@ -452,7 +448,7 @@ impl<'py, T: FromPyObject<'py>> AttributeScalarValue<'py, T> {
 #[derive(Copy, Clone, WrapsPyAny)]
 pub struct AttributeColorValue<'py>(&'py PyAny);
 impl<'py> AttributeColorValue<'py> {
-    attr_get!(value: "color" => Vec4f as from_bpy_array);
+    attr_get!(value: "color" => Rgbaf as from_bpy_array);
 }
 
 #[derive(Copy, Clone, WrapsPyAny)]

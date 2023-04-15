@@ -67,6 +67,17 @@ impl DieselContainer {
             (*id, self.sections[id].as_ref())
         })
     }
+
+    pub fn get_as<'a, T>(&'a self, id: u32) -> Option<&T>
+    where
+        &'a T: TryFrom<&'a Section>
+
+    {
+        let sec_box_ref = self.sections.get(&id)?;
+        let sec_ref: &Section = &sec_box_ref;
+        let res: Option<&T> = sec_ref.try_into().ok();
+        res
+    }
 }
 
 impl crate::util::binaryreader::ItemReader for DieselContainer {

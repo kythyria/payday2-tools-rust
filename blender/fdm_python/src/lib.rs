@@ -97,3 +97,37 @@ impl<'py> PyEnv<'py> {
         self.bpy_context.call_method0(pyo3::intern!{self.python, "evaluated_depsgraph_get"})
     }
 }
+
+mod roundings {
+    use std::ops::{Add, Div, Rem};
+    use num_traits::{Zero, One, zero, one};
+    /// Calculates the quotient of `self` and `rhs`, rounding the result towards positive infinity.
+    ///
+    /// Shamelessly copied from std because that one is still unstable.
+    pub fn div_ceil<L,R,O>(lhs: L, rhs: R) -> O
+    where
+        L: PartialEq + Zero + Div<R, Output = O> + Rem<R> + Copy,
+        R: PartialOrd + Zero + Copy,
+        O: Add<O, Output=O> + One,
+        <L as Rem<R>>::Output: PartialOrd<<L as Rem<R>>::Output> + Zero
+    {
+        let d = lhs / rhs;
+        let r = lhs % rhs;
+        if r > zero() && rhs > zero() {
+            d + one()
+        } else {
+            d
+        }
+    }
+}
+pub use roundings::div_ceil;
+
+mod vek_types {
+    pub type Vec2f = vek::Vec2<f32>;
+    pub type Vec3f = vek::Vec3<f32>;
+    pub type Vec4f = vek::Vec4<f32>;
+    pub type Rgbaf = vek::Rgba<f32>;
+    pub type Transform = vek::Transform<f32, f32, f32>;
+    pub type Quaternion = vek::Quaternion<f32>;
+    pub type Mat4f = vek::Mat4<f32>;
+}
