@@ -106,8 +106,11 @@ impl<'s, 'hi> SceneBuilder<'s, 'hi> {
             weight_1: &geom.blend_weight_1
         };
 
-        for (c,w) in weight_zipper {
-            me.vertex_groups.push(w[0..c].iter().map(|i| i.clone()))
+        for w in weight_zipper {
+            me.vertex_groups.push(w.iter()
+                .filter(|i| i.weight > 0.0)
+                .map(|i| i.clone())
+            )
         }
 
         if geom.color_0.len() > 0 {
@@ -152,10 +155,14 @@ impl<'s, 'hi> SceneBuilder<'s, 'hi> {
                 me.faceloops.push(ir::Faceloop { vertex: tri[2] as usize, edge: 0 });
 
                 me.polygons.push(ir::Polygon { base: next_fl, count: 3, material: ra.material as usize });
-
-                
             }
         }
+
+        me.faceloop_tangents = match (geom.normal.len(), geom.binormal.len(), geom.tangent.len()) {
+            (0,0,0) => ir::TangentLayer::None,
+            (l,0,0) => ir::TangentLayer::Normals(Vec::with_capacity(l)),
+            (l,_,_) => ir::TangentLayer::Tangents(Vec::with_capacity(l))
+        };
 
         for ra in &mesh.render_atoms {
             let idx_start = ra.base_index as usize;
@@ -167,8 +174,26 @@ impl<'s, 'hi> SceneBuilder<'s, 'hi> {
                         me_texcoord[ti].push(*uv);
                     }
                 }
+
+                match &mut me.faceloop_tangents {
+                    ir::TangentLayer::None => (),
+                    ir::TangentLayer::Normals(n) => n.push(geom.normal[(*idx) as usize]),
+                    ir::TangentLayer::Tangents(t) => t.push(ir::Tangent {
+                        normal: geom.normal[(*idx) as usize],
+                        tangent: geom.tangent[(*idx) as usize],
+                        bitangent: geom.binormal[(*idx) as usize],
+                    }),
+                }
             }
         }
+
+        for (i,uvl) in  me_texcoord.into_iter().enumerate() {
+            if uvl.len() > 0 {
+                me.faceloop_uvs.insert(format!("TEXCOORD_{}", i), uvl);
+            }
+        }
+
+        me.deduplicate_vertices();
 
         me
     }
@@ -180,11 +205,11 @@ struct WeightZipper<'a> {
     curr: usize,
     idx_0: &'a [vek::Vec4<u16>],
     idx_1: &'a [vek::Vec4<u16>],
-    weight_0: &'a [vek::Vec4<f32>],
-    weight_1: &'a [vek::Vec4<f32>],
+    weight_0: &'a [Vec4f],
+    weight_1: &'a [Vec4f],
 }
 impl<'a> Iterator for WeightZipper<'a> {
-    type Item = (usize, [ir::Weight; 8]);
+    type Item = [ir::Weight; 8];
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.curr >= self.idx_0.len() && self.curr >= self.idx_1.len() {
@@ -211,8 +236,7 @@ impl<'a> Iterator for WeightZipper<'a> {
                 c += 1;
             }
         }
-        res.sort_by(|a,b| a.weight.partial_cmp(&b.weight).unwrap());
-        Some((c, res))
+        Some(res)
     }
     
 }

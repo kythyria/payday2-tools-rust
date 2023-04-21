@@ -1,7 +1,6 @@
-use std::collections::{HashMap, HashSet, BTreeMap};
+use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
 
-use bytemuck::Zeroable;
 use bytemuck_derive::Zeroable;
 use slotmap::SlotMap;
 
@@ -117,47 +116,81 @@ impl Mesh {
         }
     }
 
-    /// Convert vertex position and index buffer into a mesh
-    /// 
-    /// Vertex indices are preserved, this just makes faceloops, tris, and polys.
-    /// Currently does not understand restarts or make edges.
-    pub fn from_indexed_tris(vtx_co: &[Vec3f], indices: &[u16]) -> Self {
-        let mut faceloops = Vec::with_capacity(indices.len());
-        let mut polygons = Vec::with_capacity(indices.len()/3);
-        let mut triangles = Vec::with_capacity(indices.len()/3);
+    pub fn deduplicate_vertices(&mut self) {
+        self.vertex_groups.sort_weights();
         
-        let index_tris: &[[u16; 3]] = bytemuck::cast_slice(indices);
-        for tri in index_tris {
-            let fl0 = Faceloop { vertex: tri[0].into(), edge: 0 };
-            let fl1 = Faceloop { vertex: tri[1].into(), edge: 0 };
-            let fl2 = Faceloop { vertex: tri[2].into(), edge: 0 };
-
-            let next_fl = faceloops.len();
-            faceloops.push(fl0);
-            faceloops.push(fl1);
-            faceloops.push(fl2);
-
-            let next_poly = polygons.len();
-            polygons.push(Polygon { base: next_fl, count: 3, material: 0 });
-            triangles.push(
-                Triangle { loops: [next_fl+0, next_fl+1, next_fl+2], polygon: next_poly }
-            );
+        let mut old_to_new = Vec::<usize>::with_capacity(self.vertices.len());
+        let mut new_to_old = Vec::<usize>::with_capacity(self.vertices.len());
+        let mut seen_vertices = HashMap::<VertexRef,usize>::with_capacity(self.vertices.len());
+        for i in 0..self.vertices.len() {
+            match seen_vertices.entry(VertexRef{mesh: self, vtx: i}) {
+                std::collections::hash_map::Entry::Occupied(o) => {
+                    old_to_new.push(*o.get())
+                },
+                std::collections::hash_map::Entry::Vacant(v) => {
+                    let newidx = new_to_old.len();
+                    
+                    old_to_new.push(newidx);
+                    new_to_old.push(i);
+                    v.insert(newidx);
+                    
+                },
+            }
         }
 
-        Mesh {
-            vertices: vtx_co.to_owned(),
-            faceloops,
-            polygons,
-            triangles,
-            ..Default::default()
+        fn gather_attribute<T: Copy>(indices: &[usize], input: &[T]) -> Vec<T> {
+            indices.iter().map(|i| input[*i]).collect()
+        }
+
+        let new_coords = gather_attribute(&new_to_old, &self.vertices);
+        let new_vcol = self.vertex_colors.iter()
+            .map(|(k,v)| (k.clone(),gather_attribute(&new_to_old, &v)))
+            .collect();
+        let mut new_vgroups = VertexGroups::default();
+        for i in new_to_old.iter() {
+            new_vgroups.push(self.vertex_groups[*i].iter().map(|i| i.clone()));
+        }
+
+        self.vertices = new_coords;
+        self.vertex_colors = new_vcol;
+        self.vertex_groups = new_vgroups;
+
+        for i in self.edges.iter_mut() {
+            i.0 = old_to_new[i.0];
+            i.1 = old_to_new[i.1];
+        }
+
+        for i in self.faceloops.iter_mut() {
+            
+        }
+
+    }
+}
+
+struct VertexRef<'m> {
+    mesh: &'m Mesh,
+    vtx: usize,
+}
+impl<'m> std::hash::Hash for VertexRef<'m> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        bytemuck::cast::<_,[u8;24]>(self.mesh.vertices[self.vtx]).hash(state);
+        self.mesh.vertex_groups[self.vtx].hash(state);
+        for vcol in self.mesh.vertex_colors.values() {
+            bytemuck::cast::<_,[u8;32]>(vcol[self.vtx]).hash(state);
         }
     }
+}
+impl<'m> PartialEq for VertexRef<'m> {
+    fn eq(&self, other: &Self) -> bool {
+        let co_l = bytemuck::cast::<_,[u8;24]>(self.mesh.vertices[self.vtx]);
+        let co_r = bytemuck::cast::<_,[u8;24]>(self.mesh.vertices[other.vtx]);
+        if co_l != co_r { return false; }
 
-    fn vertex_attrib_to_faceloop<T: Clone>(&self, attrib: &[T]) -> Vec<T> {
-        self.faceloops.iter()
-            .map(|fl| attrib[fl.vertex].clone())
-            .collect()
+        self.mesh.vertex_groups[self.vtx] == self.mesh.vertex_groups[other.vtx]
     }
+}
+impl<'m> Eq for VertexRef<'m> {
+    fn assert_receiver_is_total_eq(&self) {}
 }
 
 pub struct DieselMeshSettings {
@@ -180,10 +213,16 @@ pub struct Faceloop {
     pub edge: usize
 }
 
-#[derive(Default, Zeroable, Clone, Copy)]
+#[derive(Default, Zeroable, Clone, Copy, PartialEq)]
 pub struct Weight {
     pub group: usize,
     pub weight: f32
+}
+impl std::hash::Hash for Weight {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.group.hash(state);
+        self.weight.to_bits().hash(state);
+    }
 }
 
 pub struct Polygon {
@@ -243,6 +282,16 @@ impl std::ops::Index<usize> for VertexGroups {
             .unwrap_or(&[])
     }
 }
+impl std::ops::IndexMut<usize> for VertexGroups {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        self.vertices.as_slice().get(index)
+            .map(|bc| {
+                let r: std::ops::Range<usize> = bc.into();
+                &mut self.weights[r]
+            })
+            .unwrap()
+    }
+}
 impl VertexGroups {
     pub fn with_capacity(vtx_count: usize, weight_count: usize) -> VertexGroups {
         VertexGroups {
@@ -263,6 +312,12 @@ impl VertexGroups {
     pub fn iter_vertex_weights(&self) -> impl Iterator<Item=(usize, &[Weight])> {
         (0..self.vertices.len())
         .map(move |i| (i, &self[i]))
+    }
+
+    pub fn sort_weights(&mut self) {
+        for i in 0..(self.vertices.len()) {
+            self[i].sort_by(|a,b| a.weight.partial_cmp(&b.weight).unwrap());
+        }
     }
 }
 
