@@ -269,9 +269,7 @@ fn scene_to_oilchunks(scene: &crate::model_ir::Scene, chunks: &mut Vec<oil::Chun
                                 premul_transform: bj.bindspace_to_bonespace.map(|i| i.into())
                             }).collect::<Vec<_>>();
                         
-                        let boneset = bones.iter().map(|i| i.bone_node_id).collect();
-                        let bonesets = itertools::repeat_n(boneset, md.material_ids.len())
-                            .collect();
+                        let bonesets = vec![ (0u32..(bones.len().try_into().unwrap())).collect() ];
 
                         let weights_per_vertex = md.vertex_groups.vertices
                             .iter()
@@ -283,7 +281,7 @@ fn scene_to_oilchunks(scene: &crate::model_ir::Scene, chunks: &mut Vec<oil::Chun
                         for (i, vw) in md.vertex_groups.iter_vertex_weights() {
                             let vertex_weights = vw.iter().map(|w|{
                                 let joint_idx = skin.vgroup_to_joint_mapping[w.group];
-                                let bone_id = joint_idx.try_into().unwrap();
+                                let bone_id = bones[joint_idx].bone_node_id;
                                 let weight = w.weight.into();
                                 oil::VertexWeight { bone_id, weight }
                             });
