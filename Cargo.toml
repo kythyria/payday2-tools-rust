@@ -30,6 +30,8 @@ num-traits = "0.2.14"
 git-version = "0.3.5"
 thiserror = "1.0.30"
 slotmap = "1.0.6"
+bytemuck = { version = "1.13.1", features = ["extern_crate_alloc"] }
+bytemuck_derive = "1.4.1"
 
 pd2tools-macros = { path = './macros' }
 steam = { path = "./steam" }

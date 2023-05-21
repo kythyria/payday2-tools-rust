@@ -56,6 +56,7 @@ pub struct Object {
     pub skin_role: SkinRole,
 }
 
+#[derive(PartialEq, Eq)]
 pub enum SkinRole {
     None,
     Armature,
@@ -161,9 +162,34 @@ impl Mesh {
         }
 
         for i in self.faceloops.iter_mut() {
-            
+            i.vertex = old_to_new[i.vertex];
         }
 
+        for i in self.edges.iter_mut() {
+            i.0 = old_to_new[i.0];
+            i.1 = old_to_new[i.1];
+        }
+        
+        if self.edges.len() > 0 {
+            let mut seen_edges = HashMap::with_capacity(self.edges.len());
+            let mut old_to_new = Vec::<usize>::with_capacity(self.edges.len());
+            let mut new_to_old = Vec::<usize>::with_capacity(self.edges.len());
+
+            for i in 0..(self.edges.len()) {
+                let cand = self.edges[i];
+                let cand = if cand.1 < cand.0 { (cand.1, cand.0) } else { (cand.0, cand.1) };
+
+                match seen_edges.entry(cand) {
+                    std::collections::hash_map::Entry::Occupied(o) => old_to_new.push(*o.get()),
+                    std::collections::hash_map::Entry::Vacant(v) => {
+                        let newidx = new_to_old.len();
+                        old_to_new.push(newidx);
+                        new_to_old.push(i);
+                        v.insert(newidx);
+                    },
+                }
+            }
+        }
     }
 }
 
@@ -390,5 +416,108 @@ impl Scene {
             }
         }
         self.meters_per_unit = new_scale
+    }
+}
+
+pub struct SkinRequest<I> {
+    pub armature: I,
+    pub global_transform: Mat4f,
+    pub joints: Vec<(I, Mat4f)>
+}
+
+#[derive(Default)]
+pub struct CoreBuilder<OID,MID> {
+    scene: Scene,
+    id_to_object: HashMap<OID, ObjectKey>,
+    parent_request: Vec<(ObjectKey, OID)>,
+    skin_request: Vec<(OID, SkinRequest<OID>)>,
+    material_mapping: HashMap<MID, MaterialKey>
+}
+impl<OID, MID> std::ops::Deref for CoreBuilder<OID, MID> {
+    type Target = Scene;
+
+    fn deref(&self) -> &Self::Target {
+        &self.scene
+    }
+}
+impl<OID, MID> std::ops::DerefMut for CoreBuilder<OID, MID> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.scene
+    }
+}
+
+impl<OID, MID> CoreBuilder<OID, MID>
+where
+    OID: PartialEq + Eq + std::hash::Hash
+{
+    pub fn add_object(&mut self, source_id: OID, parent_id: Option<OID>, obj: Object) -> ObjectKey {
+        let key = self.scene.objects.insert(obj);
+        self.id_to_object.insert(source_id, key);
+        if let Some(parent_id) = parent_id {
+            self.parent_request.push((key, parent_id))
+        }
+        key
+    }
+    pub fn add_skin_request(&mut self, object: OID, skin_request: SkinRequest<OID>) {
+        self.skin_request.push((object, skin_request))
+    }
+    
+    pub fn build(mut self) -> Scene {
+        for (child, parent) in self.parent_request {
+            let parent = self.id_to_object[&parent];
+            self.scene.objects[child].parent = Some(parent);
+            self.scene.objects[parent].children.push(child);
+        }
+
+        let skin_requests = self.skin_request.iter().map(|(oid, sr)| SkinRequest::<ObjectKey> {
+            armature: self.id_to_object[&oid],
+            global_transform: sr.global_transform,
+            joints: sr.joints.iter().map(|(ji,jt)| (self.id_to_object[&ji], *jt)).collect()
+        }).collect::<Vec<_>>();
+
+        /* 
+        Currently we assume that skinnings don't overlap in a way that either
+        - causes the SkinRequest.armature to be a bone
+        - uses an object as an armature in one skin and a bone in another
+        - requires two different bind poses for the same bone.
+        We also assume that the armature is actually specified.
+
+        For now we just:
+        - Mark as an armature everything requested as such
+        - Mark as a bone everything requested as such
+        - And the ancestors of anything requested as such, up to the armature.
+        - Generate a bind pose by taking the last joint matrix seen for each bone
+        - Generate vgroup->joint mappings
+         */ 
+
+        let mut bone_poses: HashMap<ObjectKey, (Mat4f, Mat4f)> = Default::default();
+
+        for sr in &skin_requests {
+            let arma_obj = &mut self.scene.objects[sr.armature];
+            if arma_obj.skin_role == SkinRole::Bone {
+                todo!("Deal with overlapping armatures")
+            }
+            else {
+                arma_obj.skin_role = SkinRole::Armature
+            }
+
+            for (bone_key, bone_tf) in &sr.joints {
+                let mut curr_ancestor = *bone_key;
+                loop {
+                    let ancestor_obj = &mut self.scene.objects[curr_ancestor];
+                    if ancestor_obj.skin_role != SkinRole::Armature {
+                        ancestor_obj.skin_role = SkinRole::Bone
+                    }
+                    if let Some(a) = ancestor_obj.parent {
+                        curr_ancestor = a;
+                    }
+                    else {
+                        break
+                    }
+                }
+            }
+        }
+
+        self.scene
     }
 }

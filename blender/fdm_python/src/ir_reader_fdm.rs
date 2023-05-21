@@ -43,7 +43,9 @@ struct SceneBuilder<'s, 'hi> {
     hashlist: &'hi mut HashIndex,
     scene: ir::Scene,
     section_id_to_object: HashMap<u32, ir::ObjectKey>,
-    parent_request: Vec<(ir::ObjectKey, u32)>
+    parent_request: Vec<(ir::ObjectKey, u32)>,
+    skin_request: Vec<(ir::ObjectKey, u32)>,
+    material_mapping: HashMap<u64, ir::MaterialKey>
 }
 impl<'s, 'hi> SceneBuilder<'s, 'hi> {
     fn new(sections: &'s DieselContainer, hashlist: &'hi mut HashIndex) -> Self {
@@ -53,6 +55,8 @@ impl<'s, 'hi> SceneBuilder<'s, 'hi> {
             scene: ir::Scene::default(),
             section_id_to_object: HashMap::new(),
             parent_request: Vec::new(),
+            skin_request: Vec::new(),
+            material_mapping: HashMap::new()
         }
     }
 
@@ -82,7 +86,12 @@ impl<'s, 'hi> SceneBuilder<'s, 'hi> {
         let ob_key = self.add_object3d(sec_id, &mo_sec.object);
         let mesh = match &mo_sec.data {
             fdm::ModelData::BoundsOnly(bounds) => self.add_bounding_cube(&bounds),
-            fdm::ModelData::Mesh(mesh) => self.add_mesh(&mesh),
+            fdm::ModelData::Mesh(mesh) => {
+                if mesh.skinbones != 0xFFFFFFFFu32 {
+                    self.skin_request.push((ob_key, mesh.skinbones));
+                }
+                self.add_mesh(&mesh)
+            },
         };
 
         self.scene.objects[ob_key].data = ir::ObjectData::Mesh(mesh)
@@ -164,7 +173,7 @@ impl<'s, 'hi> SceneBuilder<'s, 'hi> {
             (l,_,_) => ir::TangentLayer::Tangents(Vec::with_capacity(l))
         };
 
-        for ra in &mesh.render_atoms {
+        for (ra_idx, ra) in mesh.render_atoms.iter().enumerate() {
             let idx_start = ra.base_index as usize;
             let idx_end = ra.base_index as usize + (ra.triangle_count as usize) * 3;
 
@@ -185,20 +194,134 @@ impl<'s, 'hi> SceneBuilder<'s, 'hi> {
                     }),
                 }
             }
+
+            if let Some(skinbones) = self.fdm.get_as::<fdm::SkinBones>(mesh.skinbones) {
+                let map = skinbones.bones.mapping[ra_idx].as_slice();
+                for vertex_num in ra.vertex_range() {
+                    let v = &mut me.vertex_groups[vertex_num];
+                    for w in v.iter_mut() {
+                        let g: usize = w.group.try_into().unwrap();
+                        w.group = map[g].try_into().unwrap();
+                    }
+                }
+            }
         }
 
-        for (i,uvl) in  me_texcoord.into_iter().enumerate() {
+        for (i,uvl) in me_texcoord.into_iter().enumerate() {
             if uvl.len() > 0 {
                 me.faceloop_uvs.insert(format!("TEXCOORD_{}", i), uvl);
             }
         }
 
+        if let Some(mat_group) = self.fdm.get_as::<fdm::MaterialGroup>(mesh.material_group) {
+            for mat_id in &mat_group.material_ids {
+                me.material_ids.push(self.intern_material(*mat_id))
+            }
+        }
+        
         me.deduplicate_vertices();
-
         me
     }
 
-    fn add_bounding_cube(&mut self, bounds: &fdm::Bounds) -> ir::Mesh { todo!() }
+    fn add_bounding_cube(&mut self, bounds: &fdm::Bounds) -> ir::Mesh {
+        let fdm::Bounds {min,max,..} = bounds;
+        ir::Mesh {
+            vertices: vec! [
+                Vec3f::from((min.x,min.y,min.z)),
+                Vec3f::from((min.x,min.y,max.z)),
+                Vec3f::from((min.x,max.y,min.z)),
+                Vec3f::from((min.x,max.y,max.z)),
+                Vec3f::from((max.z,min.y,min.z)),
+                Vec3f::from((max.z,min.y,max.z)),
+                Vec3f::from((max.z,max.y,min.z)),
+                Vec3f::from((max.z,max.y,max.z)),
+            ],
+            edges: vec! [
+                (0, 1), (1, 3),
+                (0, 2), (2, 3),
+
+                (4, 5), (5, 7),
+                (4, 6), (6, 7),
+
+                (0, 4), (1, 5), (2, 6), (3, 7)
+            ], 
+            diesel: ir::DieselMeshSettings {
+                cast_shadows: false,
+                receive_shadows: false,
+                bounds_only: true,
+            },
+            ..Default::default()
+        }
+    }
+
+    fn intern_material(&mut self, mat_id: u32) -> Option<ir::MaterialKey> {
+        let fdm_mat = self.fdm.get_as::<fdm::Material>(mat_id)?;
+        match self.material_mapping.entry(fdm_mat.name) {
+            std::collections::hash_map::Entry::Occupied(o) => Some(*o.get()),
+            std::collections::hash_map::Entry::Vacant(v) => {
+                let n = self.hashlist.get_hash(fdm_mat.name);
+                if n.text == Some("Material: Default Material") { return None; }
+                let k = self.scene.materials.insert(ir::Material {
+                    name: n.to_string(),
+                });
+                v.insert(k);
+                Some(k)
+            },
+        }
+    }
+
+    fn connect_parents(&mut self) {
+        let parentings = self.parent_request.iter()
+            .map(|(child, parent_id)| (*child, self.section_id_to_object[parent_id]));
+
+        for (child, parent) in parentings {
+            self.scene.objects[child].parent = Some(parent);
+            self.scene.objects[parent].children.push(child);
+        }
+    }
+
+    fn build_skins(&mut self) {
+        // I (KT) don't know if SkinBones.root_bone_object always points to something that can
+        // be made into an Armature object in Blender land, so if it *is* weighted to,
+        // the parent gets made into the armature.
+        //
+        // On top of this, any object which has a bone child is turned to bone, unless it's an
+        // armature or the root (which becomes an armature).
+        //
+        // We're assuming that all the skins in one file have the same bind pose, too.
+
+        struct Skin {
+            armature: ir::ObjectKey,
+            global_transform: Mat4f,
+            joints: Vec<(ir::ObjectKey, Mat4f)>
+        }
+
+        let mut indie_skins = Vec::<(ir::ObjectKey, Skin)>::with_capacity(self.skin_request.len());
+
+        for (skinned_object_key, skinbones_id) in &self.skin_request {
+            let skinbones = self.fdm.get_as::<fdm::SkinBones>(*skinbones_id).unwrap();
+
+            let joints = skinbones.joints.iter().map(|(bone_idx, tf)| {
+                let bone_key = self.section_id_to_object[bone_idx];
+                (bone_key, tf.clone())
+            }).collect();
+
+            let skin = Skin {
+                armature: self.section_id_to_object[&skinbones.root_bone_object],
+                global_transform: skinbones.global_skin_transform,
+                joints
+            };
+
+            indie_skins.push((*skinned_object_key, skin));
+        }
+
+        
+    }
+}
+impl<'s,'hi> From<SceneBuilder<'s,'hi>> for ir::Scene {
+    fn from(value: SceneBuilder) -> Self {
+        todo!()
+    }
 }
 
 struct WeightZipper<'a> {

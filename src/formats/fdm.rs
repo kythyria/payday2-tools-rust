@@ -159,7 +159,7 @@ make_document! {
     (0x2c1f096f, NormalManagingGP,               Unknown                              )
     (0x5ed2532f, TextureSpaceGP,                 Unknown                              )
     (0xe3a3b1ca, PassthroughGP,                  PassthroughGP                        )
-    (0x65cc1825, SkinBones,                      Unknown                              )
+    (0x65cc1825, SkinBones,                      SkinBones                            )
     (0x4c507a13, Topology,                       Topology                             )
     (0x03b634bd, TopologyIP,                     TopologyIP                           )
     (0x46bf31a7, Camera,                         Unknown                              )
@@ -352,6 +352,13 @@ pub struct RenderAtom {
 
     /// Index of the material slot this uses.
     pub material: u32
+}
+impl RenderAtom {
+    pub fn vertex_range(&self) -> std::ops::Range<usize> {
+        let start: usize = self.base_vertex.try_into().unwrap();
+        let len: usize = self.geometry_slice_length.try_into().unwrap();
+        start..(start+len)
+    }
 }
 
 /// Light source
@@ -752,4 +759,77 @@ pub struct ModelToolHashSection {
 
     #[read_as(CountedVec<CountedString<u16>>)]
     pub strings: Vec<String>
+}
+
+/// Base class of SkinBones
+/// 
+/// As far as we know, this is abstract inside Diesel, so it can't occur on its own.
+#[derive(Debug, ItemReader)]
+pub struct BonesSection {
+    /// Represents the entries in `dsl::BoneMapping`, storing indexed mappings to `SkinBones.SkinPositions`
+    /// 
+    /// From ZNix et al's analysis:
+    /// > Inside PD2, there is the dsl::BoneMapping class. This is used for some unknown purpose,
+    /// > however what is known is that it builds a list of matrices. These are referred to by
+    /// > indexes into a runtime table built by SkinBones (Bones::matrices).
+    /// > 
+    /// > This runtime table is built by multiplying together the world transform and global skin
+    /// > transform onto each SkinBones matrix. This is done in C#, loaded into the SkinPositions
+    /// > list in SkinBones.
+    /// > 
+    /// > Each bone mapping corresponds to a RenderAtom.
+    /// > 
+    /// > Note to self: Setting this directly after the invocation of BoneMapping::setup_matrix_sets
+    /// > will null out the first matrix in the first set.
+    /// > set `*(void**)(  **(void***)((char*)($rbx + 0x20) + 24)     ) = 0`
+    /// > And that didn't cause any crashes for me unfortunately, which would give a stacktrace to
+    /// > where it's used.
+    /// 
+    /// We assume here that for each [`RenderAtom`] there is an array mapping the joint IDs in the
+    /// [`Geometry`], to the indices in the [`SkinBonesSection`].
+    pub mapping: Vec<Vec<u32>>
+}
+
+#[derive(Debug)]
+pub struct SkinBones {
+    pub bones: BonesSection,
+    pub root_bone_object: u32,
+    pub joints: Vec<(u32,Mat4f)>,
+    pub global_skin_transform: Mat4f
+}
+impl ItemReader for SkinBones {
+    type Error = ReadError;
+    type Item = SkinBones;
+
+    fn read_from_stream<R: ReadExt>(stream: &mut R) -> Result<Self::Item, Self::Error> {
+        let bones: BonesSection = stream.read_item()?;
+        let root_bone_object: u32 = stream.read_item()?;
+
+        let joint_count: usize = stream.read_item::<u32>()?.try_into().unwrap();
+        let mut joints = vec![ (0xFFFFFFFFu32, Mat4f::default()) ;joint_count];
+        for i in 0..joint_count {
+            joints[i].0 = stream.read_item()?;
+        }
+        for i in 0..joint_count {
+            joints[i].1 = stream.read_item()?;
+        }
+
+        let global_skin_transform = stream.read_item()?;
+
+        Ok(SkinBones { bones, root_bone_object, joints, global_skin_transform })
+    }
+
+    fn write_to_stream<W: WriteExt>(stream: &mut W, item: &Self::Item) -> Result<(), Self::Error> {
+        stream.write_item(&item.bones)?;
+        stream.write_item(&item.root_bone_object)?;
+        stream.write_item::<u32>(&item.joints.len().try_into().unwrap())?;
+        for i in item.joints.iter() {
+            stream.write_item(&i.0)?;
+        }
+        for i in item.joints.iter() {
+            stream.write_item(&i.1)?;
+        }
+        stream.write_item(&item.global_skin_transform)?;
+        Ok(())
+    }
 }

@@ -651,6 +651,8 @@ name = "pd2tools-rust"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bytemuck",
+ "bytemuck_derive",
  "chrono",
  "clap",
  "fnv",
