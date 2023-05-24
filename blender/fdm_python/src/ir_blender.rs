@@ -2,7 +2,7 @@ use std::collections::{HashMap, BTreeMap};
 use std::rc::Rc;
 use pyo3::{prelude::*, intern};
 use vek::Mat4;
-use crate::bpy::{PropCollection, WrapsPyAny};
+use crate::bpy::{PropCollection, WrapsPyAny, DictPropCollection, ArrayPropCollection};
 use crate::{ PyEnv, model_ir, bpy };
 use model_ir::*;
 
@@ -295,6 +295,12 @@ impl<'py> SceneBuilder<'py>
                         BpyParent::Object(parent.as_ptr())
                     }
                     else {
+                        // Bone parenting requires adjusting for the bone length
+                        let arma = bpy::Armature::wrap(parent.data());
+                        let bone = arma.bones().get_key(bone_name).unwrap();
+                        let offs = Vec3f::new(0.0, 0.0, bone.length());
+                        self.scene.objects[oid].transform.position += offs;
+
                         BpyParent::Bone(parent.as_ptr(), bone_name.into())
                     }
                 },

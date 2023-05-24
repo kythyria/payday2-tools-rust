@@ -266,7 +266,10 @@ pub struct GeometrySkin {
     pub weights_per_vertex: u32,
     pub weights: Vec<VertexWeight>,
 
-    /// List of lists of bone IDs.
+    /// Bone sets.
+    /// 
+    /// It's unclear what these do; they seem to just be 0..bones.len(), and are less useful
+    /// than the FDM counterpart.
     pub bonesets: Vec<Vec<u32>>
 }
 impl GeometrySkin {

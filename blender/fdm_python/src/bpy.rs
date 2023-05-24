@@ -123,15 +123,14 @@ macro_rules! bpy_str_enum {
 }
 
 pub trait PropCollection: IntoIterator {
-
     fn len(&self) -> usize;
     fn iter(&self) -> TypedPyIterator<Self::Item>;
 }
-pub trait DictPropCollection: PropCollection + for<'a> std::ops::Index<&'a str> {
-    fn get(&self, key: &str) -> Option<Self::Item>;
+pub trait DictPropCollection: PropCollection {
+    fn get_key(&self, key: &str) -> Option<Self::Item>;
 }
-pub trait ArrayPropCollection: PropCollection + std::ops::Index<usize> {
-    fn get(&self, key: usize) -> Option<Self::Item>;
+pub trait ArrayPropCollection: PropCollection  {
+    fn get_idx(&self, key: usize) -> Option<Self::Item>;
 }
 
 /// Types that wrap an array we could use directly
@@ -162,6 +161,28 @@ macro_rules! bpy_collection {
             fn len(&self) -> usize { self.0.len().unwrap() }
             fn iter(&self) -> TypedPyIterator<Self::Item> {
                 TypedPyIterator(self.0.iter().unwrap(), PhantomData)
+            }
+        }
+        impl<'py> ArrayPropCollection for $name<'py> {
+            fn get_idx(&self, key: usize) -> Option<Self::Item> {
+                let it = self.0.get_item(key);
+                match it {
+                    Err(e) if e.is_instance_of::<pyo3::exceptions::PyIndexError>(self.py()) => { None },
+                    it => Some(it.unwrap().extract().unwrap())
+                }
+            }
+        }
+    };
+    ($name: ident, 'arraydict $item:ty) => {
+        bpy_collection!($name, 'array $item);
+        impl<'py> DictPropCollection for $name<'py> {
+            // TODO: Is this prone to stray copies?
+            fn get_key(&self, key: &str) -> Option<Self::Item> {
+                let it = self.0.get_item(key);
+                match it {
+                    Err(e) if e.is_instance_of::<pyo3::exceptions::PyIndexError>(self.py()) => { None },
+                    it => Some(it.unwrap().extract().unwrap())
+                }
             }
         }
     }
@@ -348,6 +369,7 @@ impl<'py> Bone<'py> {
     attr_get!(parent: "parent" => Option<Bone>);
     attr_get!(matrix_local: "matrix_local" => vek::Mat4<f32> as mat4_from_bpy_matrix);
     attr_get!(matrix: "matrix" => BMathMatrix);
+    attr_get!(length: "length" => f32);
 }
 impl<'py> FromPyObject<'py> for Bone<'py> {
     fn extract(ob: &'py PyAny) -> PyResult<Self> {
@@ -357,8 +379,11 @@ impl<'py> FromPyObject<'py> for Bone<'py> {
 
 bpy_struct_wrapper!(Armature);
 impl<'py> Armature<'py> {
+    attr_get!(bones: "bones" => ArmatureBones<'py>);
+
     iter_get!(iter_bones: "bones" => Bone);
 }
+bpy_collection!(ArmatureBones, 'arraydict Bone<'py>);
 
 bpy_struct_wrapper!(Mesh);
 impl<'py> Mesh<'py> {
