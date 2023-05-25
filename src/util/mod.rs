@@ -3,7 +3,7 @@ pub mod read_helpers;
 pub mod rc_cell;
 pub mod binaryreader;
 
-use std::fmt::Write;
+use std::fmt::{Write, Debug};
 
 pub type BoxResult<T> = Result<T, Box<dyn std::error::Error>>;
 
@@ -83,6 +83,53 @@ impl<'a> std::fmt::Display for AsHex<'a> {
         };
         write!(f, " ]")?;
         Ok(())
+    }
+}
+
+/// Forward [`std::fmt::Debug`] to [`std::fmt::Display`]
+pub struct DbgDisplay<T: std::fmt::Display>(pub T);
+impl<T: std::fmt::Display> std::fmt::Debug for DbgDisplay<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+pub struct DbgMatrixF64<'m>(pub &'m vek::Mat4<f64>);
+impl<'m> std::fmt::Debug for DbgMatrixF64<'m>
+//where
+//    T: vek::num_traits::Zero + vek::num_traits::One + std::fmt::Debug + std::cmp::PartialEq
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if *self.0 == vek::Mat4::<f64>::identity() { return f.write_str("Identity"); }
+
+        let strs = self.0.map_cols(|c| c.map(|v| format!("{:.8}", v)));
+        let lx = [strs.cols.x.x.len(), strs.cols.x.y.len(), strs.cols.x.z.len(), strs.cols.x.w.len()];
+        let ly = [strs.cols.y.x.len(), strs.cols.y.y.len(), strs.cols.y.z.len(), strs.cols.y.w.len()];
+        let lz = [strs.cols.z.x.len(), strs.cols.z.y.len(), strs.cols.z.z.len(), strs.cols.z.w.len()];
+        let lw = [strs.cols.w.x.len(), strs.cols.w.y.len(), strs.cols.w.z.len(), strs.cols.w.w.len()];
+
+        let maxes = [lx.iter().max().unwrap(), ly.iter().max().unwrap(), lz.iter().max().unwrap(), lw.iter().max().unwrap()];
+
+        f.write_str("Mat4 {")?;
+
+        if f.alternate() { f.write_str("\n    ")? } else { f.write_char(' ')? }
+        f.write_fmt(format_args!("({1:>0$}  {3:>2$}  {5:>4$}  {7:>6$})",
+            maxes[0], strs.cols.x.x, maxes[1], strs.cols.y.x, maxes[2], strs.cols.z.x, maxes[3], strs.cols.w.x))?;
+        
+        if f.alternate() { f.write_str("\n    ")? } else { f.write_char(' ')? }
+        f.write_fmt(format_args!("({1:>0$}  {3:>2$}  {5:>4$}  {7:>6$})",
+            maxes[0], strs.cols.x.y, maxes[1], strs.cols.y.y, maxes[2], strs.cols.z.y, maxes[3], strs.cols.w.y))?;
+        
+        if f.alternate() { f.write_str("\n    ")? } else { f.write_char(' ')? }
+        f.write_fmt(format_args!("({1:>0$}  {3:>2$}  {5:>4$}  {7:>6$})",
+            maxes[0], strs.cols.x.z, maxes[1], strs.cols.y.z, maxes[2], strs.cols.z.z, maxes[3], strs.cols.w.z))?;
+        
+        if f.alternate() { f.write_str("\n    ")? } else { f.write_char(' ')? }
+        f.write_fmt(format_args!("({1:>0$}  {3:>2$}  {5:>4$}  {7:>6$})",
+            maxes[0], strs.cols.x.w, maxes[1], strs.cols.y.w, maxes[2], strs.cols.z.w, maxes[3], strs.cols.w.w))?;
+        
+        if f.alternate() { f.write_char('\n')? } else { f.write_char(' ')? }
+        f.write_str("}")
     }
 }
 

@@ -20,14 +20,24 @@
 //! `count_of_preceding bytes` is the size of the file minus four.
 
 use std::convert::TryInto;
+use std::fmt::{Debug};
 use std::{path::Path, io::Write};
 use vek::{Rgb, Vec2, Vec3};
 
-use crate::util::binaryreader::*;
-
-use crate::util::AsHex;
-use crate::util::binaryreader;
+use crate::util::{binaryreader, binaryreader::*, AsHex, DbgDisplay, DbgMatrixF64};
 use pd2tools_macros::{EnumTryFrom, ItemReader, EnumFromData};
+
+struct PrintNodeRef(u32);
+impl std::fmt::Debug for PrintNodeRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.0 == 0xFFFFFFFFu32 { f.write_str("None") } else { <u32 as std::fmt::Debug>::fmt(&self.0, f) }
+    }
+}
+impl std::fmt::Display for PrintNodeRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.0 == 0xFFFFFFFFu32 { f.write_str("None") } else { <u32 as std::fmt::Debug>::fmt(&self.0, f) }
+    }
+}
 
 struct UnparsedSection<'a> {
     type_code: u32,
@@ -159,11 +169,20 @@ pub struct SceneInfo3 {
     pub scene_type: String,
 }
 
-#[derive(Debug, ItemReader)]
+#[derive(ItemReader)]
 pub struct Material {
     pub id: u32,
     pub name: String,
     pub parent_id: u32
+}
+impl std::fmt::Debug for Material {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Material")
+            .field("id", &self.id)
+            .field("name", &self.name)
+            .field("parent_id", &PrintNodeRef(self.parent_id))
+            .finish()
+    }
 }
 
 #[derive(Debug, ItemReader)]
@@ -171,7 +190,7 @@ pub struct MaterialsXml {
     pub xml: String
 }
 
-#[derive(Debug, ItemReader)]
+#[derive(ItemReader)]
 pub struct Node {
     pub id: u32,
     pub name: String,
@@ -180,6 +199,21 @@ pub struct Node {
     pub pivot_transform: vek::Mat4<f64>,
 
     pub parent_id: u32
+}
+impl std::fmt::Debug for Node {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Node")
+            .field("id", &self.id)
+            .field("name", &self.name)
+            .field("parent_id", &PrintNodeRef(self.parent_id))
+            .field("transform", &DbgMatrixF64(&self.transform))
+            .field("pivot_transform", if self.pivot_transform == vek::Mat4::<f64>::identity() {
+                &DbgDisplay("Identity")
+            } else {
+                &self.pivot_transform
+            })
+        .finish()
+    }
 }
 
 // Can't derive ItemReader, we have to pass the vertex count in to GeometrySkin.
@@ -258,7 +292,7 @@ impl ItemReader for Geometry {
 }
 
 // Can't derive ItemReader for this, it depends on passing in the vertex count.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct GeometrySkin {
     pub root_node_id: u32,
     pub postmul_transform: vek::Mat4<f64>,
@@ -299,12 +333,30 @@ impl GeometrySkin {
         Ok(())
     }
 }
+impl std::fmt::Debug for GeometrySkin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GeometrySkin")
+            .field("root_node_id", &PrintNodeRef(self.root_node_id))
+            .field("postmul_transform", &DbgMatrixF64(&self.postmul_transform))
+            .field("bones", &self.bones)
+            .field("weights_per_vertex", &self.weights_per_vertex)
+            .field("weights", &self.weights)
+            .field("bonesets", &self.bonesets)
+            .finish()
+    }
+}
 
-#[derive(Debug, Clone, Copy, ItemReader)]
+#[derive(Clone, Copy, ItemReader)]
 pub struct SkinBoneEntry {
     pub bone_node_id: u32,
     pub premul_transform: vek::Mat4<f64>
 }
+impl std::fmt::Debug for SkinBoneEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SkinBoneEntry").field("bone_node_id", &self.bone_node_id).field("premul_transform", &DbgMatrixF64(&self.premul_transform)).finish()
+    }
+}
+
 
 #[derive(Default, Debug, Clone, Copy, ItemReader)]
 pub struct VertexWeight {
