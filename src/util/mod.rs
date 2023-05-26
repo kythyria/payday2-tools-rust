@@ -133,6 +133,92 @@ impl<'m> std::fmt::Debug for DbgMatrixF64<'m>
     }
 }
 
+macro_rules! count_tts {
+    () => {0};
+    ($i:tt) => {1};
+    ($i:tt $($r:tt)+) => {(1+count_tts!($($r)*))};
+}
+
+
+macro_rules! simple_debug_table {
+    ($item_t:ty, $item_n:literal, 'indices, [$($field:ident $fmt:literal),*$(,)?], $data:expr) => { simple_debug_table!(@t $item_t, $item_n, true, [$($field $fmt),*], $data) };
+    ($item_t:ty, $item_n:literal, [$($field:ident $fmt:literal),*$(,)?], $data:expr) => { simple_debug_table!(@t $item_t, $item_n, false, [$($field $fmt),*], $data) };
+    (@t $item_t:ty, $item_n:literal, $indices:expr, [$($field:ident $fmt:literal),*], $data:expr) => {
+        SimpleDbgTable::<$item_t, {count_tts!($($field)*)}> {
+            name: stringify!($item_t),
+            header: Some([$(stringify!($field)),*]),
+            with_indices: $indices,
+            columns: [ $(
+                &|item, width, writer| write!(writer, $fmt, item.$field, width)
+            ),*],
+            data: $data
+        }
+    };
+}
+
+/*
+Table is optional header, optional indices, and data cells. For each column there's an optional header string, and a formatter
+that takes a width and that row's item. Invoke once with width=0 to get the width, then again to actually fit it
+to the table's actual width.
+ */
+pub struct SimpleDbgTable<'m, T, const N: usize> {
+    pub name: &'m str,
+    pub header: Option<[&'m str; N]>,
+    pub with_indices: bool,
+    pub columns: [&'m dyn Fn(&T, usize, &mut dyn Write) -> std::fmt::Result; N],
+    pub data: &'m [T]
+}
+impl<'m, T, const N: usize> std::fmt::Debug for SimpleDbgTable<'m, T, N> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("{} [\n", self.name))?;
+
+        let mut len_buf = String::new();
+        let index_width = if self.with_indices {
+            write!(len_buf, "{}", self.data.len()).unwrap();
+            len_buf.len()
+        }
+        else { 0 };
+
+        let mut col_widths = self.header.map_or([0; N], |h| h.map(|c| c.len()));
+        for item in self.data {
+            for i in 0..N {
+                len_buf.clear();
+                self.columns[i](item, 0, &mut len_buf).unwrap();
+                col_widths[i] = usize::max(col_widths[i], len_buf.len());
+            }
+        }
+
+        if let Some(header) = self.header {
+            f.write_str("    ")?;
+            if self.with_indices {
+                write!(f, "{0:1$}  ", ' ', index_width)?;
+            }
+            let mut sep = " ";
+            for i in 0..N {
+                write!(f, "{2}{0:^1$}", header[i], col_widths[i], sep)?;
+                sep = ", ";
+            }
+            f.write_char('\n')?;
+        }
+
+        for (idx, item) in self.data.iter().enumerate() {
+            f.write_str("    ")?;
+            if self.with_indices {
+                write!(f, "{0:>1$}: ", idx, index_width)?;
+            }
+            let mut sep = "(";
+            for i in 0..N {
+                f.write_str(sep)?;
+                self.columns[i](item, col_widths[i], f)?;
+                sep = ", ";
+            }
+            f.write_str(")\n")?;
+        }
+
+        f.write_char(']')
+    }
+}
+
 pub fn write_error_chain<O, E>(output: &mut O, e: E) -> std::fmt::Result
 where O: std::fmt::Write, E: std::error::Error
 {

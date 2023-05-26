@@ -20,11 +20,11 @@
 //! `count_of_preceding bytes` is the size of the file minus four.
 
 use std::convert::TryInto;
-use std::fmt::{Debug};
+use std::fmt::Debug;
 use std::{path::Path, io::Write};
 use vek::{Rgb, Vec2, Vec3};
 
-use crate::util::{binaryreader, binaryreader::*, AsHex, DbgDisplay, DbgMatrixF64};
+use crate::util::{binaryreader, binaryreader::*, AsHex, DbgDisplay, DbgMatrixF64, SimpleDbgTable};
 use pd2tools_macros::{EnumTryFrom, ItemReader, EnumFromData};
 
 struct PrintNodeRef(u32);
@@ -340,7 +340,7 @@ impl std::fmt::Debug for GeometrySkin {
             .field("postmul_transform", &DbgMatrixF64(&self.postmul_transform))
             .field("bones", &self.bones)
             .field("weights_per_vertex", &self.weights_per_vertex)
-            .field("weights", &self.weights)
+            .field("weights",  &simple_debug_table!(VertexWeight, "VertexWeight", [ bone_id "{0:1$}", weight "{0:>1$.8}" ] , self.weights.as_slice()))
             .field("bonesets", &self.bonesets)
             .finish()
     }
@@ -370,7 +370,7 @@ pub struct BoundingBox {
     pub max: Vec3<f64>
 }
 
-#[derive(Debug, Clone, ItemReader)]
+#[derive(Clone, ItemReader)]
 pub enum GeometryChannel {
     #[tag(0)] Position(u32, Vec<Vec3<f64>>),
     #[tag(1)] TexCoord(u32, Vec<Vec2<f64>>),
@@ -380,13 +380,34 @@ pub enum GeometryChannel {
     #[tag(5)] Colour  (u32, Vec<Rgb<f64>>),
     #[tag(6)] Alpha   (u32, Vec<f64>)
 }
+impl Debug for GeometryChannel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Position(arg0, arg1) => f.debug_tuple("Position").field(arg0).field(&simple_debug_table!(Vec3<f64>, "Vec3<f64>", 'indices, [x "{0:>1$.8}", y "{0:>1$.8}", z "{0:>1$.8}"], arg1.as_slice())).finish(),
+            Self::TexCoord(arg0, arg1) => f.debug_tuple("TexCoord").field(arg0).field(&simple_debug_table!(Vec2<f64>, "Vec2<f64>", 'indices, [x "{0:>1$.8}", y "{0:>1$.8}"], arg1.as_slice())).finish(),
+            Self::Normal(arg0, arg1) => f.debug_tuple("Normal").field(arg0).field(&simple_debug_table!(Vec3<f64>, "Vec3<f64>", 'indices, [x "{0:>1$.8}", y "{0:>1$.8}", z "{0:>1$.8}"], arg1.as_slice())).finish(),
+            Self::Binormal(arg0, arg1) => f.debug_tuple("Binormal").field(arg0).field(&simple_debug_table!(Vec3<f64>, "Vec3<f64>", 'indices, [x "{0:>1$.8}", y "{0:>1$.8}", z "{0:>1$.8}"], arg1.as_slice())).finish(),
+            Self::Tangent(arg0, arg1) => f.debug_tuple("Tangent").field(arg0).field(&simple_debug_table!(Vec3<f64>, "Vec3<f64>", 'indices, [x "{0:>1$.8}", y "{0:>1$.8}", z "{0:>1$.8}"], arg1.as_slice())).finish(),
+            Self::Colour(arg0, arg1) => f.debug_tuple("Colour").field(arg0).field(&simple_debug_table!(Rgb<f64>, "Rgb<f64>", 'indices, [r "{0:>1$.3}", g "{0:>1$.3}", b "{0:>1$.3}"], arg1.as_slice())).finish(),
+            Self::Alpha(arg0, arg1) => f.debug_tuple("Alpha").field(arg0).field(arg1).finish(),
+        }
+    }
+}
 
-#[derive(Debug, Clone, ItemReader)]
+#[derive(Clone, ItemReader)]
 pub struct GeometryFace {
     pub material_id: u32,
     pub smoothing_group: u32,
-
     pub loops: Vec<GeometryFaceloop>
+}
+impl Debug for GeometryFace {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GeometryFace")
+            .field("material_id", &PrintNodeRef(self.material_id))
+            .field("smoothing_group", &self.smoothing_group)
+            .field("loops", &simple_debug_table!(GeometryFaceloop, "GeometryFaceloop", [channel "{0:1$}", a "{0:1$}", b "{0:1$}", c "{0:1$}"], self.loops.as_slice()))
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Copy, ItemReader)]
