@@ -383,13 +383,13 @@ impl<'py> SceneBuilder<'py>
             let head = bpy_bone.head();
             let rot= bpy_bone.matrix().to_quaternion();
             let parent = bpy_bone.parent();
-            let parent_tail = match &parent {
+            let parent_offset = match &parent {
                 None => Vec3f::new(0.0, 0.0, 0.0),
-                Some(parent) => parent.tail()
+                Some(parent) => Vec3f::new(0.0, parent.length(), 0.0)
             };
 
             let transform = Transform {
-                position: parent_tail + head,
+                position: parent_offset + head,
                 orientation: rot,
                 scale: vek::Vec3::one()
             };
