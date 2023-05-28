@@ -132,6 +132,28 @@ impl<'m> std::fmt::Debug for DbgMatrixF64<'m>
         f.write_str("}")
     }
 }
+pub struct DbgMatrix<T>(pub vek::Mat4<T>);
+impl<T> Debug for DbgMatrix<T>
+where
+    T: vek::num_traits::Zero + vek::num_traits::One + std::fmt::Debug + std::cmp::PartialEq + Clone
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.0 == vek::Mat4::<T>::identity() { return f.write_str("Identity"); }
+
+        SimpleDbgTable::<[T; 4], 4> {
+            name: &format!("Mat4<{}>", std::any::type_name::<T>()),
+            header: None,
+            with_indices: false,
+            columns: [
+                &|i,w,wr| write!(wr, "{0:>1$?}", i[0], w),
+                &|i,w,wr| write!(wr, "{0:>1$?}", i[1], w),
+                &|i,w,wr| write!(wr, "{0:>1$?}", i[2], w),
+                &|i,w,wr| write!(wr, "{0:>1$?}", i[3], w),
+            ],
+            data: self.0.clone().into_row_arrays().as_slice(),
+        }.fmt(f)
+    }
+}
 
 macro_rules! count_tts {
     () => {0};

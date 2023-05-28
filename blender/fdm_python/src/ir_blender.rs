@@ -375,6 +375,10 @@ impl<'py> SceneBuilder<'py>
             // Bones really are stored that way.
             // So the position of a bone is its head position plus the parent's tail pos.
             // And the rotation comes from the `matrix` property.
+            //
+            // Also it turns out that bones lay along their Y axis because that's the ONE TIME
+            // Blender follows Y+ up.
+
             let bone_name = bpy_bone.name();
             let head = bpy_bone.head();
             let rot= bpy_bone.matrix().to_quaternion();
@@ -414,8 +418,10 @@ impl<'py> SceneBuilder<'py>
                     .insert(bone_key, BpyParent::Bone(object.as_ptr(), parent_name));
                 }
             }
-
-            let bonespace_to_bindspace = bpy_bone.matrix_local();
+            
+            
+            let mat_local = bpy_bone.matrix_local();
+            let bonespace_to_bindspace = mat_local.rotated_x(std::f32::consts::FRAC_PI_2);
 
             joints.push(BindJoint {
                 bone: bone_key,
@@ -435,9 +441,6 @@ impl<'py> SceneBuilder<'py>
 impl From<SceneBuilder<'_>> for Scene {
     fn from(mut build: SceneBuilder) -> Self {
         let mut parent_links = Vec::with_capacity(build.child_oid_to_bpy_parent.len());
-
-        dbg!(&build.bpy_parent_to_oid_parent);
-        dbg!(&build.child_oid_to_bpy_parent);
 
         for oid in build.scene.objects.keys() {
             match build.child_oid_to_bpy_parent.get(&oid) {

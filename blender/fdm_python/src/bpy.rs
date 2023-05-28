@@ -250,10 +250,10 @@ fn quaternion_from_bpy_quat(bq: &PyAny) -> Quaternion {
 
 fn mat4_from_bpy_matrix(bmat: &PyAny) -> vek::Mat4<f32> {
     let mut floats = [[0f32; 4]; 4];
-    for c in 0..4 {
-        let col = bmat.get_item(c).unwrap();
-        for r in 0..4 {
-            let cell = col.get_item(r).unwrap().extract::<f32>().unwrap();
+    for r in 0..4 {
+        let row = bmat.get_item(r).unwrap();
+        for c in 0..4 {
+            let cell = row.get_item(c).unwrap().extract::<f32>().unwrap();
             floats[c][r] = cell;
         }
     }

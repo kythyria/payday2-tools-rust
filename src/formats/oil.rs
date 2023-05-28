@@ -24,7 +24,7 @@ use std::fmt::Debug;
 use std::{path::Path, io::Write};
 use vek::{Rgb, Vec2, Vec3};
 
-use crate::util::{binaryreader, binaryreader::*, AsHex, DbgDisplay, DbgMatrixF64, SimpleDbgTable};
+use crate::util::{binaryreader, binaryreader::*, AsHex, DbgDisplay, DbgMatrixF64, SimpleDbgTable, DbgMatrix};
 use pd2tools_macros::{EnumTryFrom, ItemReader, EnumFromData};
 
 struct PrintNodeRef(u32);
@@ -206,7 +206,7 @@ impl std::fmt::Debug for Node {
             .field("id", &self.id)
             .field("name", &self.name)
             .field("parent_id", &PrintNodeRef(self.parent_id))
-            .field("transform", &DbgMatrixF64(&self.transform))
+            .field("transform", &DbgMatrix(self.transform.clone()))
             .field("pivot_transform", if self.pivot_transform == vek::Mat4::<f64>::identity() {
                 &DbgDisplay("Identity")
             } else {
