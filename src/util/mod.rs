@@ -145,10 +145,10 @@ where
             header: None,
             with_indices: false,
             columns: [
-                &|i,w,wr| write!(wr, "{0:>1$?}", i[0], w),
-                &|i,w,wr| write!(wr, "{0:>1$?}", i[1], w),
-                &|i,w,wr| write!(wr, "{0:>1$?}", i[2], w),
-                &|i,w,wr| write!(wr, "{0:>1$?}", i[3], w),
+                &|i,w,wr| write!(wr, "{0:>1$.8?}", i[0], w),
+                &|i,w,wr| write!(wr, "{0:>1$.8?}", i[1], w),
+                &|i,w,wr| write!(wr, "{0:>1$.8?}", i[2], w),
+                &|i,w,wr| write!(wr, "{0:>1$.8?}", i[3], w),
             ],
             data: self.0.clone().into_row_arrays().as_slice(),
         }.fmt(f)

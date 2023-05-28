@@ -293,6 +293,7 @@ impl<'py> Object<'py> {
     attr_get!(matrix_local: "matrix_local" => Transform as transform_from_bpy_matrix);
     attr_get!(parent_bone: "parent_bone" => &str);
     attr_get!(matrix_world: "matrix_world" => vek::Mat4<f32> as mat4_from_bpy_matrix);
+    attr_get!(matrix_parent_inverse: "matrix_parent_inverse" => vek::Mat4<f32> as mat4_from_bpy_matrix);
     attr_get!(data: "data" => &PyAny);
 
     iter_get!(iter_modifiers: "modifiers" => Modifier<'py>);
