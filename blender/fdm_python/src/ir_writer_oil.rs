@@ -277,8 +277,12 @@ fn scene_to_oilchunks(scene: &crate::model_ir::Scene, chunks: &mut Vec<oil::Chun
                             .max()
                             .unwrap_or(0);
                         
+                        let pad = oil::VertexWeight {
+                            bone_id: bones.first().unwrap().bone_node_id,
+                            weight: 0.0,
+                        };
                         let mut weights = Vec::with_capacity(weights_per_vertex * md.vertices.len());
-                        for (i, vw) in md.vertex_groups.iter_vertex_weights() {
+                        for (_, vw) in md.vertex_groups.iter_vertex_weights() {
                             let vertex_weights = vw.iter().map(|w|{
                                 let joint_idx = skin.vgroup_to_joint_mapping[w.group];
                                 let bone_id = bones[joint_idx].bone_node_id;
@@ -286,7 +290,7 @@ fn scene_to_oilchunks(scene: &crate::model_ir::Scene, chunks: &mut Vec<oil::Chun
                                 oil::VertexWeight { bone_id, weight }
                             });
                             let pad_count = (weights_per_vertex) - vw.len();
-                            let padding = itertools::repeat_n(oil::VertexWeight::default(), pad_count);
+                            let padding = itertools::repeat_n(pad, pad_count);
                             weights.extend(vertex_weights);
                             weights.extend(padding);
                         }
