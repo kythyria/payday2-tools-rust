@@ -23,7 +23,8 @@ pub enum DataItem {
     Byte(u8),
     Short(u16),
     Bool(bool),
-    Dictionary(HashMap<DataItem, DataItem>)
+    Dictionary(HashMap<DataItem, DataItem>),
+    Unknown9([u8; 12])
 }
 impl PartialEq for DataItem {
     fn eq(&self, other: &Self) -> bool {
@@ -37,6 +38,7 @@ impl PartialEq for DataItem {
             (Self::Short(l0), Self::Short(r0)) => l0 == r0,
             (Self::Bool(l0), Self::Bool(r0)) => l0 == r0,
             (Self::Dictionary(l0), Self::Dictionary(r0)) => l0 == r0,
+            (Self::Unknown9(l0), Self::Unknown9(r0)) => l0 == r0,
             _ => core::mem::discriminant(self) == core::mem::discriminant(other),
         }
     }
@@ -67,6 +69,7 @@ impl std::hash::Hash for DataItem {
                     v.hash(state);
                 }
             },
+            DataItem::Unknown9(b) => b.hash(state)
         }
     }
 }
@@ -112,12 +115,13 @@ fn read_datablock(bytes: &mut &[u8]) -> Result<Vec<u8>> {
     ensure!(block_version == 10, "Unknown datablock version");
     let body_size = block_size - 16 - 4; // 16 bytes of checksum at the end, 4 bytes of size, length doesn't count
     let (body, rest) = bytes.split_at(body_size as usize);
-    let (checksum, rest) = rest.split_at(16);
+    let (_checksum, rest) = rest.split_at(16);
     *bytes = rest;
     Ok(body.to_owned())
 }
 
 fn read_item(bytes: &mut &[u8]) -> Result<DataItem> {
+    let item_addr = bytes.as_ptr();
     let tag: u8 = bytes.read_item().context("Failed to read tag")?;
     let res = match tag {
         1 => read_string(bytes).context("Failed to read string")?,
@@ -126,8 +130,9 @@ fn read_item(bytes: &mut &[u8]) -> Result<DataItem> {
         4 => DataItem::Byte(bytes.read_item::<u8>().context("Failed to read byte")?),
         5 => DataItem::Short(bytes.read_item::<u16>().context("Failed to read short")?),
         6 => DataItem::Bool(bytes.read_item::<bool>().context("Failed to read bool")?),
-        7 => DataItem::Dictionary(read_dictionary(bytes).context("Failed to read dictionary")?),
-        _ => bail!("Invalid tag ({})", tag)
+        7 => DataItem::Dictionary(read_dictionary(bytes).context(format!("Failed to read dictionary @ {:p}", item_addr))?),
+        9 => DataItem::Unknown9(bytes.read_item().context(format!("Failed to read Unknown9 @ {:p}", item_addr))?),
+        _ => bail!("Invalid tag {} @ {:p}", tag, item_addr)
     };
     Ok(res)
 }
@@ -222,6 +227,11 @@ impl From<&DataItem> for crate::notation_rs::Item {
                 }
                 Item::Compound(c)
             },
+            DataItem::Unknown9(b) => {
+                let mut c = Compound::new_parenthesized().with_tag("Unknown9");
+                c.push_indexed(Item::new_binary(&*b));
+                Item::Compound(c)
+            }
         }
     }
 }
