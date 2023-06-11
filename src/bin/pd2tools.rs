@@ -75,7 +75,7 @@ enum Command {
     },
 
     /// Convert between scriptdata formats
-    Convert {
+    Scriptdata {
         /// Input format
         #[structopt(long)]
         input_format: Option<ConvertType>,
@@ -103,6 +103,16 @@ enum Command {
     /// Parse a FDM-format model file and print all recognised information.
     Diesel {
         input: String,
+    },
+
+    /// Display save data
+    PrintSave {
+        input: String
+    },
+
+    ScrambleSave {
+        input: String,
+        output: String
     }
 }
 
@@ -147,7 +157,7 @@ fn main() {
             };
             do_scan(&opt.hashlist, &asset_dir, &output)
         },
-        Command::Convert{ input, output, input_format, output_format, events } => {
+        Command::Scriptdata{ input, output, input_format, output_format, events } => {
             do_convert(&input, input_format, &output, output_format, events)
         },
         Command::Oil{ input } => {
@@ -162,6 +172,18 @@ fn main() {
                 println!("{} {:?}", id, sec);
             }
             return;
+        },
+        Command::PrintSave { input } => {
+            let bytes = std::fs::read(input).unwrap();
+            let descrambled = pd2tools_rust::formats::player_save::scramble(&bytes);
+            let data = pd2tools_rust::formats::player_save::parse(&mut descrambled.as_ref()).unwrap();
+            let notation: pd2tools_rust::notation_rs::Item = (&data).into();
+            println!("{}", notation);
+        },
+        Command::ScrambleSave { input, output } => {
+            let bytes = std::fs::read(input).unwrap();
+            let descrambled = pd2tools_rust::formats::player_save::scramble(&bytes);
+            std::fs::write(output, descrambled).unwrap();
         }
     };
 }

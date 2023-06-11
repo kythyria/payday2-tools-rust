@@ -8,6 +8,7 @@ pub mod formats;
 pub mod hashlist_scan;
 pub mod filesystem;
 pub mod diesel_hash;
+pub mod notation_rs;
 
 pub use diesel_hash::hashlist as hashindex;
 
